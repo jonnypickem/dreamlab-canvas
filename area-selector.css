@@ -1,0 +1,35 @@
+.dreamlab-area-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 2147483646;
+    cursor: crosshair;
+    background: rgba(0, 0, 0, 0.1);
+    /* Subtle dim */
+}
+
+.dreamlab-selection-box {
+    position: fixed;
+    border: 1px dashed #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.3);
+    /* Darken everything ELSE */
+    z-index: 2147483647;
+    pointer-events: none;
+}
+
+.dreamlab-area-msg {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #171717;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: sans-serif;
+    font-size: 12px;
+    z-index: 2147483647;
+    pointer-events: none;
+}

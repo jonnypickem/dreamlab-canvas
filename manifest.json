@@ -1,0 +1,61 @@
+{
+    "manifest_version": 3,
+    "name": "Dreamlab Canvas",
+    "version": "1.0",
+    "description": "Capture images, text, and pages to Dreamlab Canvas.",
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "permissions": [
+        "contextMenus",
+        "storage",
+        "activeTab",
+        "tabs",
+        "scripting"
+    ],
+    "host_permissions": [
+        "http://localhost:5173/*",
+        "<all_urls>"
+    ],
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "content.js"
+            ]
+        }
+    ],
+    "commands": {
+        "save-page": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+S",
+                "mac": "Command+Shift+S"
+            },
+            "description": "Save current page to Dreamlab"
+        },
+        "capture-visible": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+Y",
+                "mac": "Command+Shift+Y"
+            },
+            "description": "Capture Area Selection"
+        },
+        "smart-picker": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+I",
+                "mac": "Command+Shift+I"
+            },
+            "description": "Smart Element Picker"
+        }
+    }
+}

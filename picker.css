@@ -1,0 +1,26 @@
+.dreamlab-picker-highlight {
+    outline: 2px solid #FF3366 !important;
+    outline-offset: -2px !important;
+    cursor: crosshair !important;
+    box-shadow: 0 0 0 4px rgba(255, 51, 102, 0.2) !important;
+    transition: all 0.1s ease !important;
+    z-index: 10000 !important;
+}
+
+.dreamlab-picker-overlay-msg {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #171717;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 2147483647;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    border: 1px solid #333;
+}

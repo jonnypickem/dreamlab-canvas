@@ -1,0 +1,19 @@
+.masonry-grid {
+    display: flex;
+    margin-left: -24px;
+    /* Gutter size offset */
+    width: auto;
+}
+
+.masonry-grid-column {
+    padding-left: 24px;
+    /* Gutter size */
+    background-clip: padding-box;
+    flex: 1;
+}
+
+/* Ensure no bottom margin on the last item if needed, 
+   though usually we want margin between items vertially */
+.masonry-grid-column>div {
+    margin-bottom: 24px;
+}

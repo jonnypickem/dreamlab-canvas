@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Geist Design System - CSS Variables */
+:root {
+  /* Typography */
+  --font-sans: 'Geist', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+  /* Backgrounds */
+  --ds-background-100: #FFFFFF;
+  --ds-background-200: #FAFAFA;
+
+  /* Gray Scale */
+  --ds-gray-100: #F2F2F2;
+  --ds-gray-200: #EBEBEB;
+  --ds-gray-300: #E6E6E6;
+  --ds-gray-400: #DEDEDE;
+  --ds-gray-500: #C9C9C9;
+  --ds-gray-600: #A8A8A8;
+  --ds-gray-700: #8F8F8F;
+  --ds-gray-800: #7D7D7D;
+  --ds-gray-900: #666666;
+  --ds-gray-1000: #171717;
+
+  /* Semantic Colors */
+  --ds-blue-700: #0070F3;
+  --ds-red-700: #E00;
+  --ds-green-700: #0A0;
+  --ds-amber-700: #F5A623;
+
+  /* Semantic Aliases */
+  --color-background: var(--ds-background-100);
+  --color-background-secondary: var(--ds-background-200);
+  --color-foreground: var(--ds-gray-1000);
+  --color-foreground-secondary: var(--ds-gray-900);
+  --color-foreground-muted: var(--ds-gray-700);
+  --color-border: var(--ds-gray-200);
+  --color-border-hover: var(--ds-gray-500);
+  --color-border-focus: var(--ds-gray-1000);
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
+  color: var(--color-foreground);
+  background-color: var(--color-background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--color-background-secondary);
+}
+
+#root {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ds-gray-300);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ds-gray-500);
+}
+
+/* Focus ring utility */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--ds-gray-1000);
+}
+
+/* Toast Notifications */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #171717;
+  color: #FFFFFF;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  animation: slideIn 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  max-width: 400px;
+}
+
+.toast-success {
+  background: #171717;
+}
+
+.toast-error {
+  background: #DC2626;
+}
+
+.toast-info {
+  background: #666666;
+}
+
+.toast-hiding {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

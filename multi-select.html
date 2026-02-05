@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Select Images - Dreamlab</title>
+    <link rel="stylesheet" href="multi-select.css">
+</head>
+
+<body>
+    <div class="modal-header">
+        <h2>📸 Select Images to Save</h2>
+        <button class="close-btn" id="closeBtn">✕</button>
+    </div>
+
+    <div class="modal-body">
+        <div class="view-toggle">
+            <p id="imageCount">Found <strong id="visibleCount">0</strong> images in current view</p>
+            <button id="toggleViewBtn" class="toggle-btn">
+                📄 Show all images on page (<span id="totalCount">0</span> total)
+            </button>
+        </div>
+
+        <div class="image-grid" id="imageGrid">
+            <!-- Images populated by JS -->
+        </div>
+    </div>
+
+    <div class="modal-footer">
+        <div class="bulk-actions">
+            <button id="selectAllBtn">Select All</button>
+            <button id="deselectAllBtn">Deselect All</button>
+        </div>
+
+        <div class="save-actions">
+            <button id="cancelBtn" class="btn-secondary">Cancel</button>
+            <button id="saveBtn" class="btn-primary">
+                Save <span id="selectedCount">0</span> items
+            </button>
+        </div>
+    </div>
+
+    <script src="multi-select.js"></script>
+</body>
+
+</html>
