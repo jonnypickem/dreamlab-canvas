@@ -147,7 +147,7 @@ document.getElementById('toggleViewBtn').addEventListener('click', async () => {
                                             return matches[0].slice(4, -1).replace(/["']/g, '');
                                         }
                                     }
-                                } catch (e) {}
+                                } catch (e) { }
                                 return null;
                             }
 
@@ -166,7 +166,7 @@ document.getElementById('toggleViewBtn').addEventListener('click', async () => {
 
                             function add(src, el, alt = '') {
                                 if (!src) return;
-                                try { src = new URL(src, document.baseURI).href; } catch (e) {}
+                                try { src = new URL(src, document.baseURI).href; } catch (e) { }
                                 if (seenUrls.has(src)) return;
                                 seenUrls.add(src);
                                 const rect = getElRect(el);
@@ -311,20 +311,34 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     const activeWorkspaceId = storageData.activeWorkspaceId;
     const activeProjectId = storageData.activeProjectId;
 
-    // Save each image
-    // We can send one bulk message or multiple.
-    // Plan says "Save each image" loop.
-
-    // Actually, background.js has 'saveCapturedItem' -> saveItemToWebApp.
-    // But background.js also has 'saveItem' internal function.
-    // We should send a message to background to save.
-
-    // Wait, the plan says: `chrome.runtime.sendMessage({ action: 'saveItem', item: ... })`
-    // But background.js typically listens for 'saveCapturedItem' from POPUP.
-    // Let's check background.js again.
-    // It has `chrome.runtime.onMessage.addListener((request...) => { if (request.action === 'saveCapturedItem') ... })`
-
-    // Correct action is 'saveCapturedItem'.
+    // Get page metadata from source tab
+    let pageTitle = null;
+    let pageDescription = null;
+    try {
+        const tabs = await chrome.tabs.query({});
+        const sourceTab = tabs.find(t => t.url === storageData.sourceUrl);
+        if (sourceTab) {
+            const results = await chrome.scripting.executeScript({
+                target: { tabId: sourceTab.id },
+                func: () => {
+                    const getMeta = (name) => {
+                        const el = document.querySelector(`meta[property="${name}"], meta[name="${name}"]`);
+                        return el ? el.getAttribute('content') : null;
+                    };
+                    return {
+                        title: getMeta('og:title') || getMeta('twitter:title') || document.title,
+                        description: getMeta('og:description') || getMeta('description')
+                    };
+                }
+            });
+            if (results[0]?.result) {
+                pageTitle = results[0].result.title;
+                pageDescription = results[0].result.description;
+            }
+        }
+    } catch (e) {
+        console.log('Could not fetch page metadata:', e);
+    }
 
     let successCount = 0;
 
@@ -334,6 +348,8 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
             item: {
                 type: 'image',
                 content: img.src,
+                title: pageTitle || null,
+                description: pageDescription || null,
                 sourceUrl: storageData.sourceUrl || '',
                 workspaceId: activeWorkspaceId,
                 projectId: activeProjectId,

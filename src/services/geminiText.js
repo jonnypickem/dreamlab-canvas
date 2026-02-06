@@ -40,16 +40,21 @@ export async function interpretMetadata(sourceUrl, filename = '') {
         return []; // Nothing to interpret
     }
 
-    const prompt = `Extract search tags from this image source. Be smart about it:
-- Recognize product names (iPhone-16-pro → "iPhone 16 Pro", "iPhone")
-- Identify brands (apple.com → "Apple")  
-- Extract meaningful keywords, skip noise (utm_source, random IDs)
-- Include style hints if present (hero, banner, minimal)
-- Max 8 tags, lowercase, no duplicates
+    const prompt = `Extract highly specific visual tags from this image context. 
+Focus strictly on:
+1. **Objects** (e.g., "iphone 16 pro", "leather chair")
+2. **Colors** (e.g., "matte-black", "neon-green" - be specific)
+3. **Vibes** (e.g., "minimalist", "retro", "industrial")
+4. **Art Direction** (e.g., "studio lighting", "macro shot", "grainy")
 
+Strictly IGNORE generic e-commerce terms:
+- NO: "collection", "shop", "product", "category", "home", "sale", "new arrival", "add to cart", "all", "alle"
+- NO: generic words like "image", "photo", "pic"
+
+Context:
 ${context}
 
-Return ONLY comma-separated tags. Example: apple, iphone 16 pro, titanium, blue, hero image`;
+Return ONLY meaningful, lowercase, comma-separated tags. Max 10 tags.`;
 
     try {
         const response = await fetch(`${GEMINI_TEXT_URL}?key=${apiKey}`, {

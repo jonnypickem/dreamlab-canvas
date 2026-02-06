@@ -8,7 +8,7 @@ import CanvasView from './components/CanvasView';
 import { Toast } from './components/Toast';
 import { SelectionToolbar } from './components/SelectionToolbar';
 import { exportItemsAsZip } from './utils/zipExport';
-import { saveItemWithTags, setToastCallback } from './utils/saveItemWithTags';
+import { saveItemWithTags, setToastCallback, processItemTags } from './utils/saveItemWithTags';
 
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
@@ -124,6 +124,29 @@ function App() {
             window.removeEventListener('storage', loadData);
         };
     }, []);
+
+    // Tagging Processing Effect
+    useEffect(() => {
+        const pendingItems = items.filter(item => item.needsTagging);
+
+        if (pendingItems.length > 0) {
+            console.log(`🏷️ Found ${pendingItems.length} items needing tagging...`);
+
+            // Process sequentially to avoid overwhelming
+            const processNext = async () => {
+                const item = pendingItems[0];
+                try {
+                    await processItemTags(item);
+                } catch (e) {
+                    console.error("Failed to process item tags:", e);
+                }
+            };
+
+            // Small delay to let UI render first
+            const timer = setTimeout(processNext, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [items]);
 
     useEffect(() => {
         const handleKeyDown = (e) => {

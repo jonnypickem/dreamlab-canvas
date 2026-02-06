@@ -109,6 +109,71 @@ export async function saveItemWithTags(item, projectOrId = null) {
     return savedItem;
 }
 
+/**
+ * Process tags for an existing item
+ * Used for items that were saved via extension/content script and bypassed initial tagging
+ * 
+ * @param {Object} item - Item to process
+ * @returns {Promise<Object>} Updated item with tags
+ */
+export async function processItemTags(item) {
+    if (!item || !item.id) return item;
+
+    console.log(`🏷️ Processing pending tags for item ${item.id} (${item.type})`);
+
+    // Get intelligence tier from workspace
+    const intelligenceLevel = getIntelligenceLevel(item.workspaceId);
+
+    // Step 1: always extract basic metadata
+    let tags = item.tags || [];
+    try {
+        const basicTags = await extractAllMetadataTags(item);
+        tags = [...new Set([...tags, ...basicTags])];
+    } catch (e) {
+        console.warn('Metadata extraction failed:', e);
+    }
+
+    // Step 2: Smart tier
+    if (['smart', 'ultra'].includes(intelligenceLevel) && item.sourceUrl) {
+        try {
+            const filename = item.sourceUrl.split('/').pop() || '';
+            const smartTags = await interpretMetadata(item.sourceUrl, filename);
+            tags = [...new Set([...tags, ...smartTags])];
+        } catch (e) {
+            console.warn('Smart interpretation failed:', e);
+        }
+    }
+
+    // Step 3: Project defaults (if project exists)
+    if (item.projectId) {
+        const project = getProject(item.projectId);
+        if (project && project.tags) {
+            tags = [...new Set([...tags, ...project.tags])];
+        }
+    }
+
+    // Update the item
+    const updates = {
+        tags: tags,
+        objectiveTags: tags, // Simplified for now, mapped to same
+        needsTagging: false, // Clear flag
+        intelligenceLevel
+    };
+
+    updateItem(item.id, updates);
+
+    // Step 4: Queue vision analysis if needed
+    if (['deep', 'ultra'].includes(intelligenceLevel) && item.type === 'image') {
+        const project = item.projectId ? getProject(item.projectId) : null;
+        // Re-fetch item to ensure we have latest state
+        const freshItem = { ...item, ...updates };
+        queueForVisionAnalysis(freshItem, project);
+    }
+
+    return { ...item, ...updates };
+}
+
+
 // Background queue for vision analysis
 const visionQueue = [];
 let isProcessing = false;

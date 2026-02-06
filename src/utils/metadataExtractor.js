@@ -12,7 +12,18 @@ const STOP_WORDS = new Set([
     'upload', 'uploads', 'media', 'assets', 'static', 'files', 'file',
     'index', 'default', 'main', 'page', 'content', 'data',
     'thumb', 'thumbnail', 'thumbnails', 'preview', 'small', 'large', 'medium',
-    'new', 'old', 'copy', 'final', 'v1', 'v2', 'v3', 'temp', 'tmp'
+    'new', 'old', 'copy', 'final', 'v1', 'v2', 'v3', 'temp', 'tmp',
+    // Commerce / Generic
+    'category', 'categories', 'collection', 'collections', 'product', 'products', 'item', 'items',
+    'shop', 'store', 'cart', 'basket', 'checkout', 'sale', 'offer',
+    'home', 'about', 'contact', 'search', 'login', 'signup',
+    'menu', 'nav', 'navigation', 'result', 'results', 'filter', 'filters', 'sort', 'view', 'all',
+    // German Common Words
+    'und', 'für', 'von', 'mit', 'bei', 'dem', 'den', 'das', 'die', 'der',
+    'ein', 'eine', 'einen', 'im', 'in', 'aus', 'auf', 'ist', 'sind',
+    'startseite', 'kategorie', 'kategorien', 'produkt', 'produkte',
+    'warenkorb', 'kasse', 'anmelden', 'registrieren', 'suche',
+    'zuhause', 'seite', 'bild', 'bilder', 'datei', 'alle', 'alles', 'menü', 'navigation'
 ]);
 
 // Minimum word length for extraction

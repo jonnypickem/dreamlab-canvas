@@ -30,6 +30,8 @@ import {
 
 export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, onPrev, hasNext, hasPrev }) {
     const [content, setContent] = useState(item.content);
+    const [title, setTitle] = useState(item.title || '');
+    const [description, setDescription] = useState(item.description || '');
     const [tags, setTags] = useState(item.tags || []);
     const [tagInput, setTagInput] = useState('');
     const [projectId, setProjectId] = useState(item.projectId || 'unassigned');
@@ -39,6 +41,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     // Sync state when item changes (for navigation)
     useEffect(() => {
         setContent(item.content);
+        setTitle(item.title || '');
+        setDescription(item.description || '');
         setTags(item.tags || []);
         setProjectId(item.projectId || 'unassigned');
         setCurrentItem(item);
@@ -86,6 +90,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const handleSave = () => {
         const updated = updateItem(item.id, {
             content,
+            title: title.trim() || null,
+            description,
             tags,
             projectId: projectId === 'unassigned' ? null : projectId
         });
@@ -96,6 +102,12 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const handleDeleteItem = () => {
         onDelete(item.id);
         onClose();
+    };
+
+    const handleCopySourceUrl = async () => {
+        if (item.sourceUrl) {
+            await navigator.clipboard.writeText(item.sourceUrl);
+        }
     };
 
     const handleCopyContent = async () => {
@@ -291,21 +303,56 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                     {/* Scrollable Content */}
                     <div className="flex-1 overflow-y-auto px-8 py-4 flex flex-col gap-6">
 
-                        {/* Content Input */}
+                        {/* Editable Title */}
+                        <input
+                            type="text"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            className="text-xl font-semibold text-neutral-900 bg-transparent border-none outline-none w-full placeholder:text-neutral-400 mb-2"
+                            placeholder="Add a title..."
+                        />
+
+                        {/* Content Source */}
                         <div className="flex flex-col gap-2">
                             <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Content Source</span>
-                            {item.type === 'link' ? (
-                                <a href={item.sourceUrl} target="_blank" className="text-sm text-neutral-600 hover:text-brand-600 truncate underline decoration-neutral-300 underline-offset-4">
-                                    {item.sourceUrl}
-                                </a>
-                            ) : (
-                                <textarea
-                                    value={content}
-                                    onChange={(e) => setContent(e.target.value)}
-                                    className="w-full text-sm text-neutral-900 bg-neutral-50 border border-neutral-200 rounded-md p-3 focus:outline-none focus:border-brand-500 resize-none min-h-[80px]"
-                                    placeholder="Enter description..."
-                                />
-                            )}
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-neutral-600 truncate flex-1">
+                                    {item.sourceUrl ? (() => {
+                                        try {
+                                            return new URL(item.sourceUrl).hostname.replace(/^www\./, '');
+                                        } catch {
+                                            return item.sourceUrl.slice(0, 40) + (item.sourceUrl.length > 40 ? '...' : '');
+                                        }
+                                    })() : (item.type === 'text' ? 'Text content' : 'No source')}
+                                </span>
+                                {item.sourceUrl && (
+                                    <>
+                                        <IconButton
+                                            icon={<FeatherCopy />}
+                                            size="small"
+                                            onClick={handleCopySourceUrl}
+                                            title="Copy URL"
+                                        />
+                                        <IconButton
+                                            icon={<FeatherExternalLink />}
+                                            size="small"
+                                            onClick={() => window.open(item.sourceUrl, '_blank')}
+                                            title="Open in new tab"
+                                        />
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Description Field */}
+                        <div className="flex flex-col gap-2">
+                            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Description</span>
+                            <textarea
+                                value={description}
+                                onChange={(e) => setDescription(e.target.value)}
+                                className="w-full text-sm text-neutral-900 bg-neutral-50 border border-neutral-200 rounded-md p-3 focus:outline-none focus:border-brand-500 resize-none min-h-[80px]"
+                                placeholder="Enter description..."
+                            />
                         </div>
 
                         {/* Project Select */}

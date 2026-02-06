@@ -1,3 +1,13 @@
+// Check if a description is useful (not a URL, not too short, not gibberish)
+function isUsefulDescription(desc) {
+    if (!desc || typeof desc !== 'string') return false;
+    const trimmed = desc.trim();
+    if (trimmed.length < 10) return false; // Too short to be useful
+    if (/^https?:\/\//i.test(trimmed)) return false; // It's a URL
+    if (/^[a-f0-9-]{20,}$/i.test(trimmed)) return false; // Looks like a hash/ID
+    return true;
+}
+
 function createContextMenus() {
     chrome.contextMenus.removeAll(() => {
         chrome.contextMenus.create({
@@ -38,9 +48,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     let item = null;
 
     if (info.menuItemId === "save-to-dreamlab-image") {
+        const metadata = await getPageMetadata(tab.id, tab.url);
         item = {
             type: 'image',
             content: info.srcUrl,
+            title: metadata.title || tab.title || null,
+            description: isUsefulDescription(metadata.description) ? metadata.description : null,
             sourceUrl: tab.url,
             timestamp: Date.now()
         };
@@ -57,6 +70,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         item = {
             type: 'link',
             content: metadata.title || tab.title || urlToScrape,
+            title: metadata.title || tab.title || null,
+            description: isUsefulDescription(metadata.description) ? metadata.description : null,
             thumbnail: metadata.image,
             sourceUrl: urlToScrape,
             timestamp: Date.now()
@@ -203,6 +218,8 @@ chrome.commands.onCommand.addListener(async (command) => {
             saveItem({
                 type: 'link',
                 content: metadata.title || tab.title || tab.url,
+                title: metadata.title || tab.title || null,
+                description: isUsefulDescription(metadata.description) ? metadata.description : null,
                 thumbnail: metadata.image || null,
                 sourceUrl: tab.url,
                 timestamp: Date.now()
@@ -247,7 +264,7 @@ chrome.commands.onCommand.addListener(async (command) => {
                                     return matches[0].slice(4, -1).replace(/["']/g, '');
                                 }
                             }
-                        } catch (e) {}
+                        } catch (e) { }
                         return null;
                     }
 
@@ -279,7 +296,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 
                         function add(src, el, alt = '') {
                             if (!src) return;
-                            try { src = new URL(src, document.baseURI).href; } catch (e) {}
+                            try { src = new URL(src, document.baseURI).href; } catch (e) { }
                             if (seenUrls.has(src)) return;
                             seenUrls.add(src);
                             const rect = getElRect(el);

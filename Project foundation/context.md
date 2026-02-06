@@ -9,13 +9,31 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Web App**: React + Vite + Tailwind CSS
 -   **Browser Extension**: Chrome Manifest V3 (Javascript)
 -   **Data Storage**: LocalStorage (Web App) & Chrome Storage (Extension)
+-   **Repository**: [github.com/jonnypickem/dreamlab-canvas](https://github.com/jonnypickem/dreamlab-canvas)
 
 ## Current Status
--   **Status**: Step 16 In Progress (AI Tagging Infrastructure)
--   **Last Fix**: Created core AI tagging services and extended ProjectSettingsModal with full context configuration.
+-   **Status**: Infrastructure Setup Complete (GitHub Repo Created)
+-   **Last Fix**: Restarted development server environments and initialized remote GitHub repository.
 
 ## Changelog
-### [0.16.0] - 2026-01-30 (Current)
+### [0.18.0] - 2026-02-06
+#### Added
+- **Refined Tagging Intelligence**:
+  - **Noise Filtering ("Quick" Tier)**: Added strict blocklist to `metadataExtractor.js` to remove common noise words (e.g., "und", "für", "collections", "shop", "menu", "nav").
+  - **Prompt Engineering ("Smart" & "Deep" Tiers)**: Updated Gemini prompts to strictly focus on **Objects**, **Colors** (specific), **Vibes**, and **Art Direction**, while explicitly ignoring generic commerce terms using negative constraints.
+  - **Reliability Fix**: Implemented `processItemTags` fallback in `App.jsx` to catch and tag items that bypassed the initial saving flow (e.g., Extension multi-select).
+
+#### Fixed
+- **App Crash**: Removed duplicate function declaration (`queueForVisionAnalysis`) in `saveItemWithTags.js` that caused a syntax error and blank screen.
+- **Tagging Bypass**: Fixed bug where items saved via Extension skipped the tagging pipeline. Added `needsTagging` flag to `content.js` to trigger retroactive processing.
+- **Double Tagging**: ensured `saveItemWithTags` handles both new items and existing items needing updates without duplicating work.
+
+### [0.17.0] - 2026-02-06
+#### Added
+- **GitHub Repository**: Initialized and pushed project to `jonnypickem/dreamlab-canvas`.
+- **Infrastructure**: Verified and restarted local development server behavior.
+
+### [0.16.0] - 2026-01-30
 #### Added
 - **AI Tagging Infrastructure**:
   - `src/services/geminiVision.js` - Gemini 1.5 Flash integration with optimized prompts for deep color/texture analysis (e.g., "midnight-blue", "matte-finish").

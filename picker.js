@@ -107,16 +107,26 @@
 
         if (content) {
             // Resolve relative URLs to absolute
-            try { content = new URL(content, document.baseURI).href; } catch (e) {}
+            try { content = new URL(content, document.baseURI).href; } catch (e) { }
 
             // Success!
             showHighlight(visualElement || target, "Captured!");
             msg.style.background = '#00AA00';
 
+            // Get page metadata for title/description
+            const getMeta = (name) => {
+                const el = document.querySelector(`meta[property="${name}"], meta[name="${name}"]`);
+                return el ? el.getAttribute('content') : null;
+            };
+            const pageTitle = getMeta('og:title') || getMeta('twitter:title') || document.title;
+            const pageDescription = getMeta('og:description') || getMeta('description');
+
             // Send to background
             const item = {
-                type: 'image', // simplified for now
+                type: 'image',
                 content: content,
+                title: pageTitle || null,
+                description: pageDescription || null,
                 sourceUrl: window.location.href,
                 timestamp: Date.now()
             };

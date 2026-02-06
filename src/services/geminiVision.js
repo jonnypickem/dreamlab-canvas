@@ -10,14 +10,14 @@ const OBJECTIVE_PROMPT = `You are a professional visual analyst. Analyze this im
 
 REQUIRED TAG CATEGORIES:
 
-1. **COLORS** (CRITICAL - Provide 3-5 tags): EXACT visual colors seen. Do NOT use generic terms like "pastel-palette" or "multi-colored". Use specific names: e.g., "deep-navy", "lavender-purple", "slate-grey", "warm-beige", "electric-blue", "matte-black".
-2. **PATTERNS/TEXTURES** (CRITICAL - Provide 3-4 tags): Surface qualities and repeated elements (e.g., matte-finish, brushed-metal, glass-reflection, smooth-gradient, grain-texture).
-3. **SUBJECT/OBJECTS**: What is in the image (iPhone-15, dual-camera, volume-buttons, etc.)
-4. **STYLE/AESTHETIC**: Visual style (minimalist, clean, premium, tech-advertising, studio-shot).
-5. **PHOTOGRAPHY TYPE**: How it was shot (product-shot, close-up, profile-view, macro).
-6. **LIGHTING**: Light quality (soft-lighting, studio-reflections, gradient-illumination).
-7. **COMPOSITION**: How it's framed (side-profile, isolated-subject, negative-space).
-8. **MOOD/EMOTION**: Feeling conveyed (sophisticated, sleek, modern).
+1. **OBJECTS** (Specific): "iphone 16 pro", "leather chair", "ceramic vase" (Avoid generic "product")
+2. **COLORS** (Specific): "matte-black", "electric-blue", "warm-beige", "neon-green", "translucent"
+3. **VIBE/MOOD**: "minimalist", "retro", "industrial", "luxurious", "playful", "moody"
+4. **ART DIRECTION**: "studio lighting", "macro shot", "grainy", "soft focus", "high contrast", "editorial"
+
+STRICTLY IGNORE:
+- NO: "collection", "shop", "store", "product", "category", "home", "sale", "new arrival", "best seller", "all", "alle"
+- NO: generic words like "image", "photo", "pic", "visual", "view"
 
 Be specific and descriptive. Use compound tags with hyphens.
 

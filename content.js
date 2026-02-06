@@ -18,6 +18,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     // 3. If UNDEFINED (from context menu/shortcut), use Active Context.
                     workspaceId: request.item.workspaceId !== undefined ? request.item.workspaceId : (activeCtx.workspaceId || null),
                     projectId: request.item.projectId !== undefined ? request.item.projectId : (activeCtx.projectId || null),
+
+                    // Mark for tagging processing in the main app
+                    needsTagging: true
                 };
 
                 const updatedItems = [newItem, ...items];
@@ -98,7 +101,7 @@ function _getBgUrl(el, pseudo = null) {
                 return matches[0].slice(4, -1).replace(/["']/g, '');
             }
         }
-    } catch (e) {}
+    } catch (e) { }
     return null;
 }
 
@@ -131,7 +134,7 @@ function _deepScanImages(viewportOnly) {
     function add(src, el, alt = '') {
         if (!src) return;
         // Resolve relative URLs to absolute (srcset/data-src can be relative paths)
-        try { src = new URL(src, document.baseURI).href; } catch (e) {}
+        try { src = new URL(src, document.baseURI).href; } catch (e) { }
         if (seenUrls.has(src)) return;
         seenUrls.add(src);
         const rect = getElRect(el);
