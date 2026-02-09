@@ -15,6 +15,7 @@ import SettingsModal from './components/SettingsModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import ProjectSettingsModal from './components/ProjectSettingsModal';
 import MasonryGrid from './components/MasonryGrid';
+import './services/vibeGeneration';
 
 // Subframe Imports
 import { Button } from "./ui/components/Button";

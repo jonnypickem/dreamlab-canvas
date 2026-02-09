@@ -12,10 +12,23 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Repository**: [github.com/jonnypickem/dreamlab-canvas](https://github.com/jonnypickem/dreamlab-canvas)
 
 ## Current Status
--   **Status**: Infrastructure Setup Complete (GitHub Repo Created)
--   **Last Fix**: Restarted development server environments and initialized remote GitHub repository.
+-   **Status**: Vibe Analysis & Generation Pipeline Integrated
+-   **Last Fix**: Implemented throttled request queue (5s delay) to resolve Gemini API 429 rate limiting.
 
 ## Changelog
+### [0.19.0] - 2026-02-09
+#### Added
+- **Vibe Analysis Pipeline**:
+  - `src/services/vibeEngine.js` - Core engine for aggregating visual attributes (mood, color, maturity) into a "Project Vibe".
+  - `src/services/extractionPrompt.js` - Specialized prompts for extracting aesthetic DNA from images using Gemini 2.0 Flash.
+  - **Prompt Generation Engine**: `src/services/vibeGeneration.js` converts vibes into platform-optimized prompts for Midjourney, DALL-E, and Flux based on user intent (e.g., Product Design, Photography).
+- **Rate Limit Resilience**: Implemented a sequential `vibeQueue` with a 5000ms throttle between API calls to stay within Gemini Free Tier limits (15 RPM).
+- **Storage Integration**: Added `dreamlab_extractions` and `dreamlab_vibes` to `localStorage` with accompanying getter/setter methods in `storage.js`.
+
+#### Fixed
+- **Rate Limiting (429 Errors)**: Resolved issue where batch-processing many images triggered Gemini API rate limits.
+- **Corrupted Code**: Fixed syntax error in `vibeGeneration.js` caused by accidental line-number preservation during creation.
+
 ### [0.18.0] - 2026-02-06
 #### Added
 - **Refined Tagging Intelligence**:

@@ -162,6 +162,13 @@ export async function processItemTags(item) {
 
     updateItem(item.id, updates);
 
+    // ⚡ Vibe extraction — runs for ALL images regardless of intelligence tier
+    if (item.type === 'image' && item.projectId) {
+        import('../services/vibeEngine').then(({ extractVibeFromImage }) => {
+            extractVibeFromImage({ ...item, ...updates }, item.projectId, 'standard');
+        }).catch(e => console.warn('Vibe extraction skipped:', e));
+    }
+
     // Step 4: Queue vision analysis if needed
     if (['deep', 'ultra'].includes(intelligenceLevel) && item.type === 'image') {
         const project = item.projectId ? getProject(item.projectId) : null;

@@ -2,6 +2,8 @@ export const STORAGE_KEY = 'dreamlab_items';
 export const WORKSPACES_KEY = 'dreamlab_workspaces';
 export const PROJECTS_KEY = 'dreamlab_projects';
 export const ACTIVE_CONTEXT_KEY = 'dreamlab_active_context';
+export const EXTRACTIONS_KEY = 'dreamlab_extractions';
+export const VIBES_KEY = 'dreamlab_vibes';
 
 // Active Context (persists the last selected Workspace/Project)
 export const getActiveContext = () => {
@@ -165,5 +167,46 @@ export const getAllTags = () => {
 
 export const clearItems = () => {
     localStorage.removeItem(STORAGE_KEY);
+    window.dispatchEvent(new Event('storage-update'));
+};
+
+// --- Vibe Analysis Storage ---
+
+export const getExtractions = (projectId) => {
+    const all = localStorage.getItem(EXTRACTIONS_KEY);
+    const parsed = all ? JSON.parse(all) : {};
+    if (projectId) {
+        return parsed[projectId] || [];
+    }
+    return parsed;
+};
+
+export const saveExtraction = (projectId, extraction) => {
+    const all = getExtractions();
+    if (!all[projectId]) {
+        all[projectId] = [];
+    }
+    // Replace if same itemId exists (re-extraction), otherwise add
+    const idx = all[projectId].findIndex(e => e.itemId === extraction.itemId);
+    if (idx >= 0) {
+        all[projectId][idx] = extraction;
+    } else {
+        all[projectId].push(extraction);
+    }
+    localStorage.setItem(EXTRACTIONS_KEY, JSON.stringify(all));
+    window.dispatchEvent(new Event('storage-update'));
+};
+
+export const getProjectVibe = (projectId) => {
+    const vibes = localStorage.getItem(VIBES_KEY);
+    const parsed = vibes ? JSON.parse(vibes) : {};
+    return parsed[projectId] || null;
+};
+
+export const saveProjectVibe = (projectId, vibe) => {
+    const vibes = localStorage.getItem(VIBES_KEY);
+    const parsed = vibes ? JSON.parse(vibes) : {};
+    parsed[projectId] = vibe;
+    localStorage.setItem(VIBES_KEY, JSON.stringify(parsed));
     window.dispatchEvent(new Event('storage-update'));
 };
