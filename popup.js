@@ -26,7 +26,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            chrome.tabs.sendMessage(tabs[0].id, { action: 'GET_ORG_DATA' }, (response) => {
+            const activeTabs = await chrome.tabs.query({
+                url: "http://localhost:5173/*",
+                active: true,
+                currentWindow: true
+            });
+            const targetTab = activeTabs[0]
+                || [...tabs].sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+
+            chrome.tabs.sendMessage(targetTab.id, { action: 'GET_ORG_DATA' }, (response) => {
                 if (response && response.success) {
                     workspaces = response.workspaces;
                     projects = response.projects;

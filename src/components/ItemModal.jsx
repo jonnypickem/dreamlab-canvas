@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
-import { updateItem, getWorkspaces, getProjects } from '../lib/storage';
+import React, { useEffect, useMemo, useState } from 'react';
+import { updateItem, getWorkspaces, getProjects, getPrimitiveAnalysisStore } from '../lib/storage';
 import { fetchImageViaProxy } from '../utils/imageProxy';
-import { enhanceItemWithAI, estimateEnhancementCost } from '../utils/saveItemWithTags';
+import { getPrimitiveVersionMap } from '../services/analysisSchemaRegistry';
+import { getImageAnalysisStatus } from '../utils/analysisStatus';
 import { Button } from "../ui/components/Button";
 import { TextField } from "../ui/components/TextField";
 import { Select } from "../ui/components/Select";
@@ -35,7 +36,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const [tags, setTags] = useState(item.tags || []);
     const [tagInput, setTagInput] = useState('');
     const [projectId, setProjectId] = useState(item.projectId || 'unassigned');
-    const [isEnhancing, setIsEnhancing] = useState(false);
     const [currentItem, setCurrentItem] = useState(item);
 
     // Sync state when item changes (for navigation)
@@ -73,6 +73,74 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     });
     const [expandedTags, setExpandedTags] = useState(false);
     const [expandedContextTags, setExpandedContextTags] = useState(false);
+    const [analysisTick, setAnalysisTick] = useState(0);
+    const [selectedPrimitiveBlock, setSelectedPrimitiveBlock] = useState('');
+
+    useEffect(() => {
+        const onStorageUpdate = () => setAnalysisTick((t) => t + 1);
+        window.addEventListener('storage-update', onStorageUpdate);
+        return () => window.removeEventListener('storage-update', onStorageUpdate);
+    }, []);
+
+    const analysisSummary = useMemo(() => {
+        const primitiveStore = getPrimitiveAnalysisStore();
+        const versionMap = getPrimitiveVersionMap();
+        return getImageAnalysisStatus(currentItem, primitiveStore, versionMap);
+    }, [currentItem, analysisTick]);
+
+    const analysisBadge = useMemo(() => {
+        if (currentItem.type !== 'image') {
+            return { label: 'N/A', variant: 'neutral' };
+        }
+        if (analysisSummary.status === 'done') {
+            return { label: 'Analysed', variant: 'success' };
+        }
+        if (analysisSummary.status === 'in_progress') {
+            return { label: 'In progress', variant: 'warning' };
+        }
+        if (analysisSummary.status === 'failed') {
+            return { label: 'Failed', variant: 'error' };
+        }
+        return { label: 'Unanalysed', variant: 'neutral' };
+    }, [analysisSummary, currentItem.type]);
+
+    const primitiveDebugRecord = useMemo(() => {
+        if (currentItem.type !== 'image' || !currentItem.imageHash) return null;
+        const primitiveStore = getPrimitiveAnalysisStore();
+        return primitiveStore?.[currentItem.imageHash] || null;
+    }, [currentItem.type, currentItem.imageHash, analysisTick]);
+
+    const primitiveDebugBlocks = useMemo(() => {
+        const primitives = primitiveDebugRecord?.primitives || {};
+        return Object.keys(primitives)
+            .sort((a, b) => a.localeCompare(b))
+            .map((key) => ({
+                key,
+                payload: primitives[key],
+            }));
+    }, [primitiveDebugRecord]);
+
+    useEffect(() => {
+        if (primitiveDebugBlocks.length === 0) {
+            if (selectedPrimitiveBlock) {
+                setSelectedPrimitiveBlock('');
+            }
+            return;
+        }
+        const hasSelection = primitiveDebugBlocks.some((block) => block.key === selectedPrimitiveBlock);
+        if (!hasSelection) {
+            setSelectedPrimitiveBlock(primitiveDebugBlocks[0].key);
+        }
+    }, [primitiveDebugBlocks, selectedPrimitiveBlock]);
+
+    const selectedPrimitivePayload = useMemo(() => (
+        primitiveDebugBlocks.find((block) => block.key === selectedPrimitiveBlock)?.payload || null
+    ), [primitiveDebugBlocks, selectedPrimitiveBlock]);
+
+    const selectedPrimitiveJson = useMemo(() => {
+        if (!selectedPrimitivePayload) return '';
+        return JSON.stringify(selectedPrimitivePayload, null, 2);
+    }, [selectedPrimitivePayload]);
 
     const toggleImageFit = () => {
         const newFit = imageFit === 'cover' ? 'contain' : 'cover';
@@ -88,12 +156,15 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         : [];
 
     const handleSave = () => {
+        const nextProjectId = projectId === 'unassigned' ? null : projectId;
+        const projectChanged = nextProjectId !== (item.projectId || null);
         const updated = updateItem(item.id, {
             content,
             title: title.trim() || null,
             description,
             tags,
-            projectId: projectId === 'unassigned' ? null : projectId
+            projectId: nextProjectId,
+            collectionId: projectChanged ? null : (item.collectionId || null),
         });
         onUpdate(updated);
         onClose();
@@ -181,21 +252,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
 
     const handleRemoveTag = (tagToRemove) => {
         setTags(tags.filter(t => t !== tagToRemove));
-    };
-
-    const handleEnhance = async () => {
-        if (isEnhancing) return;
-        setIsEnhancing(true);
-        try {
-            const project = availableProjects.find(p => p.id === projectId);
-            const enhanced = await enhanceItemWithAI(currentItem, project);
-            if (enhanced) {
-                setCurrentItem(enhanced);
-                setTags(enhanced.tags || []);
-            }
-        } finally {
-            setIsEnhancing(false);
-        }
     };
 
     const getTypeIcon = () => {
@@ -311,6 +367,53 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             className="text-xl font-semibold text-neutral-900 bg-transparent border-none outline-none w-full placeholder:text-neutral-400 mb-2"
                             placeholder="Add a title..."
                         />
+
+                        {currentItem.type === 'image' && (
+                            <div className="flex items-center gap-2">
+                                <Badge variant={analysisBadge.variant}>{analysisBadge.label}</Badge>
+                                <span className="text-caption font-caption text-subtext-color">
+                                    {analysisSummary.completed}/{analysisSummary.total} primitive blocks
+                                </span>
+                            </div>
+                        )}
+
+                        {currentItem.type === 'image' && (
+                            <details className="rounded-md border border-neutral-200 bg-neutral-50">
+                                <summary className="cursor-pointer select-none px-3 py-2 text-xs font-bold uppercase tracking-wider text-neutral-500">
+                                    Primitive Debug
+                                </summary>
+                                <div className="px-3 pb-3 pt-1 flex flex-col gap-2">
+                                    <span className="text-[11px] text-neutral-500 break-all">
+                                        imageHash: {currentItem.imageHash || 'missing'}
+                                    </span>
+                                    {primitiveDebugBlocks.length === 0 ? (
+                                        <span className="text-xs text-neutral-500">
+                                            No primitive cache found yet for this image.
+                                        </span>
+                                    ) : (
+                                        <>
+                                            <label className="text-[11px] font-medium text-neutral-600 uppercase tracking-wide">
+                                                Primitive Block
+                                            </label>
+                                            <select
+                                                value={selectedPrimitiveBlock}
+                                                onChange={(e) => setSelectedPrimitiveBlock(e.target.value)}
+                                                className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm text-neutral-800 focus:outline-none focus:border-brand-500"
+                                            >
+                                                {primitiveDebugBlocks.map((block) => (
+                                                    <option key={block.key} value={block.key}>
+                                                        {block.key}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <pre className="max-h-56 overflow-auto rounded-md border border-neutral-200 bg-white p-2 text-[11px] leading-relaxed text-neutral-700">
+                                                {selectedPrimitiveJson}
+                                            </pre>
+                                        </>
+                                    )}
+                                </div>
+                            </details>
+                        )}
 
                         {/* Content Source */}
                         <div className="flex flex-col gap-2">
@@ -430,17 +533,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 />
                             </TextField>
 
-                            {item.type === 'image' && (
-                                <Button
-                                    variant="brand-secondary"
-                                    className="w-full mt-2"
-                                    icon={<FeatherSparkles />}
-                                    onClick={handleEnhance}
-                                    loading={isEnhancing}
-                                >
-                                    {isEnhancing ? "Analyze Image AI..." : "Enhance Tags with AI"}
-                                </Button>
-                            )}
                         </div>
 
                     </div>

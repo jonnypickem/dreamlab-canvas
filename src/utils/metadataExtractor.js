@@ -2,6 +2,7 @@
  * Metadata Extractor
  * Extracts tags from URL, filename, and image colors (free, instant)
  */
+import { getProxyUrl, isExternalUrl } from './imageProxy';
 
 // Common words to filter out from URL/filename extraction
 const STOP_WORDS = new Set([
@@ -175,7 +176,8 @@ export async function extractDominantColors(imageSource) {
 
             // Handle both URL and base64
             if (typeof imageSource === 'string') {
-                img.src = imageSource;
+                // Use proxy for external URLs so canvas sampling is not blocked by CORS.
+                img.src = isExternalUrl(imageSource) ? getProxyUrl(imageSource) : imageSource;
             } else {
                 resolve([]);
             }

@@ -1,0 +1,115 @@
+{
+  "lens": "brand_identity",
+  "lens_type": "domain",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "Reinterprets primitive data through the lens of brand and identity design — reading visual signals as brand equity, recognition strategy, personality expression, and system consistency. Answers: how does this visual build, express, or reinforce a brand?",
+
+  "gemini_instructions": {
+    "role": "You are a brand identity analyst for a visual design intelligence platform. You receive pre-extracted primitive data (color, typography, shape, surface, imagery, stylistic lineage, etc.) and reinterpret it as brand signals. You think like a brand strategist and identity designer combined.",
+    "task": "Given the primitive analysis data and the original image, produce a brand identity interpretation matching the output_schema below. Your job is NOT to re-extract visual data — that's already done. Your job is to READ that data as brand language and assess what it communicates about identity, positioning, recognition, and brand system potential.",
+    "rules": [
+      "Use the primitive data as your source of truth for visual facts. Do not contradict it. Add interpretive meaning on top.",
+      "Brand personality should use established brand archetype frameworks where applicable (Explorer, Creator, Ruler, Sage, etc.) but only when the fit is clear. Don't force archetypes.",
+      "Recognition assets are the specific visual elements that would make this brand identifiable without a logo — the ownable visual properties.",
+      "Differentiation assessment should consider the broader landscape: does this visual language stand apart or blend into category conventions?",
+      "Consistency signals describe how systematic the visual language appears — could this extend across touchpoints, or does it feel like a one-off execution?",
+      "Brand tier/positioning should be inferred from the combined signals of material quality, typographic register, color sophistication, and production values.",
+      "Voice and tone translation: describe what this visual would sound like if it could speak — this bridges visual identity to verbal identity.",
+      "If the image does not appear to be brand-related (e.g. fine art, personal photography), note this but still assess what brand signals the visual language carries."
+    ]
+  },
+
+  "output_schema": {
+    "brand_personality": {
+      "primary_archetype": "string — the dominant brand personality archetype if one applies (e.g. 'Ruler', 'Creator', 'Explorer', 'Sage', 'Magician', 'Hero', 'Outlaw', 'Lover', 'Jester', 'Everyman', 'Innocent', 'Caregiver', 'none-clear')",
+      "secondary_archetype": "string | null",
+      "personality_traits": [
+        "string — specific personality adjectives this visual communicates (e.g. 'authoritative', 'playful', 'sophisticated', 'rebellious', 'warm', 'clinical', 'adventurous')"
+      ],
+      "emotional_register": "string — the emotional territory this brand occupies (e.g. 'premium confidence', 'approachable warmth', 'edgy provocation', 'serene calm', 'energetic optimism')",
+      "brand_voice_if_spoken": "string — what this visual would sound like as language (e.g. 'speaks in measured, authoritative tones with occasional dry wit', 'loud and enthusiastic, uses exclamation marks, talks fast', 'whispers — minimal words, carefully chosen, leaves space')"
+    },
+    "positioning_signals": {
+      "market_tier": "string — luxury | premium | mid-market | accessible | value | artisanal-niche | mass-market",
+      "tier_evidence": [
+        "string — specific visual signals that indicate this tier (e.g. 'foil stamping and heavy stock signal luxury production budget', 'generous whitespace indicates premium confidence', 'bright saturated colors and busy layout suggest mass-market energy')"
+      ],
+      "audience_inference": {
+        "primary_audience": "string — who this visual is designed to attract (e.g. 'design-literate millennials', 'affluent traditionalists', 'young creative professionals', 'mainstream consumers')",
+        "exclusion_signals": "string — who this visual is NOT trying to reach, and how (e.g. 'ornamental complexity deliberately excludes minimalism-seekers', 'technical restraint signals this is not for casual browsers')"
+      },
+      "category_positioning": "string — how this visual positions within its apparent category (e.g. 'heritage luxury in a sea of modern minimalism', 'disruptive casual in a traditionally formal category', 'craft authenticity against mass-market competitors')"
+    },
+    "recognition_assets": {
+      "ownable_elements": [
+        {
+          "element": "string — the specific visual property that could become a recognition asset (e.g. 'the particular blue + gold color pairing', 'the engraving illustration style', 'the circular seal motif', 'the distinctive corner frame treatment')",
+          "ownability_strength": "string — how distinctive this is: 'highly-ownable (unique to this brand)', 'moderately-ownable (distinctive but shared with category)', 'generic (common convention)'",
+          "scalability": "string — how well this element would work across touchpoints: 'scales well (works at any size/medium)', 'context-dependent (needs specific format)', 'limited (only works in this application)'"
+        }
+      ],
+      "logo_presence": {
+        "detected": "boolean — whether a logo or brandmark is visible",
+        "type": "string | null — wordmark | lettermark | symbol | combination-mark | emblem | abstract-mark | mascot | none",
+        "integration": "string | null — how the logo relates to the overall design: 'focal-point', 'integrated-into-composition', 'discreet-placement', 'absent'"
+      },
+      "recognition_without_logo": "string — assessment of whether this visual would be recognizable without a logo (e.g. 'yes — the illustration style and color system are highly distinctive', 'partially — color is distinctive but layout is generic', 'no — relies entirely on logomark for recognition')"
+    },
+    "system_potential": {
+      "extensibility": "string — how well this visual language could extend across touchpoints: 'highly-extensible (clear system rules)', 'moderately-extensible (some elements transfer)', 'limited (execution-specific, hard to systematize)'",
+      "touchpoint_fitness": [
+        {
+          "touchpoint": "string — a medium or application (e.g. 'packaging', 'digital/web', 'signage', 'social media', 'editorial', 'merchandise', 'environmental/retail')",
+          "fitness": "string — how well the visual language would translate: 'natural-fit', 'adaptable', 'challenging', 'poor-fit'",
+          "adaptation_notes": "string — what would need to change for this touchpoint (e.g. 'detail reduction needed for small screen', 'color system translates directly', 'illustration style too complex for icon sizes')"
+        }
+      ],
+      "consistency_score": "string — how systematic/consistent the visual language appears: 'highly-consistent (strict visual rules apparent)', 'consistent (clear language with some flex)', 'loosely-consistent (shared vibe but no strict system)', 'inconsistent (no apparent system)'",
+      "design_system_extractable_rules": [
+        "string — specific rules you could extract to build a brand guidelines document (e.g. 'always use gold metallic on dark navy ground', 'typography is always uppercase serif with wide tracking', 'illustrations use crosshatch engraving technique exclusively')"
+      ]
+    },
+    "competitive_differentiation": {
+      "distinctiveness": "string — high | moderate | low | generic",
+      "differentiation_strategy": "string — how this visual achieves (or fails to achieve) differentiation (e.g. 'craft maximalism in an era of minimalism creates strong differentiation', 'follows category conventions closely, differentiation relies on execution quality rather than strategy')",
+      "risk_of_confusion": "string — whether this could be confused with competitors or adjacent brands, and why"
+    },
+    "brand_narrative": "string — one-paragraph synthesis of the total brand story this visual tells (e.g. 'This is a brand that positions itself as a keeper of craft traditions — it values detail, heritage, and the authority that comes from mastery. It speaks to an audience that equates complexity with quality and sees premium production as a signal of respect for both the product and the consumer. The visual language is deliberately anachronistic, choosing Victorian engraving over contemporary minimalism as a differentiation strategy.')",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "supplemental_extraction": {
+    "description": "Brand identity lens may need additional extraction not covered by primitives.",
+    "supplements": [
+      {
+        "name": "logo_isolation",
+        "purpose": "Isolate and analyze any logo/brandmark separately from the composition",
+        "trigger": "When logo_presence.detected is true",
+        "cost": "low"
+      },
+      {
+        "name": "brand_color_codification",
+        "purpose": "Translate palette into formal brand color roles (primary, secondary, accent, neutral) beyond visual weight analysis",
+        "trigger": "When system_potential.extensibility is moderately or highly extensible",
+        "cost": "low"
+      }
+    ]
+  },
+
+  "reads_from_primitives": [
+    "color_system",
+    "typography_behavior",
+    "shape_language",
+    "surface_material",
+    "imagery_mode",
+    "stylistic_lineage",
+    "hierarchy_flow"
+  ],
+
+  "dependencies": []
+}

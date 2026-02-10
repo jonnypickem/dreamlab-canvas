@@ -1,0 +1,180 @@
+{
+  "lens_registry": {
+    "version": "1.0.0",
+    "total_lenses": 16,
+    "last_updated": "2026-02-10"
+  },
+
+  "domain_lenses": {
+    "description": "Interpret primitive data through the vocabulary and concerns of a specific design domain.",
+    "lenses": [
+      {
+        "id": "brand_identity",
+        "file": "domain/01_brand_identity.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["brand", "branding", "logo", "identity", "brand system", "brand guidelines", "brand personality", "brand recognition"],
+        "summary": "Brand personality, positioning, recognition assets, system potential, competitive differentiation"
+      },
+      {
+        "id": "packaging_design",
+        "file": "domain/02_packaging_design.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["packaging", "package", "box", "label", "bottle", "shelf", "unboxing", "product packaging", "tuck box"],
+        "summary": "Shelf presence, purchase hierarchy, production methods, unboxing experience, sustainability"
+      },
+      {
+        "id": "ui_digital_product",
+        "file": "domain/03_ui_digital_product.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["UI", "interface", "app", "website", "dashboard", "digital product", "web design", "mobile", "component", "design system"],
+        "summary": "Component architecture, interaction affordances, layout system, accessibility, UX quality"
+      },
+      {
+        "id": "editorial_publication",
+        "file": "domain/04_editorial_publication.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["editorial", "magazine", "publication", "book", "layout", "spread", "print design", "newspaper", "zine", "catalog"],
+        "summary": "Reading experience, typographic voice, visual storytelling, text-image relationship, publication system"
+      },
+      {
+        "id": "advertising_conversion",
+        "file": "domain/05_advertising_conversion.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["ad", "advertising", "campaign", "conversion", "CTA", "banner", "billboard", "social ad", "marketing", "promotion"],
+        "summary": "Attention mechanics, persuasion architecture, CTA analysis, message hierarchy, campaign logic"
+      },
+      {
+        "id": "environmental_spatial",
+        "file": "domain/06_environmental_spatial.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["signage", "wayfinding", "environmental", "exhibition", "retail", "mural", "spatial", "architectural graphics", "display", "event"],
+        "summary": "Scale and distance, spatial integration, wayfinding, material/fabrication, lighting"
+      },
+      {
+        "id": "motion_animation",
+        "file": "domain/07_motion_animation.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["motion", "animation", "video", "transition", "kinetic", "motion graphics", "animated", "movement", "sequence"],
+        "summary": "Implied movement, temporal signals, animation potential, motion personality, choreography"
+      },
+      {
+        "id": "photography_direction",
+        "file": "domain/08_photography_direction.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["photography", "photo", "shooting", "lighting", "camera", "lens", "portrait", "product photography", "art direction", "photo style"],
+        "summary": "Lighting strategy, lens/optics, composition, color grading, mood/atmosphere, briefing"
+      },
+      {
+        "id": "illustration_visual_art",
+        "file": "domain/09_illustration_visual_art.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["illustration", "drawing", "artwork", "illustrator", "visual art", "hand-drawn", "vector art", "painting", "sketch", "print-making"],
+        "summary": "Mark-making, rendering approach, narrative content, technique, system replicability"
+      }
+    ]
+  },
+
+  "style_lenses": {
+    "description": "Interpret primitive data as aesthetic identity, emotional effect, and transferable taste.",
+    "lenses": [
+      {
+        "id": "aesthetic_fingerprint",
+        "file": "style/01_aesthetic_fingerprint.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["vibe", "feel", "aesthetic", "taste", "mood board", "inspiration", "style", "look and feel", "visual identity", "atmosphere"],
+        "summary": "Core aesthetic DNA, mood, emotional signature, sensory translation, cultural positioning, designer brief"
+      },
+      {
+        "id": "mood_emotion",
+        "file": "style/02_mood_emotion.json",
+        "cost_tier": "low",
+        "trigger_keywords": ["mood", "emotion", "feeling", "atmosphere", "psychological", "energy", "tension", "trust", "warmth"],
+        "summary": "Emotional spectrum, psychological space, energy mapping, trust/authority, emotional mechanics"
+      },
+      {
+        "id": "taste_transfer",
+        "file": "style/03_taste_transfer.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["apply", "transfer", "translate", "adapt", "use this for", "inspired by", "based on", "in the style of", "make it feel like"],
+        "summary": "Source-to-target translation: color, typography, spatial, material, imagery, interaction, do/don't rules",
+        "requires_target_context": true,
+        "depends_on": ["aesthetic_fingerprint"]
+      }
+    ]
+  },
+
+  "structural_lenses": {
+    "description": "Pure formal analysis independent of domain, style, or emotion. The grammar of visual arrangement.",
+    "lenses": [
+      {
+        "id": "compositional_grammar",
+        "file": "structural/01_compositional_grammar.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["composition", "layout", "structure", "grid", "balance", "proportion", "arrangement", "formal", "geometry"],
+        "summary": "Geometric skeleton, axis system, proportions, visual weight, containment, movement, figure-ground"
+      },
+      {
+        "id": "design_system_extraction",
+        "file": "structural/02_design_system_extraction.json",
+        "cost_tier": "high",
+        "trigger_keywords": ["design system", "tokens", "rules", "guidelines", "style guide", "specifications", "specs", "components", "patterns", "implementation"],
+        "summary": "Color/typography/spacing/shape tokens, component patterns, constraint rules, implementation-ready specs"
+      },
+      {
+        "id": "collection_coherence",
+        "file": "structural/03_collection_coherence.json",
+        "cost_tier": "high",
+        "trigger_keywords": ["collection", "board", "set", "consistency", "coherence", "theme", "direction", "curation", "what connects"],
+        "summary": "Cross-image consensus, variance, clusters, outliers, collection DNA, directional signals",
+        "minimum_images": 3,
+        "operates_on": "collection"
+      },
+      {
+        "id": "similarity_comparison",
+        "file": "structural/04_similarity_comparison.json",
+        "cost_tier": "medium",
+        "trigger_keywords": ["compare", "similar", "different", "versus", "relationship", "match", "pair", "contrast with"],
+        "summary": "Per-primitive similarity scoring, shared principles, key differences, pairing assessment",
+        "minimum_images": 2,
+        "operates_on": "pair_or_set"
+      }
+    ]
+  },
+
+  "routing_rules": {
+    "description": "How user intent maps to lens activation. Multiple lenses can be activated simultaneously.",
+    "default_behavior": "If no specific domain or intent is detected, activate aesthetic_fingerprint as the default style lens.",
+    "broad_intent_handling": "If intent is very broad (e.g. 'analyze this'), activate aesthetic_fingerprint + the most relevant domain lens based on image content detection from primitives.",
+    "multi_lens_composition": "Lenses are fully composable. A request like 'help me apply this packaging style to a website' activates packaging_design + taste_transfer (with target=website).",
+    "example_routings": [
+      {
+        "intent": "I love this illustration style and want to use it for my brand",
+        "activates": ["illustration_visual_art", "brand_identity", "aesthetic_fingerprint", "taste_transfer"]
+      },
+      {
+        "intent": "What's the overall vibe of my collection?",
+        "activates": ["collection_coherence", "aesthetic_fingerprint"]
+      },
+      {
+        "intent": "How are these two images similar?",
+        "activates": ["similarity_comparison"]
+      },
+      {
+        "intent": "I want to make a packaging design inspired by these",
+        "activates": ["packaging_design", "aesthetic_fingerprint", "taste_transfer", "design_system_extraction"]
+      },
+      {
+        "intent": "What makes this design work?",
+        "activates": ["compositional_grammar", "aesthetic_fingerprint", "mood_emotion"]
+      },
+      {
+        "intent": "Extract a color palette and type system from this",
+        "activates": ["design_system_extraction"]
+      },
+      {
+        "intent": "Focus on the photography style",
+        "activates": ["photography_direction"]
+      }
+    ]
+  }
+}

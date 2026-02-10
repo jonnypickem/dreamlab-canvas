@@ -1,0 +1,90 @@
+{
+  "schema_block": "typography_behavior",
+  "version": "1.0.0",
+  "stage": "A",
+  "cost_tier": "low",
+  "description": "Extracts how typography functions within an image — not font identification, but the behavioral system of how type is used, scaled, paired, and deployed to create hierarchy and voice.",
+
+  "gemini_instructions": {
+    "role": "You are a typographic analysis system for a visual design intelligence platform. Your job is to extract the behavioral logic of how typography is used in an image, focusing on system and strategy rather than font names.",
+    "task": "Analyze the provided image and return a JSON object matching the output_schema below. Focus on how type behaves as a system — hierarchy, scale relationships, weight contrast, spacing logic, and the overall typographic voice. If no typography is present, return the no_typography_present flag.",
+    "rules": [
+      "Do NOT attempt to name specific typefaces unless you are highly confident. Classify by category instead (serif, sans-serif, slab, mono, display, script, handwritten, blackletter, decorative).",
+      "Hierarchy is about the number of distinct typographic levels and how they differentiate (size, weight, color, style, spacing).",
+      "Scale_ratio captures the proportional relationship between the largest and smallest type. A dramatic ratio (e.g. 8:1) creates very different energy than a subtle one (e.g. 2:1).",
+      "Pairing_logic describes how multiple typeface categories work together — whether they contrast, echo, or clash.",
+      "Spacing_behavior covers both letter-spacing (tracking) and line-spacing (leading) as design choices, not just defaults.",
+      "Type_as_image is true when typography is used as a visual/graphic element rather than for reading — e.g. oversized display type, type used as texture, type integrated into illustration.",
+      "If the image contains no text at all, set no_typography_present to true and leave all other fields null.",
+      "Alignment describes how text blocks are set — flush left, centered, justified, flush right, or mixed. Note if alignment shifts between hierarchy levels."
+    ]
+  },
+
+  "output_schema": {
+    "no_typography_present": "boolean — true if the image contains no text at all",
+    "hierarchy": {
+      "levels": "number — count of distinct typographic hierarchy levels (e.g. headline, subhead, body, caption = 4)",
+      "differentiation_methods": [
+        "string — how levels are distinguished: 'size', 'weight', 'color', 'case', 'typeface_switch', 'spacing', 'style_italic', 'opacity'"
+      ],
+      "clarity": "string — clear (levels are immediately distinguishable) | subtle (levels exist but differences are restrained) | flat (little to no hierarchy) | chaotic (many levels without clear system)"
+    },
+    "type_categories": [
+      {
+        "category": "string — serif | sans-serif | slab-serif | monospace | display | script | handwritten | blackletter | decorative | geometric-sans | humanist-sans | grotesque-sans",
+        "role": "string — what this category is used for (e.g. 'headlines', 'body text', 'accent/labels', 'decorative element')",
+        "weight_range": "string — the range of weights used within this category (e.g. 'light to bold', 'single medium weight', 'ultra-bold only')",
+        "estimated_classification": "string | null — optional best guess at typeface name or family, only if highly confident"
+      }
+    ],
+    "pairing_logic": {
+      "number_of_categories_used": "number",
+      "pairing_strategy": "string — contrast (serif + sans creates tension) | harmony (same family, different weights) | single-family (one typeface throughout) | eclectic (multiple unrelated faces) | none (single type style)",
+      "effectiveness": "string — cohesive | tension-creating | clashing | neutral"
+    },
+    "scale_system": {
+      "ratio_estimate": "string — approximate ratio between largest and smallest type (e.g. '10:1 dramatic', '2:1 subtle', '1:1 uniform')",
+      "largest_type_role": "string — what the largest type is used for",
+      "smallest_type_role": "string — what the smallest type is used for",
+      "scale_creates": "string — what the scale range achieves (e.g. 'dramatic impact with whisper-level detail', 'calm uniformity', 'clear information hierarchy')"
+    },
+    "weight_contrast": {
+      "range": "string — minimal (single weight) | moderate (2-3 weights) | dramatic (hairline to ultra-bold) | extreme",
+      "strategic_use": "string — how weight variation serves the design (e.g. 'bold headlines anchor light body text', 'weight shifts signal navigation vs content', 'uniform weight creates modernist calm')"
+    },
+    "spacing_behavior": {
+      "tracking": "string — tight | normal | loose | very-loose | mixed",
+      "leading": "string — tight | normal | generous | very-generous | mixed",
+      "tracking_as_design_tool": "boolean — true if letter-spacing is used expressively (e.g. ultra-wide tracked caps for elegance)",
+      "spatial_personality": "string — describes the overall spacing feel (e.g. 'compressed and urgent', 'open and breathable', 'tight headlines with generous body leading')"
+    },
+    "alignment": {
+      "primary": "string — flush-left | centered | flush-right | justified | mixed",
+      "shifts_between_levels": "boolean — true if different hierarchy levels use different alignment",
+      "alignment_notes": "string | null — any notable alignment behavior"
+    },
+    "case_usage": {
+      "dominant_case": "string — uppercase | lowercase | title-case | sentence-case | mixed",
+      "case_as_hierarchy": "boolean — true if case changes signal hierarchy shifts (e.g. all-caps headlines, sentence-case body)",
+      "notable_case_behavior": "string | null — e.g. 'all-caps with wide tracking for luxury feel', 'lowercase-only for casual tech aesthetic'"
+    },
+    "type_as_image": {
+      "present": "boolean — true if type is used as a graphic/visual element beyond reading",
+      "method": "string | null — how type becomes visual (e.g. 'oversized display type as background texture', 'type following a path/shape', 'type integrated into illustration', 'type as pattern fill', 'kinetic/distorted type')"
+    },
+    "typographic_voice": "string — one-line summary of what the typography communicates as a whole (e.g. 'authoritative and editorial with restrained elegance', 'loud and chaotic punk energy', 'clean tech minimalism with humanist warmth')",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string — caveats about typographic analysis"
+    }
+  },
+
+  "failure_conditions": [
+    "Text is too small or blurry to analyze meaningfully",
+    "Image contains text in a script/language the model cannot process",
+    "Typography is heavily distorted, warped, or obscured by effects",
+    "Text is embedded in a complex illustration making isolation difficult"
+  ],
+
+  "dependencies": []
+}

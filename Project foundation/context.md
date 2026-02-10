@@ -16,6 +16,638 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Last Fix**: Implemented throttled request queue (5s delay) to resolve Gemini API 429 rate limiting.
 
 ## Changelog
+### [0.19.36] - 2026-02-10
+#### Rebuilt
+- **Creation Node Canvas Restored** (`src/components/CreationCanvas.jsx`, `src/App.jsx`):
+  - Reintroduced Creation mode as a node-based canvas workflow after pipeline cleanup removed the previous implementation.
+  - Added node types:
+    - Prompt Input
+    - Vibe
+    - Collection Image
+    - Image Generation
+    - Generation Result
+  - Restored slot-based wiring:
+    - output slot -> input slot
+    - type-checked connections (`text`, `vibe`, `image`)
+    - connection chip toolbar with disconnect support
+  - Restored canvas mechanics:
+    - draggable/resizable nodes
+    - visual edge rendering between ports
+    - per-project flow persistence (`dreamlab_creation_flow_<projectId>`)
+  - Restored generation execution path:
+    - bottom-bar `Generate` trigger routes through `runSignal`
+    - generation node composes prompt + vibe + refs and calls Gemini image generation
+    - missing result node is auto-created and auto-wired
+  - Restored result actions:
+    - `Download`
+    - `Add to Collection` via `saveItemWithTags` (fallback to `Generated Outputs` when no collection is selected)
+
+#### Problems & Fixes
+- **Problem**: Creation mode had regressed to a simple panel and no longer matched the node-based canvas flow used previously.
+- **Fix**: Rebuilt `CreationCanvas` from scratch and rewired `Creation` mode in `App.jsx` to use the restored graph-based workflow and run trigger.
+
+### [0.19.35] - 2026-02-09
+#### Fixed
+- **Collection Renaming Reliability** (`src/components/Sidebar.jsx`, `src/App.jsx`):
+  - Replaced prompt-based collection rename with inline editing in sidebar.
+  - Rename now supports:
+    - double-click collection row
+    - settings icon click on collection row
+    - save on `Enter` / blur
+    - cancel on `Escape`
+  - Keeps `updateCollection()` persistence and success toast feedback.
+
+### [0.19.34] - 2026-02-09
+#### Added
+- **Collection Rename in Sidebar** (`src/components/Sidebar.jsx`, `src/App.jsx`):
+  - Collections listed under projects can now be renamed.
+  - Rename options:
+    - double-click collection row
+    - click the collection settings icon on hover
+  - Rename is persisted via `updateCollection()` and confirmed with toast feedback.
+
+### [0.19.33] - 2026-02-09
+#### Changed
+- **Sidebar Now Shows Collections Under Projects** (`src/components/Sidebar.jsx`, `src/App.jsx`):
+  - Added nested collection items below each project in the sidebar.
+  - Added active-state highlight for selected collection.
+  - Clicking a collection in sidebar now selects both project + collection and routes into Collection mode.
+
+### [0.19.32] - 2026-02-09
+#### Changed
+- **Automatic Save to Generated Outputs on Generation** (`src/components/CreationCanvas.jsx`):
+  - After each successful generation run, generated images are now automatically saved to the project’s `Generated Outputs` collection.
+  - Auto-save runs silently in the generation pipeline and no longer requires manual button click.
+  - Generation node status now includes auto-save summary (saved count / failed count).
+
+#### Changed
+- **Manual Save Path Refactor** (`src/components/CreationCanvas.jsx`):
+  - Refactored `addImageToProject()` to support `silent` mode for internal auto-save usage.
+  - Manual `Add to Generated` action still works as a fallback.
+
+### [0.19.31] - 2026-02-09
+#### Added
+- **Dedicated Generated Outputs Collection** (`src/lib/storage.js`, `src/components/CreationCanvas.jsx`):
+  - Added `getOrCreateGeneratedCollection(projectId)` helper with persistent collection kind `generated_outputs`.
+  - Creation result saves now auto-route to this dedicated collection, instead of the currently open collection.
+
+#### Changed
+- **Creation Result Save UX** (`src/components/CreationCanvas.jsx`):
+  - Updated result action label to `Add to Generated`.
+  - Updated save success messages/status to explicitly mention `Generated Outputs`.
+  - Fixed save-status badge logic to correctly show success for saved states.
+
+#### Changed
+- **Collection Overview Labeling** (`src/App.jsx`):
+  - `Generated Outputs` cards now display a `Generated` badge for easier recognition.
+
+### [0.19.30] - 2026-02-09
+#### Added
+- **Collection Layer Under Projects** (`src/lib/storage.js`, `src/App.jsx`):
+  - Introduced `Workspace → Project → Collection` hierarchy.
+  - Added collection storage key and CRUD helpers:
+    - `getCollections()`
+    - `createCollection()`
+    - `updateCollection()`
+    - `deleteCollection()`
+  - Added `collectionId` on saved items so captures are scoped to a collection.
+  - Active context now persists `collectionId` with workspace/project selection.
+
+#### Changed
+- **Project View Now Shows Collection Cards** (`src/App.jsx`):
+  - In Collection mode, selecting a project opens a collection overview grid (cards), not immediate item clutter.
+  - Added `New Collection` flow directly in project collection overview.
+  - Added support for legacy `Unsorted` items (project items without a collection).
+
+#### Added
+- **Breadcrumb + Back Navigation** (`src/App.jsx`):
+  - Added breadcrumb path in header:
+    - Workspace > Project > Collection
+  - Added back arrow action to move up one level:
+    - Collection → Project collections
+    - Project collections → Workspace/all items
+
+#### Changed
+- **Creation Save Respects Active Collection** (`src/components/CreationCanvas.jsx`):
+  - Generated images added from Creation mode now persist to the currently active collection.
+
+#### Changed
+- **Item Reassignment Safety** (`src/components/ItemModal.jsx`):
+  - When moving an item to another project from Item Modal, `collectionId` resets to avoid invalid cross-project collection references.
+
+### [0.19.29] - 2026-02-09
+#### Changed
+- **Vibe Composer Stays in Edit Context** (`src/components/VibePanel.jsx`):
+  - While creating/editing, the overview stays hidden so only the editing panel is visible.
+  - `Analyze` now remains a preview step (no auto-close / no auto-save).
+  - `Save Vibe` now re-applies the *current* controls (including updated color direction) at save-time to avoid stale prompt output.
+
+#### Changed
+- **Vibe Overview Simplified to Compact Cards** (`src/components/VibePanel.jsx`):
+  - Replaced dense cards with smaller cards focused on:
+    - title
+    - intent label
+    - color palette swatches
+    - tiny keyword previews
+  - Removed always-open heavy details by default.
+  - Added click-to-open detail panel with a close action.
+
+#### Added
+- **Clear Edit Access for Existing Vibes** (`src/components/VibePanel.jsx`):
+  - Added direct `Edit` action from each vibe card.
+  - Added detail-panel edit action for deeper adjustments.
+  - Deletion remains available but no longer the primary visible action.
+
+### [0.19.28] - 2026-02-09
+#### Added
+- **JSON-First Vibe Output**:
+  - Vibe creation now stores a full `contract` object on each vibe card (`src/components/VibePanel.jsx`).
+  - Added `Export Contract JSON` action on vibe cards for downloadable `.json` contracts.
+
+#### Changed
+- **Vibe Node Exposes Contract JSON Output Slot** (`src/components/CreationCanvas.jsx`):
+  - Added second output on `Vibe` node: `Contract JSON` (text slot).
+  - Selected vibe card now provides both:
+    - structured `vibe_profile` payload
+    - raw serialized contract JSON payload
+
+#### Changed
+- **Generation Uses Stored Contract When Available**:
+  - Added `compileContractPrompt()` in `src/services/vibeGeneration.js`.
+  - Creation generation now compiles directly from stored vibe-card contract JSON when present, with runtime overrides for:
+    - subject
+    - structure lock policy
+    - must-include / avoid
+    - reference usage
+  - Falls back to generated contract path for legacy cards without a stored contract.
+
+#### Why
+- Reduces prompt drift by treating vibe cards as persistent contract artifacts instead of rebuilding from noisy context each run.
+- Improves debuggability and portability of vibe outputs across nodes and sessions.
+
+### [0.19.27] - 2026-02-09
+#### Added
+- **Color Direction Controls in Vibe Creation** (`src/components/VibePanel.jsx`):
+  - Added new `Color Direction` section in the vibe composer with:
+    - quick color chips (pink, red, orange, yellow, green, mint, cyan, blue, purple, black, white)
+    - custom color input (`Custom Colors`)
+  - Added refinement fields:
+    - `colorSelections`
+    - `colorTargets`
+
+#### Changed
+- **Color Targets Persist on Vibe Cards** (`src/components/VibePanel.jsx`):
+  - Saved color targets into each vibe card as `colorTargets`.
+  - Added card UI block to display color targets with mini swatches.
+
+#### Changed
+- **Color Targets Flow Into Prompt Intent** (`src/components/VibePanel.jsx`):
+  - Color targets are translated into `must include` cues (`color direction: ...`) during card creation.
+  - These cues are then available to creation-node generation via existing vibe-card `mustInclude` pass-through.
+
+### [0.19.26] - 2026-02-09
+#### Changed
+- **Vibe Creation UI Refactor (Bento + Steps)** (`src/components/VibePanel.jsx`):
+  - Reworked the vibe composer into a clearer 3-step workflow:
+    - Step 1: Objective template selection
+    - Step 2: Controls (structure policy, exclusions, priorities)
+    - Step 3: Analyze
+  - Increased spacing and grouped related controls by proximity for lower cognitive load.
+  - Added Bento-style sections:
+    - Objective Template
+    - Core Intent
+    - Structure Policy + Quick Exclusions
+    - Priority Mix sliders
+    - Must Include / Avoid
+
+#### Added
+- **Objective Control Parameters on Vibe Cards** (`src/components/VibePanel.jsx`):
+  - Added persistent per-card fields:
+    - `structurePolicy` (`strict` | `soft`)
+    - `priorities` (structure, color, typography, composition, imagery)
+    - `exclusions` (quick exclusion chips)
+  - Card view now surfaces:
+    - structure policy summary
+    - top priority summary
+    - selected quick exclusions
+
+#### Changed
+- **Generation Now Reads Vibe Objective Controls** (`src/components/CreationCanvas.jsx`):
+  - Vibe node output now includes `structurePolicy` and `priorities`.
+  - Generation contract uses vibe-card `structurePolicy` as precedence for structure lock behavior.
+  - Priority weights are forwarded into contract generation.
+
+#### Changed
+- **Contract Prompt Compiler Enriched with Priority Layer** (`src/services/vibeGeneration.js`):
+  - Added priority normalization and top-priority hint synthesis.
+  - Contract prompt now includes explicit `PRIORITIES` section.
+  - `mustInclude` now injects priority emphasis so objective weighting stays visible in generation prompts.
+
+### [0.19.25] - 2026-02-09
+#### Added
+- **Contract-Based Prompt Compiler** (`src/services/vibeGeneration.js`):
+  - Added `generateContractPrompt()` and `generateContractPromptForProject()` for all intents.
+  - New normalized contract structure:
+    - `invariants`
+    - `editableSlots`
+    - `styleCues`
+    - `mustInclude`
+    - `forbidden`
+    - `textSlots`
+  - Compiles shorter structured prompts with explicit sections:
+    - `LOCKED STRUCTURE`
+    - `EDITABLE SLOTS`
+    - `STYLE DIRECTION`
+    - `MUST INCLUDE`
+    - `FORBIDDEN`
+
+#### Changed
+- **Creation Flow Uses Contract Prompts** (`src/components/CreationCanvas.jsx`):
+  - Replaced large blended prompt composition with contract-based prompt composition in `runGenerationNode()`.
+  - Preserves dynamic behavior across all vibe intents while keeping prompt hierarchy consistent.
+  - Uses first reference as structure lock and remaining references as style references when available.
+
+#### Changed
+- **Prompt Modal Uses Contract Prompts** (`src/components/PromptGenerationModal.jsx`):
+  - Prompt preview now uses `generateContractPromptForProject()` for cleaner and stricter outputs.
+
+#### Added
+- **Lightweight Forbidden-Cue Repair Retry** (`src/components/CreationCanvas.jsx`):
+  - Added one automatic retry pass if Gemini text response explicitly mentions forbidden cues.
+  - Retry enforces strict correction while preserving structure invariants.
+
+#### Problems & Fixes
+- **Problem**: Long, mixed prompts over-weighted noisy extracted details and weakened slot-level control.
+- **Fix**: Introduced contract compiler that prioritizes invariant structure and editable slot rules before style cues.
+- **Problem**: Negative constraints were diluted by prompt sprawl.
+- **Fix**: Centralized and normalized forbidden list generation in contract output.
+
+### [0.19.24] - 2026-02-09
+#### Changed
+- **Hero Ref → Structure Reference** (`src/components/CreationCanvas.jsx`):
+  - Renamed generation input socket label from `Hero Ref` to `Structure Reference`.
+  - Renamed in-node preview section label to `Structure Reference` for clearer mental model.
+
+#### Added
+- **Structure Lock Toggle in Generation Node** (`src/components/CreationCanvas.jsx`):
+  - Added `Lock Structure Reference` toggle to the `Image Generation` node UI.
+  - Added persisted node flag `useStructureReference` (default `true`) so existing/saved flows remain backward compatible.
+  - Prompt composition now branches:
+    - toggle ON: preserve structure/composition from structure reference
+    - toggle OFF: treat structure reference as style guidance only
+
+#### Added
+- **Mockup Vibe Intent + Hierarchy Contract**:
+  - Added new intent `mockup_vibe` in `src/services/vibeGeneration.js`.
+  - Added new Vibe template and design-type option in `src/components/VibePanel.jsx`.
+  - Added `Mockup Vibe` option to generation intent selector in `src/components/CreationCanvas.jsx`.
+  - Added default `Mockup Vibe` profile in `src/lib/vibeProfiles.js` and updated profile hydration to append missing defaults for older projects.
+  - Generation flow now enforces a clearer hierarchy when `mockup_vibe` is active:
+    - preserve structure invariants
+    - change editable slots (flavor/name/hero graphic accents)
+    - apply style direction
+  - `mustInclude` / `avoid` from Vibe cards are now propagated into generation composition.
+
+#### Problems & Fixes
+- **Problem**: Structure-reference behavior was discussed but no visible control existed in UI.
+- **Fix**: Added explicit toggle + wiring to prompt composition so behavior is user-controllable at run time.
+- **Problem**: Mockup use case needed flavor-agnostic structure preservation across variants.
+- **Fix**: Added dedicated mockup intent and prompt hierarchy scaffolding to prioritize layout invariants over style swaps.
+
+### [0.19.23] - 2026-02-09
+#### Improved
+- **Automatic Storage Compaction on Quota Errors**:
+  - Added `src/utils/storageCompaction.js` to recompress large stored image payloads in `dreamlab_items`.
+  - Paste flow (`src/App.jsx`) now attempts one automatic compaction pass on quota error, then retries save.
+  - Creation result add-to-collection flow (`src/components/CreationCanvas.jsx`) now also compacts and retries on quota error.
+
+### [0.19.22] - 2026-02-09
+#### Fixed
+- **Paste-to-Collection Quota Robustness** (`src/App.jsx`):
+  - Added progressive image compression retry loop for pasted local images before save.
+  - Added explicit quota detection and user-friendly “Storage is full” error message instead of raw browser exception text.
+  - Added base64-paste path fallback to blob-based save pipeline to apply the same compression/retry logic.
+
+### [0.19.21] - 2026-02-09
+#### Fixed
+- **Collection Paste from Local Disk** (`src/App.jsx`):
+  - Added clipboard `files` handling for image paste flows (local disk copy/paste cases that do not expose `items[i].type` as expected).
+  - Hardened image compression fallback (canvas/context/image decode failures now fall back to original blob).
+  - Updated image paste save flow to await `saveItemWithTags` and only show success toast after confirmed save.
+  - Added explicit error toasts for unreadable/failed pasted image payloads.
+
+### [0.19.20] - 2026-02-09
+#### Fixed
+- **Blank Screen After Generation (Creation Mode)** (`src/components/CreationCanvas.jsx`):
+  - Root cause: creation-flow persistence attempted to store large generated base64 images in `localStorage`, causing `QuotaExceededError`.
+  - Added sanitized graph persistence that strips heavy generated image payloads from saved flow state.
+  - Wrapped flow persistence in safe error handling so quota failures no longer crash the UI.
+
+### [0.19.19] - 2026-02-09
+#### Fixed
+- **LocalStorage Quota Failures on Add to Collection** (`src/components/CreationCanvas.jsx`):
+  - Added automatic image optimization/compression before saving generated outputs to collection.
+  - Added quota-aware retry with more aggressive compression.
+  - Added explicit `Storage full` failure state and actionable error toast when save still cannot fit.
+  - Prevents indefinite add-button loading behavior under storage pressure.
+
+### [0.19.18] - 2026-02-09
+#### Fixed
+- **Live Edge Movement While Dragging Nodes** (`src/components/CreationCanvas.jsx`):
+  - Node positions now update during drag (`onDrag`), so connection lines move in real time instead of only after drop.
+
+#### Fixed
+- **Add to Collection Spinner Stuck** (`src/components/CreationCanvas.jsx`):
+  - Result-node add action now saves immediately via `saveItem` and marks items as `needsTagging` for background processing.
+  - Prevents long-running tagging calls from blocking the button loading state.
+  - Updated button label to `Add to Collection`.
+
+### [0.19.17] - 2026-02-09
+#### Added
+- **Hero Reference Socket for Image Generation** (`src/components/CreationCanvas.jsx`):
+  - Added dedicated `Hero Ref` input socket on `Image Generation` node.
+  - Hero reference is prioritized as the first reference image during generation.
+
+#### Added
+- **Collection Image Node** (`src/components/CreationCanvas.jsx`):
+  - New node type to select an image directly from the current project collection.
+  - Outputs selected image via `Image Out` socket for connection into `Hero Ref`.
+  - Includes inline preview and empty-state guidance when no project images exist.
+
+#### Changed
+- **Creation Canvas Wiring/UI**:
+  - Added `Collection Image` to left Add Node rail.
+  - Updated default flow to include/wire a `Collection Image` node into generation hero reference.
+  - Added hero-reference preview section inside the generation node.
+
+### [0.19.16] - 2026-02-09
+#### Changed
+- **Generation Result Node Simplified** (`src/components/CreationCanvas.jsx`):
+  - Reworked result node UI to display the primary generated image only.
+  - Removed verbose prompt/image list layout from the result node.
+  - Added two direct actions:
+    - `Download` (primary, prominent)
+    - `Add to Project` (secondary)
+  - Added inline save-status feedback for add-to-project action.
+
+#### Added
+- **Add to Project from Result Node**:
+  - Connected result-node save action to existing `saveItemWithTags` pipeline, so generated outputs can be inserted into the current project collection directly from Creation mode.
+
+### [0.19.15] - 2026-02-09
+#### Added
+- **Creation Board Vibe Node** (`src/components/CreationCanvas.jsx`):
+  - Added a dedicated `Vibe` node type (`vibeCard`) with a selectable dropdown of project `vibeCards`.
+  - Node outputs a `vibe_profile` payload compatible with existing Generation node input slots.
+  - Users can now choose which saved Vibe card to run in Creation mode without manual JSON edits.
+
+#### Changed
+- **Default Creation Flow**:
+  - Default wiring now uses the new `Vibe` node into `Image Generation` instead of relying on a seeded profile node.
+  - Added `Vibe` to left-side **Add Node** bar.
+  - Added auto-fallback behavior when selected Vibe card is missing/deleted (selects next available card).
+
+### [0.19.14] - 2026-02-09
+#### Changed
+- **Adaptive Focus Instruction in Vibe Composer** (`src/components/VibePanel.jsx`):
+  - `What should this analysis focus on?` now auto-adapts from:
+    - selected template
+    - what the user is trying to create
+    - project prompt context (audience + tone)
+  - Focus text updates dynamically until manually edited by the user.
+  - Added explicit UI guidance that this field is sent to Gemini during Analyze.
+
+#### Changed
+- **Analyze Action Now Sends User Focus to Gemini Deep Synthesis**:
+  - `VibePanel` now builds a run-specific analysis context (template, goal, focus, must-include, avoid) and passes it into deep analysis.
+  - `App` deep-analysis handler now accepts `analysisContext` and returns structured results to callers.
+  - `synthesizeProjectVibe(projectId, analysisContext)` now injects `ANALYSIS INTENT` instructions into the deep synthesis prompt and stores analysis context metadata in `deepInsights`.
+
+### [0.19.13] - 2026-02-09
+#### Changed
+- **Vibe Window Rebuilt From Scratch** (`src/components/VibePanel.jsx`):
+  - Replaced the previous stacked vibe/intelligence view with a two-pane workspace:
+    - **Center**: Vibe Cards canvas
+    - **Right Panel**: project details + optional prompt-refinement fields
+  - Added empty-state flow with `Create Vibe` placeholder when no cards exist.
+  - Added guided creation flow:
+    - template selection (illustration, packaging, photography, brand style, logo/identity)
+    - refinement fields (name, goal, focus, must include, avoid)
+    - `Analyze` action to generate a full vibe card.
+  - Added full result cards with:
+    - rename support
+    - style/mood/palette summaries + color swatches
+    - generated prompt preview and avoid cues
+    - extraction count + maturity badges
+
+#### Added
+- **Project-level Vibe Card Persistence**:
+  - Added `vibeCards` to project schema defaults in `src/lib/storage.js`.
+  - Added migration/hydration fallback in `src/App.jsx` for existing projects without `vibeCards`.
+
+#### Problems & Fixes
+- **Problem**: Old Vibe UI mixed too many layers (brief + profile previews + deep output) and increased cognitive load.
+- **Fix**: Split responsibilities into a creation-first center workspace and a dedicated refinement sidepanel, with explicit template-to-analysis flow.
+
+### [0.19.12] - 2026-02-09
+#### Added
+- **Multi-Vibe Node Workflow** (`src/components/CreationCanvas.jsx`):
+  - Added a new `Vibe Profile` node type that creates alternate vibe variants from the same collection.
+  - Added dedicated preset vibe nodes in the left node bar:
+    - Product Photography Vibe
+    - Illustration Vibe
+    - Brand Style Vibe
+    - Logo Vibe
+  - Each Vibe Profile node has:
+    - profile name
+    - intent mapping
+    - profile focus text (added to generation subject)
+
+#### Changed
+- **Generation Node Vibe Input**:
+  - `Image Generation` node now accepts both raw vibe and vibe-profile outputs.
+  - If connected to a Vibe Profile node, generation automatically uses that profile’s mapped intent and surfaces “Using <profile>” in-node.
+  - Updated default creation flow to include and wire a Product Photography Vibe profile node.
+
+### [0.19.11] - 2026-02-09
+#### Changed
+- **Rate-Limit Safe Vibe Mechanism** (`src/services/vibeEngine.js`):
+  - Added global Gemini call pacing across vibe extraction + deep synthesis.
+  - Added adaptive 429 backoff escalation and gradual cooldown recovery.
+  - Added retry/requeue for per-image extraction tasks on 429 (instead of dropping failed items).
+  - Moved queue scheduling to lightweight polling while API pacing is handled centrally.
+
+#### Improved
+- **Smart Collection Scan Payload**:
+  - Deep synthesis now uses a compact strategy payload:
+    - summarized collection statistics (top mediums, palettes, colors, shot types, etc.)
+    - smaller sampled snapshot set (top 16 relevant images)
+  - This reduces token pressure and lowers resource-exhausted failures during deep scans.
+
+### [0.19.10] - 2026-02-09
+#### Changed
+- **Vibe Entry Initialization** (`src/App.jsx`):
+  - When switching to `Vibe` mode, the app now uses existing project metadata as first inputs:
+    - hydrates `vibeBrief.productOrBrand` from project name
+    - hydrates `vibeBrief.contentNotes` from project description (if brief is still empty)
+    - maps project category to a reasonable `vibeBrief.designType`
+
+#### Improved
+- **Smart Collection Scan Strategy** (`src/App.jsx`):
+  - Added automatic deep-analysis trigger logic on Vibe mode entry with guardrails:
+    - only runs with enough extraction signal (`>= 6`)
+    - runs when deep insights are missing or stale
+    - detects staleness by timestamp and sample-size growth
+    - applies per-project cooldown to avoid repeated expensive scans
+
+### [0.19.9] - 2026-02-09
+#### Improved
+- **Deeper Vibe Intelligence Pipeline**:
+  - Expanded `aggregateProjectVibe()` in `src/services/vibeEngine.js` to preserve more extracted dimensions:
+    - style: art movement
+    - mood: aesthetic
+    - composition: framing + aspect ratio
+    - lighting: direction + mood lighting
+    - color: accent colors + color grade
+    - texture: surface quality + common effects
+    - technical: lens, depth of field, photography ratio
+    - subject patterns: secondary subjects
+  - Added `synthesizeProjectVibe(projectId)` for project-level deep synthesis over the extraction set with Gemini, saved as `vibe.deepInsights`.
+
+#### Added
+- **Guided Vibe Brief UI** (`src/components/VibePanel.jsx`):
+  - Reworked Vibe mode into a lower-cognitive workflow:
+    - Step 1: “What are you creating?” brief (design type, product/brand, audience, tone, color/type/content notes, constraints)
+    - Step 2: Vibe intelligence status with one-click deep analysis
+    - Step 3: Deep strategy output cards (style archetypes, principles, color/typography direction, must-include signals)
+  - Added save action for project brief and deep-analysis trigger.
+
+#### Changed
+- **Prompt Generation Context Quality**:
+  - `src/services/vibeGeneration.js` now incorporates:
+    - project brief (`project.vibeBrief`)
+    - deep strategy insights (`projectVibe.deepInsights`)
+    - richer technical context from aggregated vibe
+  - `src/components/PromptGenerationModal.jsx` now pre-fills intent/subject from project brief.
+  - `src/components/CreationCanvas.jsx` now passes project context into prompt generation so node runs use the same strategic brief.
+
+#### Data Model
+- `src/lib/storage.js` `createProject()` now initializes a `vibeBrief` object for new projects.
+
+### [0.19.8] - 2026-02-09
+#### Added
+- **Generation Result Node** (`src/components/CreationCanvas.jsx`):
+  - Added a new `Generation Result` node type with dedicated input slots:
+    - `Prompt In` (text)
+    - `Images In` (images)
+  - Added `Generation Result` to the left **Add Node** bar.
+  - Added rendering UI for connected prompt text and generated image outputs.
+
+#### Changed
+- **Automatic Result Wiring**:
+  - On successful generation, if no result node is connected to a generation node, the canvas now auto-creates and auto-connects a result node.
+  - Added legacy edge normalization support for `generate -> result` connections.
+
+### [0.19.7] - 2026-02-09
+#### Changed
+- **Nano Banana Pro API Targeting**:
+  - Updated `src/services/geminiImage.js` default image model to `gemini-3-pro-image-preview` (Nano Banana Pro).
+  - Added alias mapping support (`nano banana pro`, `nano-banana-pro`, etc.) to resolve to the correct Gemini model ID.
+  - Added model fallback logic to `gemini-2.5-flash-image` when a model is unavailable for a given API key.
+  - Improved model error handling and surfaced model-attempt diagnostics.
+
+#### Improved
+- **Creation Feedback**:
+  - Updated `src/components/CreationCanvas.jsx` generation status to include the model used for the run.
+
+### [0.19.6] - 2026-02-09
+#### Changed
+- **Dedicated Node I/O Slots** (`src/components/CreationCanvas.jsx`):
+  - Reworked flow connections to use explicit per-port wiring (port-to-port), not generic node-level linking.
+  - Added dedicated input slots and output slots per node type.
+  - Added strict compatibility checks (`text`, `vibe`, `images`) when connecting ports.
+  - Generation node now has explicit input slots (`Prompt`, `Vibe`, `Refs`) and output slots (`Prompt Out`, `Images Out`).
+
+#### Added
+- **Node Management**:
+  - Added a left-side **Add Node** bar with quick actions for Prompt, Vibe JSON, Image Input, and Image Generation nodes.
+  - Added per-node delete actions (trash icon in each node header).
+  - Added edge migration logic so older saved flows still load into the new slot-based model.
+
+### [0.19.5] - 2026-02-09
+#### Added
+- **Gemini Image Generation in Creation Flow**:
+  - Added `src/services/geminiImage.js` to generate images using the existing Gemini API key setup.
+  - Supports optional reference images from the Image Input node.
+  - Parses Gemini inline image responses and returns displayable data URLs.
+
+#### Changed
+- **Creation Canvas Execution** (`src/components/CreationCanvas.jsx`):
+  - `Generate` run now triggers both prompt generation and Gemini image generation.
+  - Added generation state handling (`Generating with Gemini...`).
+  - Added generated image preview grid inside the Image Generation node.
+  - Added error/info feedback for invalid Vibe JSON, missing vibe data, and Gemini failures.
+
+### [0.19.4] - 2026-02-09
+#### Added
+- **Creation Node Canvas (Flora-style workmode)**:
+  - Added `src/components/CreationCanvas.jsx` and wired it into `Creation` mode in `src/App.jsx`.
+  - Node types included:
+    - Prompt Input node (subject prompt text)
+    - Vibe JSON node (editable JSON payload)
+    - Image Input node (reference image URLs)
+    - Image Generation node (intent/platform + generated prompt outputs)
+  - Added draggable node layout with visual connections between nodes.
+  - Added connect/disconnect workflow:
+    - Start from right-dot (output) and connect to left-dot (input).
+    - Existing connections can be removed from the connection toolbar.
+  - Added flow persistence in localStorage per project (`dreamlab_creation_flow_<projectId>`).
+
+#### Changed
+- **Bottom Floating Bar**:
+  - In `Creation` mode, right-side action now shows `Generate`.
+  - Clicking `Generate` runs connected nodes and writes output into the Image Generation node.
+
+#### Problems & Fixes
+- **Problem**: Vibe and creation logic were split across panel + modal, not node-based.
+- **Fix**: Introduced a dedicated execution canvas that consolidates prompt input, vibe JSON, and generation output in one flow surface.
+
+### [0.19.3] - 2026-02-09
+#### Changed
+- **Workmode Navigation**:
+  - Added bottom workmode switch in `src/App.jsx` with `Collection`, `Vibe`, and `Creation` modes next to the search field.
+  - Moved Vibe display out of the collection header into dedicated `Vibe` mode.
+  - Added dedicated `Creation` mode entry point to open the prompt generator.
+
+#### Improved
+- **Prompt Richness** (`src/services/vibeGeneration.js`):
+  - Relaxed field filtering so more vibe fields survive into generation.
+  - Reduced aggressive consensus gating for lower-priority fields.
+  - Expanded color/keyword/texture inclusion in universal prompts.
+  - Increased Midjourney trim limit from ~60 words to ~120 words.
+
+### [0.19.2] - 2026-02-09
+#### Added
+- **Prompt Generation UI**:
+  - Added `src/components/PromptGenerationModal.jsx` with intent selector, subject input, platform selector, prompt preview, and copy-to-clipboard action.
+  - Integrated modal into `src/App.jsx` and connected it to toast feedback.
+  - Added `Generate` action to `src/components/VibePanel.jsx`, opening the modal directly from the vibe card.
+
+#### Problems & Fixes
+- **Problem**: Designers had no in-app path from the vibe summary to prompt output.
+- **Fix**: Connected Vibe Panel to `generatePromptForProject()` with a guided modal flow and validation for required subject input.
+
+### [0.19.1] - 2026-02-09
+#### Added
+- **Vibe UI Panel (Project View)**:
+  - Added `src/components/VibePanel.jsx` and integrated it into `App.jsx` under the project header.
+  - Displays maturity badge, mood, dominant style, palette label, color swatches, atmosphere keywords, and extraction count.
+  - Includes collapse/expand control to reduce visual load in grid view.
+  - Shows a subtle guidance state for nascent vibes: "Add more images to strengthen the vibe."
+
+#### Fixed
+- **Project visibility gap**: Designers can now inspect current aggregated vibe state directly in the UI without opening devtools/localStorage.
+
 ### [0.19.0] - 2026-02-09
 #### Added
 - **Vibe Analysis Pipeline**:

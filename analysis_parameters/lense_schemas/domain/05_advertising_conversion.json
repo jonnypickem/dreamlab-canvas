@@ -1,0 +1,96 @@
+{
+  "lens": "advertising_conversion",
+  "lens_type": "domain",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "Reinterprets primitive data through the lens of advertising and conversion design — reading visual signals as persuasion mechanics, attention capture strategy, call-to-action clarity, message hierarchy, and campaign logic.",
+
+  "gemini_instructions": {
+    "role": "You are an advertising and conversion design analyst for a visual design intelligence platform. You receive pre-extracted primitive data and reinterpret it as advertising strategy. You think like a creative director who understands both brand storytelling and performance marketing.",
+    "task": "Given the primitive analysis data and the original image, produce an advertising and conversion interpretation matching the output_schema below. Read the visual language as persuasion architecture — how attention is captured, how the message unfolds, how desire is created, and how action is prompted.",
+    "rules": [
+      "Use primitive data as your visual fact base. Add advertising-specific interpretation on top.",
+      "Ad hierarchy follows a persuasion sequence: attention → interest → desire → action (AIDA). Map the visual hierarchy to this framework.",
+      "Distinguish between brand advertising (awareness, emotional positioning) and performance advertising (direct response, conversion optimization).",
+      "CTA analysis should assess not just presence but prominence, clarity, urgency, and friction reduction.",
+      "Format awareness: identify what ad format this appears to be (billboard, social, display, print, OOH, etc.) as this fundamentally changes what 'good' looks like.",
+      "Message density: ads need to communicate quickly. Assess how much the viewer needs to process and whether the communication speed matches the likely viewing context.",
+      "If the image is not advertising, note this but assess its persuasive qualities anyway."
+    ]
+  },
+
+  "output_schema": {
+    "ad_classification": {
+      "format": "string — social-feed | social-story | display-banner | billboard-ooh | print-magazine | print-newspaper | poster | digital-video-frame | email-hero | landing-page-hero | point-of-sale | direct-mail | transit | ambient | not-advertising",
+      "objective": "string — brand-awareness | consideration | direct-response | product-launch | promotional | retargeting | event-driven | institutional | recruitment | not-applicable",
+      "brand_vs_performance": "string — brand (emotional, awareness-focused) | performance (conversion-focused) | hybrid (brand with response mechanism) | unclear"
+    },
+    "attention_mechanics": {
+      "hook": {
+        "element": "string — what catches attention first and how (e.g. 'oversized product image with unexpected color', 'provocative headline', 'human face with direct eye contact', 'visual disruption/pattern break')",
+        "speed": "string — instant (works in <1 second) | quick (1-3 seconds) | slow (requires lingering attention) | passive (doesn't actively grab)",
+        "scroll_stopping_power": "string — high | moderate | low | not-applicable (static medium)"
+      },
+      "viewing_duration_fit": {
+        "estimated_processing_time": "string — <2 seconds | 2-5 seconds | 5-15 seconds | 15+ seconds",
+        "format_appropriate": "string — whether the complexity matches the likely viewing context: 'well-matched (billboard simplicity for billboard)' | 'over-complex (too much for the format)' | 'under-utilizing (too simple for the available attention)' | 'not-assessable'"
+      },
+      "competitive_disruption": "string — how this would perform against adjacent content: 'stands out strongly', 'holds its own', 'gets lost', 'deliberately quiet (anti-advertising strategy)'"
+    },
+    "persuasion_architecture": {
+      "aida_mapping": {
+        "attention": "string — what element serves the Attention phase",
+        "interest": "string — what sustains Interest after initial attention",
+        "desire": "string — what creates Desire or want (emotional trigger, benefit visualization, social proof)",
+        "action": "string — what prompts Action (CTA, offer, urgency mechanism) or 'none — pure brand awareness'"
+      },
+      "emotional_strategy": {
+        "primary_emotion": "string — the dominant emotion being leveraged: 'aspiration', 'fear-of-missing-out', 'belonging', 'status', 'joy', 'curiosity', 'nostalgia', 'urgency', 'trust', 'desire', 'empowerment', 'comfort', 'none-specific'",
+        "emotional_intensity": "string — subtle | moderate | strong | overwhelming",
+        "rational_vs_emotional": "string — primarily-rational (features, specs, comparison) | primarily-emotional (feeling, aspiration, identity) | balanced | emotional-wrapper-for-rational-message"
+      },
+      "message_hierarchy": [
+        {
+          "rank": "number",
+          "message_element": "string — what this communicates (e.g. 'brand identity', 'value proposition', 'offer/promotion', 'social proof', 'urgency/scarcity', 'CTA', 'supporting detail')",
+          "clarity": "string — crystal-clear | clear | requires-attention | buried | absent"
+        }
+      ],
+      "value_proposition_clarity": "string — obvious (immediately know what's offered and why) | clear (understood with brief attention) | implicit (suggested but not stated) | unclear | absent"
+    },
+    "call_to_action": {
+      "present": "boolean",
+      "type": "string | null — 'button', 'text-link', 'verbal-instruction', 'QR-code', 'URL', 'phone-number', 'implied (product itself is the CTA)', 'none'",
+      "prominence": "string | null — dominant | visible | subtle | hidden | none",
+      "clarity": "string | null — specific ('Shop now', 'Book a demo') | generic ('Learn more', 'Click here') | creative ('Join the revolution') | absent",
+      "urgency_signals": [
+        "string — 'limited-time language', 'countdown', 'scarcity indicators', 'seasonal reference', 'price anchoring', 'none'"
+      ],
+      "friction_assessment": "string | null — low (one clear next step) | moderate (requires decision or effort) | high (multiple steps implied) | not-applicable"
+    },
+    "campaign_signals": {
+      "campaign_consistency_cues": "string — whether this appears to be part of a larger campaign: 'yes (consistent format suggests series)', 'possibly (some systematic elements)', 'standalone (one-off execution)', 'unknown'",
+      "adaptability": "string — how easily this creative could adapt across formats: 'highly-adaptable (core message works at any size)', 'moderately-adaptable', 'format-specific (designed for one context only)'",
+      "testing_opportunities": [
+        "string — elements that could be A/B tested: 'headline variations', 'CTA copy', 'hero image swap', 'color/contrast changes', 'layout restructure', 'offer framing'"
+      ]
+    },
+    "advertising_narrative": "string — one-paragraph synthesis of the advertising/conversion assessment",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "reads_from_primitives": [
+    "color_system",
+    "hierarchy_flow",
+    "typography_behavior",
+    "imagery_mode",
+    "spatial_structure",
+    "rhythm_pattern"
+  ],
+
+  "dependencies": []
+}

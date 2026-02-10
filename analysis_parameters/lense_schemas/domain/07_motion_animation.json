@@ -1,0 +1,87 @@
+{
+  "lens": "motion_animation",
+  "lens_type": "domain",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "Reinterprets primitive data through the lens of motion design and animation — reading static visual signals as implied movement, transition logic, temporal rhythm, and animation potential. Works on both single frames from motion pieces and static designs being assessed for animation potential.",
+
+  "gemini_instructions": {
+    "role": "You are a motion design and animation analyst for a visual design intelligence platform. You receive pre-extracted primitive data from static images and reinterpret them as motion signals — either analyzing frames from existing motion work or assessing static designs for animation potential.",
+    "task": "Given the primitive analysis data and the original image, produce a motion/animation interpretation matching the output_schema below. Read the visual language for implied movement, temporal cues, transition potential, and kinetic energy.",
+    "rules": [
+      "Use primitive data as your visual fact base. Add motion-specific interpretation on top.",
+      "Even static images contain motion signals: diagonal composition implies movement, blurred elements suggest speed, sequential layout implies temporal progression.",
+      "If the image appears to be a frame from animation or video, analyze what the surrounding motion likely is.",
+      "If the image is static design, analyze its animation potential — what would move, how, and why.",
+      "Motion personality matters: the same element can move mechanically, organically, elastically, or cinematically. The visual language of the static frame usually implies which.",
+      "Easing and timing are embedded in the visual language — sharp geometric forms imply snappy easing, organic forms imply smooth curves."
+    ]
+  },
+
+  "output_schema": {
+    "motion_context": {
+      "source_type": "string — motion-frame (from video/animation) | motion-sequence (multiple frames) | static-design (assessing for motion potential) | ui-with-states (implies transitions) | unknown",
+      "motion_medium": "string — 2d-animation | 3d-animation | motion-graphics | video | ui-transition | kinetic-typography | generative | stop-motion | mixed | hypothetical"
+    },
+    "implied_movement": {
+      "kinetic_energy_level": "string — static (no motion implied) | subtle (gentle, barely perceptible) | moderate (clear movement) | dynamic (energetic, active) | explosive (extreme energy, rapid)",
+      "movement_directions": [
+        {
+          "direction": "string — up | down | left | right | diagonal | radial-outward | radial-inward | rotational | oscillating | chaotic | none",
+          "source_element": "string — what element implies this movement",
+          "evidence": "string — why this direction is implied (e.g. 'diagonal composition line', 'blur direction', 'element placement suggesting trajectory')"
+        }
+      ],
+      "speed_impression": "string — very-slow | slow | moderate | fast | very-fast | variable | not-applicable",
+      "gravity_relationship": "string — grounded (heavy, affected by gravity) | weightless (floating, defying gravity) | falling | rising | balanced | not-applicable"
+    },
+    "temporal_signals": {
+      "sequence_detected": "boolean — true if the image shows or implies a temporal sequence",
+      "sequence_type": "string | null — 'before-after', 'step-progression', 'frame-sequence', 'state-change', 'narrative-sequence', 'loop-cycle', 'none'",
+      "loop_potential": "string — natural-loop (design suggests continuous repetition) | one-shot (single play) | reversible (could play forward and back) | not-applicable",
+      "duration_impression": "string — instantaneous (<0.5s) | brief (0.5-2s) | medium (2-10s) | extended (10-30s) | long-form (30s+) | continuous | not-applicable"
+    },
+    "animation_potential": {
+      "elements_to_animate": [
+        {
+          "element": "string — what would move (e.g. 'headline text', 'background pattern', 'product image', 'icon set', 'color field', 'decorative elements')",
+          "animation_type": "string — 'entrance (appear/reveal)', 'exit (disappear/dismiss)', 'emphasis (pulse/bounce/shake)', 'transition (morph/crossfade)', 'continuous (loop/rotate/float)', 'interactive (respond to input)', 'parallax (depth-based scroll)'",
+          "motion_character": "string — how this element would move: 'snappy-mechanical', 'smooth-organic', 'elastic-bouncy', 'cinematic-dramatic', 'subtle-ambient', 'glitchy-digital', 'natural-physics-based'",
+          "easing_implication": "string — 'ease-in-out (smooth)', 'ease-out (decelerating)', 'ease-in (accelerating)', 'spring (overshoot)', 'linear (constant speed)', 'stepped (frame-by-frame)', 'custom-bezier'"
+        }
+      ],
+      "stagger_and_choreography": {
+        "stagger_opportunities": "string — where sequential timing would enhance the animation: 'list items appearing in sequence', 'letters of headline', 'grid elements cascading', 'none — simultaneous works', 'not-applicable'",
+        "choreography_complexity": "string — simple (1-2 elements moving) | moderate (coordinated multi-element) | complex (many elements with precise timing) | orchestral (full-composition animation)"
+      },
+      "transition_potential": {
+        "between_states": "string | null — what transitions this design suggests between states or pages: 'fade', 'slide', 'morph', 'zoom', 'dissolve', 'wipe', 'reveal', 'scale', 'flip', 'none implied'",
+        "micro_interactions": [
+          "string — small interaction-triggered animations the design suggests: 'button hover state', 'toggle animation', 'scroll-triggered reveal', 'loading spinner', 'success confirmation', 'none apparent'"
+        ]
+      }
+    },
+    "motion_personality": {
+      "character": "string — one-line description of the motion personality this visual implies (e.g. 'precise and mechanical — everything snaps into place', 'fluid and organic — elements drift and settle naturally', 'playful and bouncy — elastic overshoots and squash-stretch', 'cinematic and dramatic — slow reveals with tension')",
+      "rhythm_and_timing": "string — how the motion would be paced: 'metronomic (even intervals)', 'musical (syncopated accents)', 'narrative (building to climax)', 'ambient (continuous gentle movement)', 'staccato (quick bursts with pauses)'",
+      "sound_design_implication": "string — what audio would accompany this motion: 'percussive hits', 'atmospheric wash', 'playful pops and clicks', 'cinematic score swell', 'silence (visual-only)', 'electronic/synthesized', 'natural/organic'"
+    },
+    "motion_narrative": "string — one-paragraph synthesis of the motion/animation assessment",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "reads_from_primitives": [
+    "spatial_structure",
+    "rhythm_pattern",
+    "hierarchy_flow",
+    "shape_language",
+    "color_system",
+    "imagery_mode"
+  ],
+
+  "dependencies": []
+}

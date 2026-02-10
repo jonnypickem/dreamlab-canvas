@@ -1,0 +1,877 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ImageGenerationVibe",
+    "description": "A comprehensive schema for defining image generation prompts with full control over aesthetics, vibes, composition, and technical parameters",
+    "version": "1.0.0",
+    "type": "object",
+    "required": [
+        "meta",
+        "subject",
+        "style"
+    ],
+    "properties": {
+        "meta": {
+            "type": "object",
+            "description": "Metadata about this vibe configuration",
+            "required": [
+                "name",
+                "intent"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for this vibe",
+                    "examples": [
+                        "Moody Product Shot",
+                        "Ethereal Portrait",
+                        "Cinematic Landscape"
+                    ]
+                },
+                "version": {
+                    "type": "string",
+                    "default": "1.0"
+                },
+                "intent": {
+                    "type": "string",
+                    "description": "The purpose or use case for this image",
+                    "examples": [
+                        "social media post",
+                        "product photography",
+                        "brand campaign",
+                        "editorial",
+                        "concept art"
+                    ]
+                },
+                "target_platform": {
+                    "type": "string",
+                    "description": "Intended AI model/platform",
+                    "enum": [
+                        "universal",
+                        "midjourney",
+                        "dalle",
+                        "flux",
+                        "stable-diffusion",
+                        "imagen",
+                        "ideogram",
+                        "runway",
+                        "leonardo"
+                    ]
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Searchable tags for organization"
+                }
+            }
+        },
+        "subject": {
+            "type": "object",
+            "description": "The main subject of the image - this gets priority weighting",
+            "required": [
+                "primary"
+            ],
+            "properties": {
+                "primary": {
+                    "type": "string",
+                    "description": "The main subject (person, object, scene). Be specific.",
+                    "examples": [
+                        "a young woman with red hair",
+                        "a vintage leather camera bag",
+                        "an abandoned Victorian mansion"
+                    ]
+                },
+                "action": {
+                    "type": "string",
+                    "description": "What the subject is doing",
+                    "examples": [
+                        "looking directly at camera",
+                        "walking through",
+                        "floating in mid-air",
+                        "emerging from shadows"
+                    ]
+                },
+                "expression_emotion": {
+                    "type": "string",
+                    "description": "Emotional state or expression (for characters/portraits)",
+                    "examples": [
+                        "contemplative",
+                        "joyful",
+                        "mysterious",
+                        "intense focus",
+                        "subtle smile",
+                        "melancholic"
+                    ]
+                },
+                "attire_appearance": {
+                    "type": "string",
+                    "description": "Clothing, accessories, or appearance details",
+                    "examples": [
+                        "wearing an oversized vintage coat",
+                        "minimalist jewelry",
+                        "tactical gear",
+                        "flowing silk dress"
+                    ]
+                },
+                "positioning": {
+                    "type": "string",
+                    "description": "Where/how the subject is placed in the scene",
+                    "enum": [
+                        "centered",
+                        "rule-of-thirds-left",
+                        "rule-of-thirds-right",
+                        "foreground",
+                        "background",
+                        "silhouette",
+                        "off-center"
+                    ]
+                },
+                "secondary_subjects": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Additional elements in the scene"
+                }
+            }
+        },
+        "context": {
+            "type": "object",
+            "description": "The environment, setting, and background",
+            "properties": {
+                "environment": {
+                    "type": "string",
+                    "description": "The overall setting/location",
+                    "examples": [
+                        "misty forest at dawn",
+                        "neon-lit Tokyo alley",
+                        "minimalist studio",
+                        "underwater coral reef"
+                    ]
+                },
+                "time_of_day": {
+                    "type": "string",
+                    "enum": [
+                        "golden hour",
+                        "blue hour",
+                        "midday",
+                        "sunset",
+                        "sunrise",
+                        "night",
+                        "twilight",
+                        "overcast",
+                        "midnight"
+                    ]
+                },
+                "weather_atmosphere": {
+                    "type": "string",
+                    "examples": [
+                        "foggy",
+                        "rainy",
+                        "stormy",
+                        "clear",
+                        "hazy",
+                        "dusty",
+                        "snow falling",
+                        "humid tropical"
+                    ]
+                },
+                "era_period": {
+                    "type": "string",
+                    "description": "Historical or futuristic time period",
+                    "examples": [
+                        "1920s Art Deco",
+                        "cyberpunk 2077",
+                        "Victorian era",
+                        "ancient Rome",
+                        "near-future",
+                        "medieval"
+                    ]
+                },
+                "background_treatment": {
+                    "type": "string",
+                    "enum": [
+                        "sharp detailed",
+                        "soft bokeh",
+                        "blurred",
+                        "solid color",
+                        "gradient",
+                        "environmental",
+                        "abstract"
+                    ]
+                }
+            }
+        },
+        "style": {
+            "type": "object",
+            "description": "The artistic style and visual treatment",
+            "required": [
+                "medium"
+            ],
+            "properties": {
+                "medium": {
+                    "type": "string",
+                    "description": "The type of image/art form",
+                    "enum": [
+                        "photograph",
+                        "digital art",
+                        "oil painting",
+                        "watercolor",
+                        "illustration",
+                        "3D render",
+                        "concept art",
+                        "sketch",
+                        "vector art",
+                        "collage",
+                        "film still",
+                        "product shot",
+                        "editorial photo",
+                        "portrait photography"
+                    ]
+                },
+                "art_movement": {
+                    "type": "string",
+                    "description": "Specific art movement or school",
+                    "examples": [
+                        "impressionism",
+                        "art nouveau",
+                        "bauhaus",
+                        "pop art",
+                        "surrealism",
+                        "minimalism",
+                        "baroque"
+                    ]
+                },
+                "genre": {
+                    "type": "string",
+                    "examples": [
+                        "fantasy",
+                        "sci-fi",
+                        "noir",
+                        "horror",
+                        "romance",
+                        "cyberpunk",
+                        "steampunk",
+                        "solarpunk",
+                        "cottagecore"
+                    ]
+                },
+                "artist_reference": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Artists whose style to reference (use sparingly)",
+                    "examples": [
+                        "in the style of Moebius",
+                        "reminiscent of Gregory Crewdson",
+                        "inspired by Studio Ghibli"
+                    ]
+                },
+                "rendering_style": {
+                    "type": "string",
+                    "enum": [
+                        "photorealistic",
+                        "hyperrealistic",
+                        "stylized",
+                        "painterly",
+                        "flat",
+                        "cel-shaded",
+                        "textured",
+                        "smooth"
+                    ]
+                }
+            }
+        },
+        "vibe": {
+            "type": "object",
+            "description": "The emotional and atmospheric qualities - the 'feel' of the image",
+            "properties": {
+                "mood": {
+                    "type": "string",
+                    "description": "Primary emotional tone",
+                    "examples": [
+                        "melancholic",
+                        "euphoric",
+                        "tense",
+                        "peaceful",
+                        "mysterious",
+                        "nostalgic",
+                        "ominous",
+                        "whimsical",
+                        "serene"
+                    ]
+                },
+                "energy": {
+                    "type": "string",
+                    "enum": [
+                        "calm",
+                        "dynamic",
+                        "chaotic",
+                        "static",
+                        "flowing",
+                        "explosive",
+                        "meditative",
+                        "electric"
+                    ]
+                },
+                "atmosphere": {
+                    "type": "string",
+                    "examples": [
+                        "ethereal",
+                        "gritty",
+                        "dreamlike",
+                        "raw",
+                        "polished",
+                        "intimate",
+                        "epic",
+                        "claustrophobic",
+                        "expansive"
+                    ]
+                },
+                "aesthetic": {
+                    "type": "string",
+                    "description": "Named aesthetic movement or trend",
+                    "examples": [
+                        "dark academia",
+                        "cottagecore",
+                        "vaporwave",
+                        "liminal space",
+                        "old money",
+                        "Y2K",
+                        "brutalist",
+                        "hygge",
+                        "wabi-sabi",
+                        "maximalist",
+                        "lo-fi",
+                        "avant-garde",
+                        "retro-futurism",
+                        "biophilic"
+                    ]
+                },
+                "emotional_keywords": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Additional mood descriptors",
+                    "examples": [
+                        "haunting",
+                        "hopeful",
+                        "visceral",
+                        "sublime",
+                        "tender",
+                        "unsettling"
+                    ]
+                }
+            }
+        },
+        "composition": {
+            "type": "object",
+            "description": "Technical composition and framing",
+            "properties": {
+                "shot_type": {
+                    "type": "string",
+                    "enum": [
+                        "extreme close-up",
+                        "close-up",
+                        "medium close-up",
+                        "medium shot",
+                        "medium wide",
+                        "wide shot",
+                        "extreme wide",
+                        "full body",
+                        "three-quarter",
+                        "bust shot",
+                        "establishing shot"
+                    ]
+                },
+                "camera_angle": {
+                    "type": "string",
+                    "enum": [
+                        "eye level",
+                        "low angle",
+                        "high angle",
+                        "bird's eye",
+                        "worm's eye",
+                        "dutch angle",
+                        "overhead",
+                        "frontal",
+                        "profile",
+                        "three-quarter view"
+                    ]
+                },
+                "perspective": {
+                    "type": "string",
+                    "enum": [
+                        "one-point",
+                        "two-point",
+                        "three-point",
+                        "isometric",
+                        "forced perspective",
+                        "fish-eye",
+                        "panoramic"
+                    ]
+                },
+                "depth_of_field": {
+                    "type": "string",
+                    "enum": [
+                        "shallow (f/1.4-2.8)",
+                        "medium (f/4-8)",
+                        "deep (f/11-22)",
+                        "tilt-shift",
+                        "selective focus"
+                    ]
+                },
+                "aspect_ratio": {
+                    "type": "string",
+                    "enum": [
+                        "1:1",
+                        "4:5",
+                        "3:4",
+                        "16:9",
+                        "21:9",
+                        "2:3",
+                        "9:16",
+                        "4:3"
+                    ]
+                },
+                "framing_guides": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "rule of thirds",
+                            "golden ratio",
+                            "symmetrical",
+                            "leading lines",
+                            "frame within frame",
+                            "negative space",
+                            "diagonal"
+                        ]
+                    }
+                }
+            }
+        },
+        "lighting": {
+            "type": "object",
+            "description": "Lighting setup and quality",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "natural light",
+                        "studio lighting",
+                        "ambient",
+                        "dramatic",
+                        "flat",
+                        "rim lighting",
+                        "backlighting",
+                        "side lighting",
+                        "rembrandt",
+                        "butterfly",
+                        "split lighting",
+                        "loop lighting",
+                        "broad lighting"
+                    ]
+                },
+                "quality": {
+                    "type": "string",
+                    "enum": [
+                        "soft diffused",
+                        "hard direct",
+                        "dappled",
+                        "specular",
+                        "wraparound",
+                        "contrasty"
+                    ]
+                },
+                "direction": {
+                    "type": "string",
+                    "enum": [
+                        "front",
+                        "side",
+                        "back",
+                        "top",
+                        "bottom",
+                        "45-degree",
+                        "ambient"
+                    ]
+                },
+                "mood_lighting": {
+                    "type": "string",
+                    "examples": [
+                        "chiaroscuro",
+                        "high-key",
+                        "low-key",
+                        "volumetric",
+                        "god rays",
+                        "neon glow",
+                        "candlelit",
+                        "moonlit"
+                    ]
+                },
+                "color_temperature": {
+                    "type": "string",
+                    "enum": [
+                        "warm (golden)",
+                        "cool (blue)",
+                        "neutral",
+                        "mixed",
+                        "tungsten",
+                        "daylight",
+                        "fluorescent"
+                    ]
+                },
+                "special_effects": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "examples": [
+                        "lens flare",
+                        "light leaks",
+                        "caustics",
+                        "god rays",
+                        "bokeh orbs",
+                        "light streaks"
+                    ]
+                }
+            }
+        },
+        "color": {
+            "type": "object",
+            "description": "Color palette and treatment",
+            "properties": {
+                "palette": {
+                    "type": "string",
+                    "description": "Overall color approach",
+                    "enum": [
+                        "vibrant",
+                        "muted",
+                        "pastel",
+                        "saturated",
+                        "desaturated",
+                        "monochromatic",
+                        "complementary",
+                        "analogous",
+                        "triadic"
+                    ]
+                },
+                "dominant_colors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Primary colors in the image",
+                    "examples": [
+                        "deep teal",
+                        "burnt orange",
+                        "dusty rose",
+                        "forest green"
+                    ]
+                },
+                "accent_colors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Pop or highlight colors"
+                },
+                "color_grade": {
+                    "type": "string",
+                    "description": "Film/photo color grading style",
+                    "examples": [
+                        "teal and orange",
+                        "lifted blacks",
+                        "crushed shadows",
+                        "cross-processed",
+                        "film emulation"
+                    ]
+                },
+                "film_stock": {
+                    "type": "string",
+                    "description": "Specific film stock emulation",
+                    "examples": [
+                        "Kodak Portra 400",
+                        "Fujifilm Pro 400H",
+                        "Cinestill 800T",
+                        "Kodak Ektar 100",
+                        "Ilford HP5"
+                    ]
+                }
+            }
+        },
+        "texture_detail": {
+            "type": "object",
+            "description": "Surface qualities and detail level",
+            "properties": {
+                "detail_level": {
+                    "type": "string",
+                    "enum": [
+                        "ultra-detailed",
+                        "highly detailed",
+                        "moderately detailed",
+                        "simplified",
+                        "minimal",
+                        "abstract"
+                    ]
+                },
+                "surface_quality": {
+                    "type": "string",
+                    "examples": [
+                        "smooth",
+                        "rough",
+                        "glossy",
+                        "matte",
+                        "metallic",
+                        "organic",
+                        "weathered",
+                        "pristine"
+                    ]
+                },
+                "texture_effects": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "examples": [
+                        "film grain",
+                        "noise",
+                        "canvas texture",
+                        "paper texture",
+                        "digital artifacts",
+                        "halftone"
+                    ]
+                },
+                "imperfections": {
+                    "type": "string",
+                    "description": "Intentional flaws for authenticity",
+                    "examples": [
+                        "light dust",
+                        "subtle scratches",
+                        "chromatic aberration",
+                        "vignette",
+                        "motion blur"
+                    ]
+                }
+            }
+        },
+        "technical": {
+            "type": "object",
+            "description": "Camera and rendering technical specifications",
+            "properties": {
+                "camera_model": {
+                    "type": "string",
+                    "description": "Specific camera for style reference",
+                    "examples": [
+                        "shot on Hasselblad",
+                        "Canon EOS R5",
+                        "Leica M10",
+                        "iPhone 15 Pro",
+                        "RED Komodo"
+                    ]
+                },
+                "lens": {
+                    "type": "string",
+                    "examples": [
+                        "35mm",
+                        "50mm f/1.4",
+                        "85mm portrait lens",
+                        "24-70mm zoom",
+                        "fisheye",
+                        "anamorphic"
+                    ]
+                },
+                "resolution_quality": {
+                    "type": "string",
+                    "enum": [
+                        "8K",
+                        "4K",
+                        "high resolution",
+                        "medium resolution",
+                        "stylized low-res"
+                    ]
+                },
+                "render_engine": {
+                    "type": "string",
+                    "description": "For 3D/CGI styles",
+                    "examples": [
+                        "Octane render",
+                        "Unreal Engine 5",
+                        "Cinema 4D",
+                        "Blender Cycles",
+                        "V-Ray"
+                    ]
+                }
+            }
+        },
+        "text_overlay": {
+            "type": "object",
+            "description": "Text to be rendered in the image",
+            "properties": {
+                "text_content": {
+                    "type": "string",
+                    "description": "The actual text to display (keep under 25 chars for best results)"
+                },
+                "font_style": {
+                    "type": "string",
+                    "examples": [
+                        "bold sans-serif",
+                        "elegant script",
+                        "vintage serif",
+                        "hand-lettered",
+                        "neon sign"
+                    ]
+                },
+                "placement": {
+                    "type": "string",
+                    "enum": [
+                        "top-center",
+                        "bottom-center",
+                        "centered",
+                        "top-left",
+                        "top-right",
+                        "bottom-left",
+                        "bottom-right",
+                        "integrated"
+                    ]
+                },
+                "treatment": {
+                    "type": "string",
+                    "examples": [
+                        "embossed",
+                        "glowing",
+                        "metallic",
+                        "shadowed",
+                        "outlined"
+                    ]
+                }
+            }
+        },
+        "constraints": {
+            "type": "object",
+            "description": "What to preserve and what to exclude",
+            "properties": {
+                "must_include": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Elements that must appear in the image"
+                },
+                "must_exclude": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Negative prompt - elements to avoid",
+                    "examples": [
+                        "watermark",
+                        "text",
+                        "blurry",
+                        "extra fingers",
+                        "deformed",
+                        "low quality",
+                        "oversaturated"
+                    ]
+                },
+                "preserve": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "For edits: elements that must remain unchanged",
+                    "examples": [
+                        "face identity",
+                        "brand colors",
+                        "product shape",
+                        "background",
+                        "lighting direction"
+                    ]
+                },
+                "brand_guidelines": {
+                    "type": "object",
+                    "description": "Brand-specific requirements",
+                    "properties": {
+                        "colors": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "fonts": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "style_keywords": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "references": {
+            "type": "object",
+            "description": "Reference images and style sources",
+            "properties": {
+                "style_reference": {
+                    "type": "string",
+                    "description": "URL or description of style reference image"
+                },
+                "composition_reference": {
+                    "type": "string",
+                    "description": "URL or description of composition to follow"
+                },
+                "character_reference": {
+                    "type": "string",
+                    "description": "URL or description for character consistency"
+                },
+                "mood_board": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Collection of reference images/URLs"
+                }
+            }
+        },
+        "output": {
+            "type": "object",
+            "description": "Output specifications and variations",
+            "properties": {
+                "variations_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 4
+                },
+                "seed": {
+                    "type": "integer",
+                    "description": "For reproducible generation"
+                },
+                "quality_setting": {
+                    "type": "string",
+                    "enum": [
+                        "draft",
+                        "standard",
+                        "high",
+                        "ultra"
+                    ]
+                },
+                "stylize_strength": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000,
+                    "description": "How much to prioritize style vs prompt accuracy"
+                }
+            }
+        }
+    }
+}

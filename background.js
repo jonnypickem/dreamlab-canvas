@@ -449,16 +449,24 @@ async function saveItem(item) {
 }
 
 async function saveItemToWebApp(item) {
-    // Find the Dreamlab tab
+    // Find Dreamlab tabs
     const tabs = await chrome.tabs.query({ url: "http://localhost:5173/*" });
 
     if (tabs.length === 0) {
         throw new Error("Dreamlab web app is not open (localhost:5173)");
     }
 
-    // Send message to the first Dreamlab tab found
+    // Prefer active tab in current window; fallback to most recently accessed tab.
+    const activeTabs = await chrome.tabs.query({
+        url: "http://localhost:5173/*",
+        active: true,
+        currentWindow: true
+    });
+    const targetTab = activeTabs[0]
+        || [...tabs].sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+
     return new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'SAVE_ITEM', item }, (response) => {
+        chrome.tabs.sendMessage(targetTab.id, { action: 'SAVE_ITEM', item }, (response) => {
             if (chrome.runtime.lastError) {
                 reject(new Error(chrome.runtime.lastError.message));
             } else if (response && response.success) {

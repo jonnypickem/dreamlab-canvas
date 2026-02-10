@@ -1,0 +1,99 @@
+{
+  "lens": "editorial_publication",
+  "lens_type": "domain",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "Reinterprets primitive data through the lens of editorial and publication design — reading visual signals as narrative pacing, reading experience, content-image relationships, typographic voice, and publication identity.",
+
+  "gemini_instructions": {
+    "role": "You are an editorial and publication design analyst for a visual design intelligence platform. You receive pre-extracted primitive data and reinterpret it as editorial design decisions. You think like a magazine art director or book designer.",
+    "task": "Given the primitive analysis data and the original image, produce an editorial design interpretation matching the output_schema below. Read the visual language as publication decisions — how typography carries editorial voice, how imagery and text relate, how the page invites reading, and how the design serves long-form content.",
+    "rules": [
+      "Use primitive data as your visual fact base. Add editorial-specific interpretation on top.",
+      "Editorial hierarchy is different from marketing hierarchy — it serves sustained reading, not quick conversion.",
+      "The relationship between text and image in editorial design is a core concern: does imagery lead, support, or compete with text?",
+      "Pacing is about the rhythm of a reading experience — dense spreads vs breathing spreads, image-heavy vs text-heavy sequences.",
+      "Voice and tone should assess what kind of publication this feels like — academic journal, lifestyle magazine, literary review, newspaper, zine, coffee-table book.",
+      "If the image is not an editorial piece, but contains visual language that could inform publication design, analyze it through that lens."
+    ]
+  },
+
+  "output_schema": {
+    "publication_classification": {
+      "type": "string — magazine | newspaper | book-cover | book-interior | journal | zine | catalog | annual-report | brochure | newsletter | editorial-web | not-editorial",
+      "genre": "string — lifestyle | fashion | news | literary | academic | technical | arts-culture | business | food-travel | design | general-interest | independent-niche | other",
+      "format_feel": "string — premium-glossy | matte-refined | newsprint-urgent | indie-raw | digital-clean | archival-scholarly | coffee-table-lush"
+    },
+    "reading_experience": {
+      "invitation_to_read": "string — high (design draws you into the text) | moderate (text is accessible but not actively inviting) | low (design prioritizes visual over reading) | hostile (design actively fights readability)",
+      "reading_pace": "string — contemplative (generous spacing, slow reading encouraged) | comfortable (standard reading pace) | brisk (dense but scannable) | urgent (compressed, fast information delivery)",
+      "text_image_relationship": {
+        "dominance": "string — text-dominant | image-dominant | balanced | integrated (text and image fused)",
+        "interaction_mode": "string — 'image illustrates text' | 'text annotates image' | 'equal partners' | 'text overlays image' | 'image as background for text' | 'image and text in separate zones' | 'text as image (typographic poster)'",
+        "tension_or_harmony": "string — harmonious (text and image support each other) | creative-tension (deliberate contrast) | competitive (both demand attention) | disconnected (unrelated)"
+      },
+      "entry_points_for_scanning": {
+        "present": "boolean — true if there are elements designed for non-linear entry (pull quotes, sidebars, callouts, captions)",
+        "types": [
+          "string — 'pull-quote', 'sidebar', 'callout-box', 'caption', 'deck/standfirst', 'drop-cap', 'subheadings', 'highlighted-text', 'numbered-sections', 'none'"
+        ],
+        "scanning_friendliness": "string — highly-scannable | moderately-scannable | linear-only (must read sequentially) | not-applicable"
+      }
+    },
+    "typographic_editorial_voice": {
+      "editorial_register": "string — authoritative-broadsheet | intimate-literary | energetic-pop | cool-sophisticated | academic-serious | raw-underground | warm-accessible | provocative-experimental",
+      "column_structure": {
+        "columns": "string — single-column | two-column | three-column | multi-column | asymmetric | grid-based | free-form",
+        "column_width": "string — narrow (high line count per column, newspaper feel) | moderate (comfortable reading measure) | wide (long lines, book-like) | variable",
+        "justified_or_ragged": "string — justified | ragged-right | ragged-left | centered | mixed"
+      },
+      "body_text_assessment": {
+        "readability": "string — excellent | good | adequate | poor | not-present",
+        "measure_comfort": "string — optimal (45-75 characters per line feel) | narrow | wide | variable",
+        "leading_generosity": "string — generous | comfortable | tight | compressed"
+      },
+      "headline_treatment": {
+        "style": "string — restrained-classic | bold-dramatic | experimental-display | quiet-elegant | urgent-news | playful | functional",
+        "integration": "string — how the headline relates to the page: 'anchors the page', 'bleeds across columns', 'sits quietly above text', 'wraps around image', 'IS the page (typographic poster)'"
+      }
+    },
+    "visual_storytelling": {
+      "narrative_arc_on_page": "string — whether the page layout creates a story: 'sequential (guided narrative)', 'single-impact (one powerful moment)', 'layered (multiple stories coexist)', 'mosaic (many fragments)', 'textual (story lives in words, not layout)'",
+      "image_editorial_role": [
+        {
+          "role": "string — 'hero/lead image', 'documentary evidence', 'atmospheric/mood', 'portrait', 'detail/close-up', 'infographic/data', 'decorative', 'typographic illustration'",
+          "sizing": "string — full-bleed | half-page | quarter-page | inline | thumbnail | vignette",
+          "caption_relationship": "string — captioned | uncaptioned | caption-as-design-element | not-applicable"
+        }
+      ],
+      "white_space_as_editorial_tool": "string — how whitespace serves the editorial experience: 'creates breathing room for dense content', 'signals premium quality', 'isolates key visual for impact', 'provides rest between sections', 'minimal — content fills all available space'"
+    },
+    "publication_system_potential": {
+      "template_extractable": "string — whether this page suggests a repeatable template: 'yes (clear grid and component system)', 'partially (some reusable elements)', 'no (bespoke one-off layout)'",
+      "multi_page_coherence": "string — how well this design language would sustain across many pages: 'strong system (could run 200 pages)', 'moderate (works for a section)', 'limited (one-off spread)', 'unknown'",
+      "masthead_and_navigation": {
+        "publication_identity_visible": "boolean — whether the publication's own branding is present",
+        "wayfinding_elements": [
+          "string — 'page numbers', 'section headers', 'running headers/footers', 'folio lines', 'color-coded sections', 'none visible'"
+        ]
+      }
+    },
+    "editorial_narrative": "string — one-paragraph synthesis of the editorial design assessment",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "reads_from_primitives": [
+    "typography_behavior",
+    "spatial_structure",
+    "hierarchy_flow",
+    "rhythm_pattern",
+    "color_system",
+    "imagery_mode"
+  ],
+
+  "dependencies": []
+}

@@ -5,8 +5,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (window.location.origin === 'http://localhost:5173') {
                 const STORAGE_KEY = 'dreamlab_items';
                 const ACTIVE_CTX_KEY = 'dreamlab_active_context';
+                const COLLECTIONS_KEY = 'dreamlab_collections';
                 const items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
                 const activeCtx = JSON.parse(localStorage.getItem(ACTIVE_CTX_KEY) || '{}');
+                const collections = JSON.parse(localStorage.getItem(COLLECTIONS_KEY) || '[]');
+
+                const resolvedWorkspaceId = request.item.workspaceId !== undefined
+                    ? request.item.workspaceId
+                    : (activeCtx.workspaceId || null);
+
+                const resolvedProjectId = request.item.projectId !== undefined
+                    ? request.item.projectId
+                    : (activeCtx.projectId || null);
+
+                // Prefer explicit collectionId; otherwise inherit active context collection
+                // only if it belongs to the resolved project.
+                let resolvedCollectionId = request.item.collectionId !== undefined
+                    ? request.item.collectionId
+                    : (activeCtx.collectionId || null);
+
+                if (resolvedCollectionId) {
+                    const belongsToProject = collections.some(
+                        (collection) => collection.id === resolvedCollectionId && collection.projectId === resolvedProjectId
+                    );
+                    if (!belongsToProject) {
+                        resolvedCollectionId = null;
+                    }
+                }
 
                 const newItem = {
                     ...request.item,
@@ -16,8 +41,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     // 1. If explicit value (from popup), use it.
                     // 2. If explicit NULL (from popup 'Select Project' -> null), use null.
                     // 3. If UNDEFINED (from context menu/shortcut), use Active Context.
-                    workspaceId: request.item.workspaceId !== undefined ? request.item.workspaceId : (activeCtx.workspaceId || null),
-                    projectId: request.item.projectId !== undefined ? request.item.projectId : (activeCtx.projectId || null),
+                    workspaceId: resolvedWorkspaceId,
+                    projectId: resolvedProjectId,
+                    collectionId: resolvedCollectionId,
 
                     // Mark for tagging processing in the main app
                     needsTagging: true

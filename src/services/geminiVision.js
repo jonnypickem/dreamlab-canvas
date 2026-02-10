@@ -29,7 +29,10 @@ Example output: midnight-blue, lavender-purple, slate-grey, white-background, br
  * Get API key from settings or environment
  */
 function getApiKey() {
-    // First check localStorage settings
+    const envKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+    if (envKey) return envKey;
+
+    // Fall back to localStorage settings
     try {
         const settings = JSON.parse(localStorage.getItem('autoTaggingSettings') || '{}');
         if (settings.geminiApiKey) {
@@ -39,8 +42,7 @@ function getApiKey() {
         console.warn('Failed to read settings:', e);
     }
 
-    // Fall back to environment variable
-    return import.meta.env.VITE_GEMINI_API_KEY || '';
+    return '';
 }
 
 /**

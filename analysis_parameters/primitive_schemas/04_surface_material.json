@@ -1,0 +1,86 @@
+{
+  "schema_block": "surface_material",
+  "version": "1.0.0",
+  "stage": "A",
+  "cost_tier": "low",
+  "description": "Extracts the material, textural, and surface qualities present in an image — the tactile and physical dimension of the visual, whether real or simulated.",
+
+  "gemini_instructions": {
+    "role": "You are a surface and material analysis system for a visual design intelligence platform. Your job is to identify and describe the textural, material, and physical surface qualities communicated by an image.",
+    "task": "Analyze the provided image and return a JSON object matching the output_schema below. Focus on what the image communicates about physicality, texture, and material quality — whether those materials are real (photographed), simulated (rendered/illustrated), or metaphorical (a flat design that evokes paper or glass).",
+    "rules": [
+      "Distinguish between actual photographed materials and digitally simulated/illustrated materials. Both are valid but should be labeled differently.",
+      "Texture is not just 'rough or smooth' — describe the specific character (e.g. 'brushed aluminum', 'hand-pressed letterpress impression', 'watercolor paper tooth', 'pixel-perfect flat').",
+      "Even purely digital/flat designs have surface qualities — a flat UI has 'digital smooth' or 'screen-native' surface. Don't return empty results for non-physical images.",
+      "Finish describes the perceived surface coating or treatment: matte, glossy, satin, metallic, holographic, uncoated, etc.",
+      "Depth_cues describes how the surface communicates dimension — shadows, highlights, bevels, embossing, parallax, or deliberate flatness.",
+      "Material_references should capture what real-world materials the image evokes, even if abstract (e.g. an illustration might evoke 'torn paper collage' or 'spray paint on concrete').",
+      "If multiple distinct materials are present, list them in order of visual prominence.",
+      "Tactile_impression is the most subjective field — describe what it would feel like to touch this image if it were physical."
+    ]
+  },
+
+  "output_schema": {
+    "primary_surface": {
+      "material": "string — the dominant material or surface quality (e.g. 'kraft paper', 'glass', 'brushed metal', 'digital flat', 'watercolor wash', 'concrete')",
+      "origin": "string — photographed | rendered | illustrated | digital-native | mixed",
+      "texture_character": "string — specific description of the texture quality (e.g. 'fine grain with visible fiber', 'perfectly smooth with specular highlights', 'rough impasto with visible brush strokes')",
+      "area_dominance": "string — how much of the image this surface dominates: dominant | major | partial"
+    },
+    "secondary_surfaces": [
+      {
+        "material": "string",
+        "origin": "string — photographed | rendered | illustrated | digital-native",
+        "texture_character": "string",
+        "relationship_to_primary": "string — how this surface interacts with the primary (e.g. 'overlaid on top', 'contained within', 'contrasting border', 'background behind')"
+      }
+    ],
+    "finish": {
+      "type": "string — matte | glossy | satin | metallic | holographic | iridescent | uncoated | mixed | digital-flat",
+      "uniformity": "string — uniform (same finish throughout) | varied (different finishes for different elements) | gradient (finish transitions across the image)",
+      "premium_signals": "string | null — any finish qualities that signal luxury, craft, or premium production (e.g. 'foil stamp accent', 'spot UV effect', 'embossed texture', 'none')"
+    },
+    "depth_cues": {
+      "dimensionality": "string — flat | subtle-depth | moderate-depth | high-depth | trompe-loeil",
+      "methods": [
+        "string — how depth is communicated: 'drop-shadow', 'inner-shadow', 'bevel', 'emboss', 'parallax-layers', 'atmospheric-haze', 'highlight-and-shadow', 'cast-shadow', 'blur-depth-of-field', 'deliberate-flatness', 'none'"
+      ],
+      "elevation_system": "string | null — if a Material Design or card-style elevation system is present, describe it"
+    },
+    "texture_density": {
+      "level": "string — none (perfectly clean) | subtle | moderate | heavy | overwhelming",
+      "distribution": "string — uniform | localized | gradient | random",
+      "noise_or_grain": {
+        "present": "boolean",
+        "type": "string | null — film-grain | digital-noise | paper-grain | halftone | stipple | none",
+        "intensity": "string | null — subtle | moderate | heavy"
+      }
+    },
+    "material_references": [
+      {
+        "material": "string — real-world material this evokes (e.g. 'recycled cardboard', 'silk fabric', 'wet clay', 'frosted glass', 'chalkboard')",
+        "confidence": "number — 0.0 to 1.0 for how clearly this material is referenced",
+        "evoked_or_literal": "string — literal (actually that material) | evoked (suggests that material through visual treatment)"
+      }
+    ],
+    "tactile_impression": "string — what this image would feel like if physical (e.g. 'cool and smooth like polished stone', 'rough and warm like sun-baked terracotta', 'crisp and clean like fresh printer paper', 'soft and fuzzy like felted wool')",
+    "production_signals": {
+      "print_or_screen": "string — designed-for-print | designed-for-screen | ambiguous | physical-object",
+      "production_methods_evoked": [
+        "string — any production techniques the image references or simulates: 'letterpress', 'screen-print', 'risograph', 'offset-litho', 'digital-print', 'hand-painted', 'spray-paint', 'woodblock', 'engraving', 'photographic', '3d-render', 'vector-flat', 'none-apparent'"
+      ]
+    },
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string — caveats about material/surface analysis"
+    }
+  },
+
+  "failure_conditions": [
+    "Image is too low resolution to discern texture detail",
+    "Image is heavily compressed, destroying surface information",
+    "Image is a simple wireframe or line drawing with no surface qualities to analyze"
+  ],
+
+  "dependencies": []
+}

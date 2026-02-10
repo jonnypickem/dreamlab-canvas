@@ -7,7 +7,11 @@ import { saveItem, getProject, getWorkspaces, updateItem } from '../lib/storage'
 import { extractAllMetadataTags } from './metadataExtractor';
 import { interpretMetadata } from '../services/geminiText';
 import { analyzeImageObjective, analyzeImageWithContext } from '../services/geminiVision';
+import { queueStageAPrimitiveAnalysis } from '../services/primitiveAnalysis';
 import { imageToBase64 } from './imageProxy';
+
+const TEMP_DISABLE_LEGACY_VISION_ANALYSIS = true;
+const USE_PRIMITIVE_PIPELINE_ONLY = true;
 
 // Toast callback for notifications
 let toastCallback = null;
@@ -75,7 +79,7 @@ export async function saveItemWithTags(item, projectOrId = null) {
     }
 
     // Step 2: Smart tier - LLM interprets metadata
-    if (['smart', 'ultra'].includes(intelligenceLevel) && item.sourceUrl) {
+    if (!USE_PRIMITIVE_PIPELINE_ONLY && ['smart', 'ultra'].includes(intelligenceLevel) && item.sourceUrl) {
         try {
             const filename = item.sourceUrl.split('/').pop() || '';
             const smartTags = await interpretMetadata(item.sourceUrl, filename);
@@ -101,8 +105,13 @@ export async function saveItemWithTags(item, projectOrId = null) {
     // Step 5: Save immediately
     const savedItem = saveItem(itemWithTags, project);
 
+    // Stage A primitives run for every image in background.
+    if (savedItem.type === 'image') {
+        queueStageAPrimitiveAnalysis(savedItem);
+    }
+
     // Step 6: Deep/Ultra - queue vision analysis (background)
-    if (['deep', 'ultra'].includes(intelligenceLevel) && item.type === 'image') {
+    if (!TEMP_DISABLE_LEGACY_VISION_ANALYSIS && ['deep', 'ultra'].includes(intelligenceLevel) && item.type === 'image') {
         queueForVisionAnalysis(savedItem, project);
     }
 
@@ -134,7 +143,7 @@ export async function processItemTags(item) {
     }
 
     // Step 2: Smart tier
-    if (['smart', 'ultra'].includes(intelligenceLevel) && item.sourceUrl) {
+    if (!USE_PRIMITIVE_PIPELINE_ONLY && ['smart', 'ultra'].includes(intelligenceLevel) && item.sourceUrl) {
         try {
             const filename = item.sourceUrl.split('/').pop() || '';
             const smartTags = await interpretMetadata(item.sourceUrl, filename);
@@ -162,15 +171,13 @@ export async function processItemTags(item) {
 
     updateItem(item.id, updates);
 
-    // ⚡ Vibe extraction — runs for ALL images regardless of intelligence tier
-    if (item.type === 'image' && item.projectId) {
-        import('../services/vibeEngine').then(({ extractVibeFromImage }) => {
-            extractVibeFromImage({ ...item, ...updates }, item.projectId, 'standard');
-        }).catch(e => console.warn('Vibe extraction skipped:', e));
+    // Stage A primitives run for every image in background.
+    if (item.type === 'image') {
+        queueStageAPrimitiveAnalysis({ ...item, ...updates });
     }
 
     // Step 4: Queue vision analysis if needed
-    if (['deep', 'ultra'].includes(intelligenceLevel) && item.type === 'image') {
+    if (!TEMP_DISABLE_LEGACY_VISION_ANALYSIS && ['deep', 'ultra'].includes(intelligenceLevel) && item.type === 'image') {
         const project = item.projectId ? getProject(item.projectId) : null;
         // Re-fetch item to ensure we have latest state
         const freshItem = { ...item, ...updates };

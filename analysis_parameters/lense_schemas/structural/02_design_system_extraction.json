@@ -1,0 +1,153 @@
+{
+  "lens": "design_system_extraction",
+  "lens_type": "structural",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "high",
+  "description": "Extracts concrete, reusable design system rules from visual analysis — tokens, scales, component patterns, and constraints that could form the basis of a design system or style guide. This is the most actionable structural lens: its output is implementation-ready rules.",
+
+  "gemini_instructions": {
+    "role": "You are a design system architect for a visual design intelligence platform. You receive pre-extracted primitive data and translate it into concrete, implementable design tokens, rules, and specifications. You think like a design systems engineer who needs to codify visual decisions into reusable parts.",
+    "task": "Given the primitive analysis data and the original image (or collection), produce a design system extraction matching the output_schema below. Your job is to go from 'this is what it looks like' to 'these are the rules that produce it.' Every output should be specific enough to implement in code or a design tool.",
+    "rules": [
+      "Be SPECIFIC. 'Use blue' is worthless. '#1A2B4D as primary background, #C5935A as accent, always at minimum 4.5:1 contrast ratio' is useful.",
+      "Extract SCALES, not just values. If you see 3 text sizes, extrapolate the scale (e.g. 'type scale follows ~1.333 ratio: 14, 18, 24, 32, 42').",
+      "Token naming should follow common design system conventions (e.g. color.background.primary, typography.heading.1, spacing.md).",
+      "Rules should be testable — someone should be able to look at a design and say 'this follows the rules' or 'this breaks rule #3.'",
+      "Distinguish between hard rules (must always follow) and soft guidelines (should generally follow, flex allowed).",
+      "When extracting from a collection of images, identify which rules are consistent across ALL images vs specific to some.",
+      "Include constraint rules — things you should NOT do — as well as positive rules."
+    ]
+  },
+
+  "output_schema": {
+    "color_tokens": {
+      "palette": [
+        {
+          "token": "string — token name following convention (e.g. 'color.primary', 'color.surface.dark', 'color.accent.gold')",
+          "value": "string — hex value",
+          "role": "string — what this color is used for",
+          "usage_rule": "string — when and how to use this color"
+        }
+      ],
+      "color_rules": [
+        "string — specific rules governing color usage (e.g. 'never use gold on light backgrounds — gold is always on dark ground', 'background surfaces are always in the navy-to-black range', 'white/cream text only — never dark text on light backgrounds')"
+      ],
+      "forbidden_colors": [
+        "string — colors that would break the system (e.g. 'no bright primary reds, blues, or greens — only the specified palette', 'no pure white (#FFFFFF) — always use warm off-white')"
+      ]
+    },
+    "typography_tokens": {
+      "type_scale": {
+        "scale_ratio": "string — the mathematical relationship between sizes (e.g. '1.333 perfect fourth', '1.5 perfect fifth', 'custom/irregular')",
+        "sizes": [
+          {
+            "token": "string — token name (e.g. 'typography.display', 'typography.heading.1', 'typography.body', 'typography.caption')",
+            "size_estimate": "string — estimated size (e.g. '48px', '32px', '16px', '12px')",
+            "weight": "string — bold | semibold | medium | regular | light",
+            "case": "string — uppercase | lowercase | title-case | sentence-case",
+            "tracking": "string — tight | normal | wide | very-wide",
+            "leading": "string — tight | normal | generous"
+          }
+        ]
+      },
+      "typeface_recommendations": [
+        {
+          "role": "string — display | heading | body | accent | functional",
+          "category": "string — serif | sans-serif | display | mono | etc",
+          "specific_suggestions": [
+            "string — named typeface suggestions that match the extracted style"
+          ],
+          "critical_characteristics": "string — what properties the typeface MUST have to work (e.g. 'must have high stroke contrast and sharp serifs', 'must have a full weight range from light to bold')"
+        }
+      ],
+      "typography_rules": [
+        "string — specific rules (e.g. 'headlines are always uppercase with 0.15em tracking', 'body text is always sentence case, never uppercase', 'maximum two typefaces in any single composition')"
+      ]
+    },
+    "spacing_tokens": {
+      "base_unit": "string — estimated base spacing unit (e.g. '4px', '8px')",
+      "scale": [
+        {
+          "token": "string — e.g. 'spacing.xs', 'spacing.sm', 'spacing.md', 'spacing.lg', 'spacing.xl'",
+          "value": "string — estimated pixel value",
+          "usage": "string — where this spacing is typically used"
+        }
+      ],
+      "spacing_rules": [
+        "string — rules governing spacing (e.g. 'minimum padding inside containers is spacing.md', 'gap between major sections is always spacing.xl', 'text never touches container edges — always minimum spacing.sm padding')"
+      ]
+    },
+    "shape_tokens": {
+      "border_radius": {
+        "default": "string — the standard corner radius (e.g. '0px (sharp)', '4px', '8px', '16px', 'full-round')",
+        "scale": "string | null — if multiple radii are used, describe the scale",
+        "rules": [
+          "string — e.g. 'all containers use sharp corners', 'buttons are full-round (pill)', 'cards use 4px radius'"
+        ]
+      },
+      "border_and_dividers": {
+        "border_weight": "string — standard border weight (e.g. '1px', '2px', 'none — use shadow/elevation instead')",
+        "border_color": "string — standard border color",
+        "divider_style": "string — how sections are divided: 'lines', 'spacing-only', 'color-change', 'ornamental-borders', 'none'"
+      },
+      "shape_rules": [
+        "string — rules about shape usage (e.g. 'ornamental frames use nested rectangles with corner details', 'circular elements are reserved for seals and badges', 'no rounded rectangles — either sharp or fully round')"
+      ]
+    },
+    "elevation_and_depth_tokens": {
+      "levels": [
+        {
+          "token": "string — e.g. 'elevation.flat', 'elevation.raised', 'elevation.floating', 'elevation.overlay'",
+          "method": "string — how this level is achieved (e.g. 'no shadow, same surface', 'subtle inner shadow', 'drop-shadow + slight scale', 'heavy shadow + blur backdrop')",
+          "usage": "string — when to use this level"
+        }
+      ],
+      "depth_rules": [
+        "string — rules about depth and layering"
+      ]
+    },
+    "component_patterns": [
+      {
+        "pattern_name": "string — reusable pattern identified (e.g. 'bordered-content-panel', 'circular-seal', 'ornamental-header', 'metallic-badge', 'framed-image-container')",
+        "structure": "string — how the component is built",
+        "variants": "string — what variations exist",
+        "tokens_used": [
+          "string — which design tokens this component uses"
+        ],
+        "usage_context": "string — when to use this pattern"
+      }
+    ],
+    "constraint_rules": [
+      {
+        "rule": "string — a specific DON'T rule (e.g. 'never leave surfaces empty — fill with texture, pattern, or ornament', 'never use more than 3 hierarchy levels per composition')",
+        "severity": "string — hard (breaking this destroys the system) | soft (breaking this weakens but doesn't destroy)",
+        "rationale": "string — why this constraint exists"
+      }
+    ],
+    "system_completeness": {
+      "coverage": "string — how much of a design system these tokens could cover: 'comprehensive (could build full product)', 'substantial (covers core needs)', 'partial (key areas covered, gaps remain)', 'foundational (enough to start, much to add)'",
+      "gaps_identified": [
+        "string — what's missing from the token set (e.g. 'no error/success/warning states defined', 'no responsive behavior rules', 'no dark/light mode variants', 'no motion/animation tokens')"
+      ],
+      "implementation_ready": "string — how close these tokens are to implementation: 'ready (could export to code today)', 'near-ready (needs minor refinement)', 'directional (needs significant work to implement)', 'conceptual (useful for guidance, not direct implementation)'"
+    },
+    "extraction_narrative": "string — one-paragraph summary of the design system extraction",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "reads_from_primitives": [
+    "color_system",
+    "typography_behavior",
+    "spatial_structure",
+    "shape_language",
+    "surface_material",
+    "rhythm_pattern",
+    "hierarchy_flow"
+  ],
+
+  "dependencies": []
+}
