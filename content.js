@@ -1,259 +1,356 @@
-// Listen for messages from the background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'SAVE_ITEM') {
-        try {
-            if (window.location.origin === 'http://localhost:5173') {
-                const STORAGE_KEY = 'dreamlab_items';
-                const ACTIVE_CTX_KEY = 'dreamlab_active_context';
-                const COLLECTIONS_KEY = 'dreamlab_collections';
-                const items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-                const activeCtx = JSON.parse(localStorage.getItem(ACTIVE_CTX_KEY) || '{}');
-                const collections = JSON.parse(localStorage.getItem(COLLECTIONS_KEY) || '[]');
+const DREAMLAB_ORIGINS = new Set([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+]);
 
-                const resolvedWorkspaceId = request.item.workspaceId !== undefined
-                    ? request.item.workspaceId
-                    : (activeCtx.workspaceId || null);
+const STORAGE_KEYS = {
+  items: 'dreamlab_items',
+  workspaces: 'dreamlab_workspaces',
+  projects: 'dreamlab_projects',
+  collections: 'dreamlab_collections',
+  activeContext: 'dreamlab_active_context',
+};
 
-                const resolvedProjectId = request.item.projectId !== undefined
-                    ? request.item.projectId
-                    : (activeCtx.projectId || null);
+const ACTIONS = {
+  saveItem: 'SAVE_ITEM',
+  getOrgData: 'GET_ORG_DATA',
+  scanPageImages: 'SCAN_PAGE_IMAGES',
+  triggerMultiSelect: 'TRIGGER_MULTI_SELECT',
+  legacyScanVisibleImages: 'SCAN_VISIBLE_IMAGES',
+};
 
-                // Prefer explicit collectionId; otherwise inherit active context collection
-                // only if it belongs to the resolved project.
-                let resolvedCollectionId = request.item.collectionId !== undefined
-                    ? request.item.collectionId
-                    : (activeCtx.collectionId || null);
+const BACKGROUND_ACTIONS = {
+  openMultiSelect: 'openMultiSelect',
+};
 
-                if (resolvedCollectionId) {
-                    const belongsToProject = collections.some(
-                        (collection) => collection.id === resolvedCollectionId && collection.projectId === resolvedProjectId
-                    );
-                    if (!belongsToProject) {
-                        resolvedCollectionId = null;
-                    }
-                }
+function isDreamlabApp() {
+  return DREAMLAB_ORIGINS.has(window.location.origin);
+}
 
-                const newItem = {
-                    ...request.item,
-                    id: crypto.randomUUID(),
-                    timestamp: Date.now(),
-                    // Logic:
-                    // 1. If explicit value (from popup), use it.
-                    // 2. If explicit NULL (from popup 'Select Project' -> null), use null.
-                    // 3. If UNDEFINED (from context menu/shortcut), use Active Context.
-                    workspaceId: resolvedWorkspaceId,
-                    projectId: resolvedProjectId,
-                    collectionId: resolvedCollectionId,
+function readJsonStorage(key, fallbackValue) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallbackValue));
+  } catch {
+    return fallbackValue;
+  }
+}
 
-                    // Mark for tagging processing in the main app
-                    needsTagging: true
-                };
+function resolveContextValue(item, key, fallbackValue) {
+  return Object.prototype.hasOwnProperty.call(item, key)
+    ? item[key]
+    : fallbackValue;
+}
 
-                const updatedItems = [newItem, ...items];
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedItems));
-                window.dispatchEvent(new Event('storage-update'));
+function getCollectionWorkspaceId(collection, projects) {
+  if (!collection || typeof collection !== 'object') return null;
+  if (collection.workspaceId) return collection.workspaceId;
+  if (!collection.projectId) return null;
+  const project = projects.find((candidate) => candidate.id === collection.projectId);
+  return project?.workspaceId || null;
+}
 
-                sendResponse({ success: true });
-            } else {
-                sendResponse({ success: false, error: "Not on Dreamlab web app" });
-            }
-        } catch (err) {
-            sendResponse({ success: false, error: err.message });
-        }
-    } else if (request.action === 'GET_ORG_DATA') {
-        try {
-            if (window.location.origin === 'http://localhost:5173') {
-                const WS_KEY = 'dreamlab_workspaces';
-                const P_KEY = 'dreamlab_projects';
-                const ACTIVE_CTX_KEY = 'dreamlab_active_context';
+function saveItemToDreamlab(item) {
+  if (!isDreamlabApp()) {
+    return { success: false, error: 'Not on Dreamlab web app.' };
+  }
 
-                const workspaces = JSON.parse(localStorage.getItem(WS_KEY) || '[]');
-                const projects = JSON.parse(localStorage.getItem(P_KEY) || '[]');
-                const activeContext = JSON.parse(localStorage.getItem(ACTIVE_CTX_KEY) || '{}');
+  const items = readJsonStorage(STORAGE_KEYS.items, []);
+  const activeContext = readJsonStorage(STORAGE_KEYS.activeContext, {});
+  const collections = readJsonStorage(STORAGE_KEYS.collections, []);
+  const projects = readJsonStorage(STORAGE_KEYS.projects, []);
 
-                sendResponse({ success: true, workspaces, projects, activeContext });
-            } else {
-                sendResponse({ success: false, error: "Not on Dreamlab web app" });
-            }
-        } catch (err) {
-            sendResponse({ success: false, error: err.message });
-        }
-    } else if (request.action === 'SCAN_VISIBLE_IMAGES') {
-        const visibleImages = getVisibleImages();
-        const totalImages = getAllImages().length;
-        sendResponse({ visibleImages, totalImages, sourceUrl: window.location.href });
-    } else if (request.action === 'TRIGGER_MULTI_SELECT') {
-        const visibleImages = getVisibleImages();
-        const totalImages = getAllImages().length;
+  const resolvedWorkspaceId = resolveContextValue(item, 'workspaceId', activeContext.workspaceId || null);
 
-        chrome.runtime.sendMessage({
-            action: 'openMultiSelect',
-            images: visibleImages,
-            totalImagesCount: totalImages,
-            sourceUrl: window.location.href
-        });
+  let resolvedCollectionId = resolveContextValue(item, 'collectionId', activeContext.collectionId || null);
+  if (resolvedCollectionId) {
+    const collectionBelongsToWorkspace = collections.some(
+      (collection) => (
+        collection.id === resolvedCollectionId
+        && getCollectionWorkspaceId(collection, projects) === resolvedWorkspaceId
+      )
+    );
+    if (!collectionBelongsToWorkspace) {
+      resolvedCollectionId = null;
     }
-    return true; // Keep message channel open
+  }
+
+  const newItem = {
+    ...item,
+    id: crypto.randomUUID(),
+    timestamp: Date.now(),
+    workspaceId: resolvedWorkspaceId,
+    projectId: null,
+    collectionId: resolvedCollectionId,
+    needsTagging: true,
+  };
+
+  localStorage.setItem(STORAGE_KEYS.items, JSON.stringify([newItem, ...items]));
+  window.dispatchEvent(new Event('storage-update'));
+
+  return { success: true, itemId: newItem.id };
+}
+
+function getOrgData() {
+  if (!isDreamlabApp()) {
+    return { success: false, error: 'Not on Dreamlab web app.' };
+  }
+
+  return {
+    success: true,
+    workspaces: readJsonStorage(STORAGE_KEYS.workspaces, []),
+    projects: readJsonStorage(STORAGE_KEYS.projects, []),
+    collections: readJsonStorage(STORAGE_KEYS.collections, []),
+    activeContext: readJsonStorage(STORAGE_KEYS.activeContext, {}),
+  };
+}
+
+function triggerMultiSelect() {
+  const visibleImages = getVisibleImages();
+  const totalImages = getAllImages().length;
+
+  chrome.runtime.sendMessage({
+    action: BACKGROUND_ACTIONS.openMultiSelect,
+    images: visibleImages,
+    totalImagesCount: totalImages,
+    sourceUrl: window.location.href,
+  });
+
+  return {
+    success: true,
+    visibleImages,
+    totalImages,
+    sourceUrl: window.location.href,
+  };
+}
+
+function scanPageImages(scope = 'visible') {
+  if (scope === 'all') {
+    const images = getAllImages();
+    return {
+      success: true,
+      images,
+      totalCount: images.length,
+      sourceUrl: window.location.href,
+    };
+  }
+
+  if (scope === 'visible_with_total') {
+    const visibleImages = getVisibleImages();
+    const totalCount = getAllImages().length;
+    return {
+      success: true,
+      visibleImages,
+      totalCount,
+      sourceUrl: window.location.href,
+    };
+  }
+
+  const visibleImages = getVisibleImages();
+  return {
+    success: true,
+    images: visibleImages,
+    totalCount: visibleImages.length,
+    sourceUrl: window.location.href,
+  };
+}
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  try {
+    if (request.action === ACTIONS.saveItem) {
+      sendResponse(saveItemToDreamlab(request.item || {}));
+      return true;
+    }
+
+    if (request.action === ACTIONS.getOrgData) {
+      sendResponse(getOrgData());
+      return true;
+    }
+
+    if (request.action === ACTIONS.scanPageImages) {
+      sendResponse(scanPageImages(request.scope || 'visible'));
+      return true;
+    }
+
+    if (request.action === ACTIONS.legacyScanVisibleImages) {
+      const visibleImages = getVisibleImages();
+      const totalImages = getAllImages().length;
+      sendResponse({ success: true, visibleImages, totalImages, sourceUrl: window.location.href });
+      return true;
+    }
+
+    if (request.action === ACTIONS.triggerMultiSelect) {
+      sendResponse(triggerMultiSelect());
+      return true;
+    }
+
+    sendResponse({ success: false, error: 'Unknown action.' });
+  } catch (error) {
+    sendResponse({ success: false, error: error?.message || 'Content script error.' });
+  }
+  return true;
 });
 
-// --- Deep scan helpers (shared by getVisibleImages & getAllImages) ---
+function getBestUrlFromSrcset(srcset) {
+  if (!srcset) return null;
+  try {
+    const sources = srcset.split(',').map((sourceItem) => {
+      const parts = sourceItem.trim().split(/\s+/);
+      const url = parts[0];
+      let size = 0;
 
-function _getBestUrlFromSrcset(srcset) {
-    if (!srcset) return null;
-    try {
-        const sources = srcset.split(',').map(s => {
-            const parts = s.trim().split(/\s+/);
-            const url = parts[0];
-            let size = 0;
-            if (parts.length > 1) {
-                const d = parts[1];
-                if (d.endsWith('w')) size = parseInt(d);
-                else if (d.endsWith('x')) size = parseFloat(d) * 1000;
-            }
-            return { url, size };
-        });
-        sources.sort((a, b) => b.size - a.size);
-        return sources[0]?.url;
-    } catch (e) { return null; }
-}
+      if (parts.length > 1) {
+        const descriptor = parts[1];
+        if (descriptor.endsWith('w')) size = parseInt(descriptor, 10);
+        else if (descriptor.endsWith('x')) size = Math.round(parseFloat(descriptor) * 1000);
+      }
 
-function _getBgUrl(el, pseudo = null) {
-    try {
-        const style = window.getComputedStyle(el, pseudo);
-        const bg = style.backgroundImage;
-        if (bg && bg !== 'none' && bg.includes('url(')) {
-            const matches = bg.match(/url\(['"]?(.*?)['"]?\)/g);
-            if (matches && matches.length > 0) {
-                return matches[0].slice(4, -1).replace(/["']/g, '');
-            }
-        }
-    } catch (e) { }
+      return { url, size };
+    });
+
+    sources.sort((a, b) => b.size - a.size);
+    return sources[0]?.url || null;
+  } catch {
     return null;
+  }
 }
 
-function _deepScanImages(viewportOnly) {
-    const results = [];
-    const seenUrls = new Set();
-
-    // <picture> wrappers often have 0x0 rects; use inner <img> rect
-    function getElRect(el) {
-        const rect = el.getBoundingClientRect();
-        if ((rect.width === 0 || rect.height === 0) && el.tagName === 'PICTURE') {
-            const img = el.querySelector('img');
-            if (img) return img.getBoundingClientRect();
-        }
-        return rect;
+function getBackgroundUrl(element, pseudo = null) {
+  try {
+    const style = window.getComputedStyle(element, pseudo);
+    const background = style.backgroundImage;
+    if (!background || background === 'none' || !background.includes('url(')) {
+      return null;
     }
 
-    function isVisible(rect) {
-        if (rect.width <= 50 || rect.height <= 50) return false;
-        if (!viewportOnly) return true;
-        // rect is already viewport-relative from getBoundingClientRect
-        return (
-            rect.bottom > 0 &&
-            rect.top < window.innerHeight &&
-            rect.right > 0 &&
-            rect.left < window.innerWidth
-        );
-    }
-
-    function add(src, el, alt = '') {
-        if (!src) return;
-        // Resolve relative URLs to absolute (srcset/data-src can be relative paths)
-        try { src = new URL(src, document.baseURI).href; } catch (e) { }
-        if (seenUrls.has(src)) return;
-        seenUrls.add(src);
-        const rect = getElRect(el);
-        results.push({
-            src,
-            alt,
-            width: el.naturalWidth || Math.round(rect.width),
-            height: el.naturalHeight || Math.round(rect.height),
-            displayWidth: el.width || Math.round(rect.width),
-            displayHeight: el.height || Math.round(rect.height)
-        });
-    }
-
-    // 1. <img> elements (with srcset / data-src support)
-    document.querySelectorAll('img').forEach(img => {
-        // Skip imgs inside <picture> — the <picture> scan (step 2) parses
-        // <source> srcset for the highest resolution instead of using currentSrc
-        if (img.closest('picture')) return;
-        if (!isVisible(img.getBoundingClientRect())) return;
-        const srcsetUrl = _getBestUrlFromSrcset(img.getAttribute('srcset') || img.getAttribute('data-srcset'));
-        const dataUrl = img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('data-full-url');
-        add(srcsetUrl || dataUrl || img.currentSrc || img.src, img, img.alt);
-    });
-
-    // 2. <picture> elements (parse <source> for highest res)
-    document.querySelectorAll('picture').forEach(picture => {
-        if (!isVisible(getElRect(picture))) return;
-        const sources = picture.querySelectorAll('source');
-        for (const source of sources) {
-            const url = _getBestUrlFromSrcset(source.getAttribute('srcset'));
-            if (url) { add(url, picture); return; }
-        }
-        const img = picture.querySelector('img');
-        if (img) add(img.currentSrc || img.src, picture, img.alt);
-    });
-
-    // 3. <video> elements (poster attribute)
-    document.querySelectorAll('video').forEach(video => {
-        const rect = video.getBoundingClientRect();
-        if (!isVisible(rect)) return;
-        if (video.poster) add(video.poster, video);
-    });
-
-    // 4. Inline background images
-    document.querySelectorAll('[style*="background-image"], [style*="background:"]').forEach(el => {
-        const rect = el.getBoundingClientRect();
-        if (!isVisible(rect)) return;
-        const bg = _getBgUrl(el);
-        if (bg) add(bg, el);
-    });
-
-    // 5. Computed style fallback (CSS-class backgrounds, e.g. Apple.com)
-    const allEls = document.querySelectorAll('*');
-    const limit = Math.min(allEls.length, 500);
-    for (let i = 0; i < limit; i++) {
-        const el = allEls[i];
-        const rect = el.getBoundingClientRect();
-        if (rect.width <= 50 || rect.height <= 50) continue;
-        if (!isVisible(rect)) continue;
-        const bg = _getBgUrl(el);
-        if (bg) add(bg, el);
-        const beforeBg = _getBgUrl(el, ':before');
-        if (beforeBg) add(beforeBg, el);
-    }
-
-    return results;
+    const match = background.match(/url\(['"]?(.*?)['"]?\)/i);
+    return match?.[1] || null;
+  } catch {
+    return null;
+  }
 }
 
-// Get images in current viewport
+function getElementRect(element) {
+  const rect = element.getBoundingClientRect();
+  if ((rect.width === 0 || rect.height === 0) && element.tagName === 'PICTURE') {
+    const image = element.querySelector('img');
+    if (image) return image.getBoundingClientRect();
+  }
+  return rect;
+}
+
+function isVisibleRect(rect, viewportOnly) {
+  if (rect.width <= 50 || rect.height <= 50) return false;
+  if (!viewportOnly) return true;
+
+  return (
+    rect.bottom > 0
+    && rect.top < window.innerHeight
+    && rect.right > 0
+    && rect.left < window.innerWidth
+  );
+}
+
+function deepScanImages(viewportOnly) {
+  const results = [];
+  const seenUrls = new Set();
+
+  function addCandidate(sourceUrl, element, altText = '') {
+    if (!sourceUrl) return;
+
+    let resolvedUrl = sourceUrl;
+    try {
+      resolvedUrl = new URL(sourceUrl, document.baseURI).href;
+    } catch {
+      // Keep raw URL.
+    }
+
+    if (seenUrls.has(resolvedUrl)) return;
+    seenUrls.add(resolvedUrl);
+
+    const rect = getElementRect(element);
+    results.push({
+      src: resolvedUrl,
+      alt: altText,
+      width: element.naturalWidth || Math.round(rect.width),
+      height: element.naturalHeight || Math.round(rect.height),
+      displayWidth: Math.round(rect.width),
+      displayHeight: Math.round(rect.height),
+    });
+  }
+
+  document.querySelectorAll('img').forEach((image) => {
+    if (image.closest('picture')) return;
+    if (!isVisibleRect(image.getBoundingClientRect(), viewportOnly)) return;
+
+    const srcsetUrl = getBestUrlFromSrcset(image.getAttribute('srcset') || image.getAttribute('data-srcset'));
+    const dataUrl = image.getAttribute('data-src')
+      || image.getAttribute('data-original')
+      || image.getAttribute('data-full-url');
+
+    addCandidate(srcsetUrl || dataUrl || image.currentSrc || image.src, image, image.alt);
+  });
+
+  document.querySelectorAll('picture').forEach((picture) => {
+    if (!isVisibleRect(getElementRect(picture), viewportOnly)) return;
+
+    const sources = picture.querySelectorAll('source');
+    for (const source of sources) {
+      const bestUrl = getBestUrlFromSrcset(source.getAttribute('srcset'));
+      if (bestUrl) {
+        addCandidate(bestUrl, picture);
+        return;
+      }
+    }
+
+    const image = picture.querySelector('img');
+    if (image) addCandidate(image.currentSrc || image.src, picture, image.alt);
+  });
+
+  document.querySelectorAll('video').forEach((video) => {
+    const rect = video.getBoundingClientRect();
+    if (!isVisibleRect(rect, viewportOnly)) return;
+    if (video.poster) addCandidate(video.poster, video);
+  });
+
+  document.querySelectorAll('[style*="background-image"], [style*="background:"]').forEach((element) => {
+    const rect = element.getBoundingClientRect();
+    if (!isVisibleRect(rect, viewportOnly)) return;
+
+    const backgroundUrl = getBackgroundUrl(element);
+    if (backgroundUrl) addCandidate(backgroundUrl, element);
+  });
+
+  const allElements = document.querySelectorAll('*');
+  const limit = Math.min(allElements.length, 500);
+  for (let index = 0; index < limit; index += 1) {
+    const element = allElements[index];
+    const rect = element.getBoundingClientRect();
+    if (!isVisibleRect(rect, viewportOnly)) continue;
+
+    const backgroundUrl = getBackgroundUrl(element);
+    if (backgroundUrl) addCandidate(backgroundUrl, element);
+
+    const beforeBackground = getBackgroundUrl(element, ':before');
+    if (beforeBackground) addCandidate(beforeBackground, element);
+  }
+
+  return results;
+}
+
 function getVisibleImages() {
-    return _deepScanImages(true);
+  return deepScanImages(true);
 }
 
-// Get ALL images on page
 function getAllImages() {
-    return _deepScanImages(false);
+  return deepScanImages(false);
 }
 
-// Listen for CMD+Shift+Y
-document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Y') {
-        e.preventDefault();
-
-        // Get visible images
-        const visibleImages = getVisibleImages();
-        const totalImages = getAllImages().length;
-
-        // Send to background script
-        chrome.runtime.sendMessage({
-            action: 'openMultiSelect',
-            images: visibleImages,
-            totalImagesCount: totalImages,
-            sourceUrl: window.location.href
-        });
-    }
+// Local in-page shortcut fallback for image review.
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'Y') {
+    event.preventDefault();
+    triggerMultiSelect();
+  }
 });

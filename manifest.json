@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "Dreamlab Canvas",
-    "version": "1.0",
-    "description": "Capture images, text, and pages to Dreamlab Canvas.",
+    "version": "1.1",
+    "description": "Capture images, links, and text into Dreamlab collections.",
     "icons": {
         "16": "icons/icon16.png",
         "48": "icons/icon48.png",
@@ -17,9 +17,13 @@
     ],
     "host_permissions": [
         "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*",
+        "http://localhost:4173/*",
+        "http://127.0.0.1:4173/*",
         "<all_urls>"
     ],
     "action": {
+        "default_title": "Dreamlab Capture",
         "default_popup": "popup.html"
     },
     "background": {
@@ -48,14 +52,14 @@
                 "default": "Ctrl+Shift+Y",
                 "mac": "Command+Shift+Y"
             },
-            "description": "Capture Area Selection"
+            "description": "Open image capture review"
         },
         "smart-picker": {
             "suggested_key": {
                 "default": "Ctrl+Shift+I",
                 "mac": "Command+Shift+I"
             },
-            "description": "Smart Element Picker"
+            "description": "Pick an image or background from page"
         }
     }
 }

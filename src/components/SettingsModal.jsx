@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Command, Settings as SettingsIcon, Keyboard, Sparkles } from 'lucide-react';
+import { X, Save, Command, Settings as SettingsIcon, Keyboard, Sparkles, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { updateWorkspace } from '../lib/storage';
 import { FeatherSparkles, FeatherFileText, FeatherCpu, FeatherEye } from '@subframe/core';
 
-export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorkspace }) {
+export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorkspace, onResetAllData }) {
     const [activeTab, setActiveTab] = useState('general');
     const [workspaceName, setWorkspaceName] = useState(activeWorkspace?.name || '');
     const [workspaceIcon, setWorkspaceIcon] = useState(activeWorkspace?.icon?.value || '');
@@ -42,6 +42,20 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
 
         updateWorkspace(activeWorkspace.id, updates);
         onUpdateWorkspace(); // Trigger reload in parent
+        onClose();
+    };
+
+    const handleResetAllData = () => {
+        if (!onResetAllData) return;
+        const confirmed = window.confirm(
+            'This will permanently delete all items, collections, workspaces, and settings. Continue?'
+        );
+        if (!confirmed) return;
+
+        const confirmationText = window.prompt('Type RESET to confirm.');
+        if (confirmationText !== 'RESET') return;
+
+        onResetAllData();
         onClose();
     };
 
@@ -195,6 +209,26 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
                                         <Save size={16} />
                                         Save Changes
                                     </button>
+                                </div>
+
+                                <div className="pt-6 border-t border-zinc-100">
+                                    <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                                        <div className="flex items-start gap-3">
+                                            <AlertTriangle size={16} className="mt-0.5 text-red-600" />
+                                            <div className="space-y-2">
+                                                <p className="text-sm font-semibold text-red-800">Danger Zone</p>
+                                                <p className="text-xs text-red-700">
+                                                    Reset all local app data. This action cannot be undone.
+                                                </p>
+                                                <button
+                                                    onClick={handleResetAllData}
+                                                    className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
+                                                >
+                                                    Reset All Data
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}

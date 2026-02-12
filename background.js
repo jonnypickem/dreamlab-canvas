@@ -1,479 +1,568 @@
-// Check if a description is useful (not a URL, not too short, not gibberish)
-function isUsefulDescription(desc) {
-    if (!desc || typeof desc !== 'string') return false;
-    const trimmed = desc.trim();
-    if (trimmed.length < 10) return false; // Too short to be useful
-    if (/^https?:\/\//i.test(trimmed)) return false; // It's a URL
-    if (/^[a-f0-9-]{20,}$/i.test(trimmed)) return false; // Looks like a hash/ID
-    return true;
+const DREAMLAB_ORIGINS = new Set([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+]);
+
+const STORAGE_KEYS = {
+  pendingCapture: 'pendingCapture',
+  multiSelectState: 'multiSelectState',
+};
+
+const ACTIONS = {
+  ping: 'ping',
+  saveCapturedItem: 'saveCapturedItem',
+  openMultiSelect: 'openMultiSelect',
+  getDreamlabOrgData: 'getDreamlabOrgData',
+  getMultiSelectState: 'getMultiSelectState',
+  scanSourceImages: 'scanSourceImages',
+};
+
+const CONTENT_ACTIONS = {
+  saveItem: 'SAVE_ITEM',
+  getOrgData: 'GET_ORG_DATA',
+  scanPageImages: 'SCAN_PAGE_IMAGES',
+};
+
+const CONTEXT_MENU_IDS = {
+  image: 'save-to-dreamlab-image',
+  text: 'save-to-dreamlab-text',
+  page: 'save-to-dreamlab-page',
+};
+
+function isDreamlabUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return DREAMLAB_ORIGINS.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
+function queryTabs(queryInfo) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query(queryInfo, (tabs) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(Array.isArray(tabs) ? tabs : []);
+    });
+  });
+}
+
+function sendTabMessage(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+function executeScript(tabId, files) {
+  return new Promise((resolve, reject) => {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        files,
+      },
+      (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(result || []);
+      }
+    );
+  });
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isMissingReceiverError(error) {
+  const message = String(error?.message || '');
+  return /receiving end does not exist/i.test(message);
+}
+
+async function sendTabMessageWithBridge(tabId, message) {
+  try {
+    return await sendTabMessage(tabId, message);
+  } catch (error) {
+    if (!isMissingReceiverError(error)) {
+      throw error;
+    }
+
+    // Content scripts can be absent on existing tabs after extension reload/update.
+    await executeScript(tabId, ['content.js']);
+    await wait(60);
+    return await sendTabMessage(tabId, message);
+  }
+}
+
+function getStorage(keys) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get(keys, (result) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(result || {});
+    });
+  });
+}
+
+function setStorage(values) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(values, () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function removeStorage(keys) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.remove(keys, () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function createWindow(createData) {
+  return new Promise((resolve, reject) => {
+    chrome.windows.create(createData, (win) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(win);
+    });
+  });
+}
+
+async function getDreamlabTabs() {
+  const tabs = await queryTabs({});
+  return tabs.filter((tab) => isDreamlabUrl(tab.url));
+}
+
+async function getPreferredDreamlabTab() {
+  const activeTabs = await queryTabs({ active: true, currentWindow: true });
+  const activeDreamlab = activeTabs.find((tab) => isDreamlabUrl(tab.url));
+  if (activeDreamlab) return activeDreamlab;
+
+  const dreamlabTabs = await getDreamlabTabs();
+  if (dreamlabTabs.length === 0) {
+    throw new Error('Dreamlab web app is not open.');
+  }
+
+  return [...dreamlabTabs].sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+}
+
+function isUsefulDescription(description) {
+  if (!description || typeof description !== 'string') return false;
+  const trimmed = description.trim();
+  if (trimmed.length < 10) return false;
+  if (/^https?:\/\//i.test(trimmed)) return false;
+  if (/^[a-f0-9-]{20,}$/i.test(trimmed)) return false;
+  return true;
 }
 
 function createContextMenus() {
-    chrome.contextMenus.removeAll(() => {
-        chrome.contextMenus.create({
-            id: "save-to-dreamlab-image",
-            title: "Save Image to Dreamlab",
-            contexts: ["image"]
-        });
-
-        chrome.contextMenus.create({
-            id: "save-to-dreamlab-text",
-            title: "Save Selection to Dreamlab",
-            contexts: ["selection"]
-        });
-
-        chrome.contextMenus.create({
-            id: "save-to-dreamlab-page",
-            title: "Save Page to Dreamlab",
-            contexts: ["page", "link"]
-        });
-
-        if (chrome.runtime.lastError) {
-            console.error("Context menu creation error:", chrome.runtime.lastError);
-        }
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.image,
+      title: 'Save Image to Dreamlab',
+      contexts: ['image'],
     });
+
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.text,
+      title: 'Save Selection to Dreamlab',
+      contexts: ['selection'],
+    });
+
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.page,
+      title: 'Save Page to Dreamlab',
+      contexts: ['page', 'link'],
+    });
+  });
 }
 
-// Initialize context menus
-chrome.runtime.onInstalled.addListener(() => {
-    createContextMenus();
-});
+async function fetchMetadataFromUrl(url) {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    },
+  });
+  const html = await response.text();
 
-chrome.runtime.onStartup.addListener(() => {
-    createContextMenus();
-});
+  const getMetaMatch = (property) => {
+    const regex = new RegExp(
+      `<meta[^>]*property=["'](?:og:|twitter:)?${property}["'][^>]*content=["']([^"']+)["']|<meta[^>]*content=["']([^"']+)["'][^>]*property=["'](?:og:|twitter:)?${property}["']`,
+      'i'
+    );
+    const match = html.match(regex);
+    return match ? (match[1] || match[2]) : null;
+  };
 
-// Handle context menu clicks
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-    let item = null;
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  const title = getMetaMatch('title') || (titleMatch ? titleMatch[1] : null);
+  let image = getMetaMatch('image:secure_url') || getMetaMatch('image:url') || getMetaMatch('image');
 
-    if (info.menuItemId === "save-to-dreamlab-image") {
-        const metadata = await getPageMetadata(tab.id, tab.url);
-        item = {
-            type: 'image',
-            content: info.srcUrl,
-            title: metadata.title || tab.title || null,
-            description: isUsefulDescription(metadata.description) ? metadata.description : null,
-            sourceUrl: tab.url,
-            timestamp: Date.now()
-        };
-    } else if (info.menuItemId === "save-to-dreamlab-text") {
-        item = {
-            type: 'text',
-            content: info.selectionText,
-            sourceUrl: tab.url,
-            timestamp: Date.now()
-        };
-    } else if (info.menuItemId === "save-to-dreamlab-page") {
-        const urlToScrape = info.linkUrl || tab.url;
-        const metadata = await getPageMetadata(tab.id, urlToScrape);
-        item = {
-            type: 'link',
-            content: metadata.title || tab.title || urlToScrape,
-            title: metadata.title || tab.title || null,
-            description: isUsefulDescription(metadata.description) ? metadata.description : null,
-            thumbnail: metadata.image,
-            sourceUrl: urlToScrape,
-            timestamp: Date.now()
-        };
+  if (image && !image.startsWith('http')) {
+    try {
+      image = new URL(image, url).href;
+    } catch {
+      image = null;
     }
+  }
 
-    if (item) {
-        saveItem(item);
-    }
-});
+  return {
+    title: title || null,
+    image: image || null,
+    description: getMetaMatch('description') || null,
+  };
+}
 
 async function getPageMetadata(tabId, targetUrl) {
-    // Helper to normalize URLs for comparison
-    const normalize = (u) => {
-        try {
-            const url = new URL(u);
-            return (url.origin + url.pathname).replace(/\/$/, '').replace('://www.', '://');
-        } catch (e) { return u; }
-    };
-
-    // Fetch-based metadata extraction (works for any URL)
-    const fetchMetadata = async (url) => {
-        const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } });
-        const html = await response.text();
-
-        const getMatch = (property) => {
-            const regex = new RegExp(`<meta[^>]*property=["'](?:og:|twitter:)?${property}["'][^>]*content=["']([^"']+)["']|<meta[^>]*content=["']([^"']+)["'][^>]*property=["'](?:og:|twitter:)?${property}["']`, 'i');
-            const match = html.match(regex);
-            return match ? (match[1] || match[2]) : null;
-        };
-
-        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        const title = getMatch('title') || (titleMatch ? titleMatch[1] : null);
-        let image = getMatch('image:secure_url') || getMatch('image:url') || getMatch('image');
-
-        if (image && !image.startsWith('http')) {
-            try {
-                image = new URL(image, url).href;
-            } catch (e) { }
-        }
-
-        return {
-            title: title || null,
-            image: image || null,
-            description: getMatch('description') || null
-        };
-    };
-
+  const normalize = (candidate) => {
     try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        const isCurrentPage = tab && normalize(tab.url) === normalize(targetUrl);
-
-        if (isCurrentPage) {
-            // Try live DOM extraction first (handles JS-rendered meta tags)
-            let domResult = {};
-            try {
-                const results = await chrome.scripting.executeScript({
-                    target: { tabId },
-                    func: () => {
-                        const getMeta = (name) => {
-                            const el = document.querySelector(`meta[property="${name}"], meta[name="${name}"], meta[itemprop="${name}"]`);
-                            return el ? el.getAttribute('content') : null;
-                        };
-
-                        const title = getMeta('og:title') || getMeta('twitter:title') || document.title;
-                        let image = getMeta('og:image:secure_url') || getMeta('og:image:url') || getMeta('og:image') || getMeta('twitter:image') || getMeta('image');
-
-                        // Resolve relative URLs
-                        if (image && !image.startsWith('http')) {
-                            try {
-                                image = new URL(image, window.location.href).href;
-                            } catch (e) {
-                                const a = document.createElement('a');
-                                a.href = image;
-                                image = a.href;
-                            }
-                        }
-
-                        return {
-                            title: title || null,
-                            image: image || null,
-                            description: getMeta('og:description') || getMeta('description') || null
-                        };
-                    }
-                });
-                domResult = results[0]?.result || {};
-            } catch (e) {
-                console.log("DOM extraction failed, will try fetch:", e);
-            }
-
-            // If DOM extraction found an image, return it
-            if (domResult.image) return domResult;
-
-            // Otherwise fall back to fetch-based extraction
-            try {
-                const fetchResult = await fetchMetadata(targetUrl);
-                return {
-                    title: domResult.title || fetchResult.title,
-                    image: fetchResult.image,
-                    description: domResult.description || fetchResult.description
-                };
-            } catch (e) {
-                console.log("Fetch fallback also failed:", e);
-                return domResult;
-            }
-        } else {
-            // External link — use fetch-based extraction
-            return await fetchMetadata(targetUrl);
-        }
-    } catch (err) {
-        console.error("Metadata extraction failed:", err);
-        return {};
+      const parsed = new URL(candidate);
+      return (parsed.origin + parsed.pathname).replace(/\/$/, '').replace('://www.', '://');
+    } catch {
+      return candidate;
     }
+  };
+
+  try {
+    const [activeTab] = await queryTabs({ active: true, currentWindow: true });
+    const isCurrentPage = activeTab && normalize(activeTab.url) === normalize(targetUrl);
+
+    if (isCurrentPage) {
+      let domResult = {};
+      try {
+        const result = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const getMeta = (name) => {
+              const element = document.querySelector(`meta[property="${name}"], meta[name="${name}"], meta[itemprop="${name}"]`);
+              return element ? element.getAttribute('content') : null;
+            };
+
+            const title = getMeta('og:title') || getMeta('twitter:title') || document.title;
+            let image = getMeta('og:image:secure_url')
+              || getMeta('og:image:url')
+              || getMeta('og:image')
+              || getMeta('twitter:image')
+              || getMeta('image');
+
+            if (image && !image.startsWith('http')) {
+              try {
+                image = new URL(image, window.location.href).href;
+              } catch {
+                const anchor = document.createElement('a');
+                anchor.href = image;
+                image = anchor.href;
+              }
+            }
+
+            return {
+              title: title || null,
+              image: image || null,
+              description: getMeta('og:description') || getMeta('description') || null,
+            };
+          },
+        });
+        domResult = result?.[0]?.result || {};
+      } catch {
+        // Keep fallback path.
+      }
+
+      if (domResult.image) return domResult;
+
+      try {
+        const fallback = await fetchMetadataFromUrl(targetUrl);
+        return {
+          title: domResult.title || fallback.title,
+          image: fallback.image,
+          description: domResult.description || fallback.description,
+        };
+      } catch {
+        return domResult;
+      }
+    }
+
+    return await fetchMetadataFromUrl(targetUrl);
+  } catch {
+    return {};
+  }
 }
 
-// Handle keyboard shortcuts
-chrome.commands.onCommand.addListener(async (command) => {
-    if (command === "save-page") {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab) return;
+async function requestImageScan(tabId, scope = 'visible') {
+  const response = await sendTabMessageWithBridge(tabId, {
+    action: CONTENT_ACTIONS.scanPageImages,
+    scope,
+  });
 
-        // Get selection separately so it can't block metadata extraction
-        let selection = '';
-        try {
-            const results = await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                func: () => window.getSelection().toString(),
-            });
-            selection = (results[0]?.result || '').trim();
-        } catch (err) {
-            console.log("Could not get selection:", err);
-        }
+  if (!response || response.success !== true) {
+    throw new Error(response?.error || 'Could not scan images on this page.');
+  }
 
-        if (selection) {
-            saveItem({
-                type: 'text',
-                content: selection,
-                sourceUrl: tab.url,
-                timestamp: Date.now()
-            });
-        } else {
-            // Always attempt metadata extraction for link saves
-            const metadata = await getPageMetadata(tab.id, tab.url);
-            saveItem({
-                type: 'link',
-                content: metadata.title || tab.title || tab.url,
-                title: metadata.title || tab.title || null,
-                description: isUsefulDescription(metadata.description) ? metadata.description : null,
-                thumbnail: metadata.image || null,
-                sourceUrl: tab.url,
-                timestamp: Date.now()
-            });
-        }
-    } else if (command === "capture-visible") {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab) return;
+  return response;
+}
 
-        try {
-            // Inject script to scan for images
-            const results = await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                func: () => {
-                    // --- Deep scan helpers ---
-                    function getBestUrlFromSrcset(srcset) {
-                        if (!srcset) return null;
-                        try {
-                            const sources = srcset.split(',').map(s => {
-                                const parts = s.trim().split(/\s+/);
-                                const url = parts[0];
-                                let size = 0;
-                                if (parts.length > 1) {
-                                    const d = parts[1];
-                                    if (d.endsWith('w')) size = parseInt(d);
-                                    else if (d.endsWith('x')) size = parseFloat(d) * 1000;
-                                }
-                                return { url, size };
-                            });
-                            sources.sort((a, b) => b.size - a.size);
-                            return sources[0]?.url;
-                        } catch (e) { return null; }
-                    }
+async function openMultiSelectWindow({ sourceTabId, sourceUrl, visibleImages, totalImagesCount }) {
+  const state = {
+    sourceTabId: sourceTabId || null,
+    sourceUrl: sourceUrl || '',
+    visibleImages: Array.isArray(visibleImages) ? visibleImages : [],
+    totalImagesCount: Number(totalImagesCount || 0),
+    openedAt: Date.now(),
+  };
 
-                    function getBgUrl(el, pseudo = null) {
-                        try {
-                            const style = window.getComputedStyle(el, pseudo);
-                            const bg = style.backgroundImage;
-                            if (bg && bg !== 'none' && bg.includes('url(')) {
-                                const matches = bg.match(/url\(['"]?(.*?)['"]?\)/g);
-                                if (matches && matches.length > 0) {
-                                    return matches[0].slice(4, -1).replace(/["']/g, '');
-                                }
-                            }
-                        } catch (e) { }
-                        return null;
-                    }
+  await setStorage({ [STORAGE_KEYS.multiSelectState]: state });
 
-                    function deepScan(viewportOnly) {
-                        const results = [];
-                        const seenUrls = new Set();
-
-                        // <picture> wrappers often have 0x0 rects; use inner <img> rect
-                        function getElRect(el) {
-                            const rect = el.getBoundingClientRect();
-                            if ((rect.width === 0 || rect.height === 0) && el.tagName === 'PICTURE') {
-                                const img = el.querySelector('img');
-                                if (img) return img.getBoundingClientRect();
-                            }
-                            return rect;
-                        }
-
-                        function isVisible(rect) {
-                            if (rect.width <= 50 || rect.height <= 50) return false;
-                            if (!viewportOnly) return true;
-                            // rect is already viewport-relative from getBoundingClientRect
-                            return (
-                                rect.bottom > 0 &&
-                                rect.top < window.innerHeight &&
-                                rect.right > 0 &&
-                                rect.left < window.innerWidth
-                            );
-                        }
-
-                        function add(src, el, alt = '') {
-                            if (!src) return;
-                            try { src = new URL(src, document.baseURI).href; } catch (e) { }
-                            if (seenUrls.has(src)) return;
-                            seenUrls.add(src);
-                            const rect = getElRect(el);
-                            results.push({
-                                src,
-                                alt,
-                                width: el.naturalWidth || Math.round(rect.width),
-                                height: el.naturalHeight || Math.round(rect.height)
-                            });
-                        }
-
-                        // 1. <img> elements (skip those inside <picture> — handled in step 2 for highest res)
-                        document.querySelectorAll('img').forEach(img => {
-                            if (img.closest('picture')) return;
-                            if (!isVisible(img.getBoundingClientRect())) return;
-                            const srcsetUrl = getBestUrlFromSrcset(img.getAttribute('srcset') || img.getAttribute('data-srcset'));
-                            const dataUrl = img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('data-full-url');
-                            add(srcsetUrl || dataUrl || img.currentSrc || img.src, img, img.alt);
-                        });
-
-                        // 2. <picture> elements
-                        document.querySelectorAll('picture').forEach(picture => {
-                            if (!isVisible(getElRect(picture))) return;
-                            const sources = picture.querySelectorAll('source');
-                            for (const source of sources) {
-                                const url = getBestUrlFromSrcset(source.getAttribute('srcset'));
-                                if (url) { add(url, picture); return; }
-                            }
-                            const img = picture.querySelector('img');
-                            if (img) add(img.currentSrc || img.src, picture, img.alt);
-                        });
-
-                        // 3. <video> elements (poster)
-                        document.querySelectorAll('video').forEach(video => {
-                            const rect = video.getBoundingClientRect();
-                            if (!isVisible(rect)) return;
-                            if (video.poster) add(video.poster, video);
-                        });
-
-                        // 4. Inline background images
-                        document.querySelectorAll('[style*="background-image"], [style*="background:"]').forEach(el => {
-                            const rect = el.getBoundingClientRect();
-                            if (!isVisible(rect)) return;
-                            const bg = getBgUrl(el);
-                            if (bg) add(bg, el);
-                        });
-
-                        // 5. Computed style fallback (CSS-class backgrounds)
-                        const allEls = document.querySelectorAll('*');
-                        const limit = Math.min(allEls.length, 500);
-                        for (let i = 0; i < limit; i++) {
-                            const el = allEls[i];
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width <= 50 || rect.height <= 50) continue;
-                            if (!isVisible(rect)) continue;
-                            const bg = getBgUrl(el);
-                            if (bg) add(bg, el);
-                            const beforeBg = getBgUrl(el, ':before');
-                            if (beforeBg) add(beforeBg, el);
-                        }
-
-                        return results;
-                    }
-
-                    return {
-                        visibleImages: deepScan(true),
-                        totalCount: deepScan(false).length
-                    };
-                }
-            });
-
-            const scanResult = results[0]?.result;
-            if (scanResult) {
-                // Store images and open multi-select window
-                await chrome.storage.local.set({
-                    multiSelectImages: scanResult.visibleImages,
-                    totalImagesCount: scanResult.totalCount,
-                    sourceUrl: tab.url
-                });
-
-                chrome.windows.create({
-                    url: 'multi-select.html',
-                    type: 'popup',
-                    width: 850,
-                    height: 650,
-                    focused: true
-                });
-            }
-        } catch (err) {
-            console.error("Multi-select scan failed:", err);
-        }
-    } else if (command === "smart-picker") {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab) return;
-
-        try {
-            await chrome.scripting.insertCSS({
-                target: { tabId: tab.id },
-                files: ["picker.css"]
-            });
-            await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                files: ["picker.js"]
-            });
-        } catch (err) {
-            console.error("Failed to inject picker:", err);
-        }
-    }
-});
-
-// Handle messages from popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'saveCapturedItem') {
-        saveItemToWebApp(request.item)
-            .then(() => sendResponse({ success: true }))
-            .catch((err) => sendResponse({ success: false, error: err.message }));
-        return true; // Keep message channel open for async response
-    } else if (request.action === 'openMultiSelect') {
-        // Store images temporarily
-        chrome.storage.local.set({
-            multiSelectImages: request.images,
-            totalImagesCount: request.totalImagesCount,
-            sourceUrl: request.sourceUrl
-        });
-
-        // Open modal as popup window
-        chrome.windows.create({
-            url: 'multi-select.html',
-            type: 'popup',
-            width: 850,
-            height: 650,
-            focused: true
-        });
-    }
-});
-
-async function saveItem(item) {
-    // Store as pending for the popup to show
-    await chrome.storage.local.set({ pendingCapture: item });
-
-    // Also try to save immediately if possible
-    try {
-        await saveItemToWebApp(item);
-        // If successful, clear pending
-        await chrome.storage.local.remove('pendingCapture');
-    } catch (err) {
-        console.log("Web app not available, keeping in pending storage", err);
-        // Keep in pending storage if web app save fails (e.g. not open)
-    }
+  await createWindow({
+    url: 'multi-select.html',
+    type: 'popup',
+    width: 920,
+    height: 700,
+    focused: true,
+  });
 }
 
 async function saveItemToWebApp(item) {
-    // Find Dreamlab tabs
-    const tabs = await chrome.tabs.query({ url: "http://localhost:5173/*" });
+  const targetTab = await getPreferredDreamlabTab();
+  const response = await sendTabMessageWithBridge(targetTab.id, {
+    action: CONTENT_ACTIONS.saveItem,
+    item,
+  });
 
-    if (tabs.length === 0) {
-        throw new Error("Dreamlab web app is not open (localhost:5173)");
+  if (!response || response.success !== true) {
+    throw new Error(response?.error || 'Failed to save to Dreamlab web app.');
+  }
+}
+
+async function queuePendingAndTrySave(item) {
+  await setStorage({ [STORAGE_KEYS.pendingCapture]: item });
+
+  try {
+    await saveItemToWebApp(item);
+    await removeStorage(STORAGE_KEYS.pendingCapture);
+  } catch {
+    // Keep pending capture for popup review.
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  createContextMenus();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  createContextMenus();
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!tab) return;
+
+  let item = null;
+
+  if (info.menuItemId === CONTEXT_MENU_IDS.image) {
+    const metadata = await getPageMetadata(tab.id, tab.url);
+    item = {
+      type: 'image',
+      content: info.srcUrl,
+      title: metadata.title || tab.title || null,
+      description: isUsefulDescription(metadata.description) ? metadata.description : null,
+      sourceUrl: tab.url,
+      timestamp: Date.now(),
+    };
+  } else if (info.menuItemId === CONTEXT_MENU_IDS.text) {
+    item = {
+      type: 'text',
+      content: info.selectionText,
+      sourceUrl: tab.url,
+      timestamp: Date.now(),
+    };
+  } else if (info.menuItemId === CONTEXT_MENU_IDS.page) {
+    const urlToScrape = info.linkUrl || tab.url;
+    const metadata = await getPageMetadata(tab.id, urlToScrape);
+    item = {
+      type: 'link',
+      content: metadata.title || tab.title || urlToScrape,
+      title: metadata.title || tab.title || null,
+      description: isUsefulDescription(metadata.description) ? metadata.description : null,
+      thumbnail: metadata.image || null,
+      sourceUrl: urlToScrape,
+      timestamp: Date.now(),
+    };
+  }
+
+  if (item) {
+    await queuePendingAndTrySave(item);
+  }
+});
+
+chrome.commands.onCommand.addListener(async (command) => {
+  try {
+    if (command === 'save-page') {
+      const [tab] = await queryTabs({ active: true, currentWindow: true });
+      if (!tab) return;
+
+      let selectedText = '';
+      try {
+        const result = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => String(window.getSelection() || '').trim(),
+        });
+        selectedText = result?.[0]?.result || '';
+      } catch {
+        selectedText = '';
+      }
+
+      if (selectedText) {
+        await queuePendingAndTrySave({
+          type: 'text',
+          content: selectedText,
+          sourceUrl: tab.url,
+          timestamp: Date.now(),
+        });
+      } else {
+        const metadata = await getPageMetadata(tab.id, tab.url);
+        await queuePendingAndTrySave({
+          type: 'link',
+          content: metadata.title || tab.title || tab.url,
+          title: metadata.title || tab.title || null,
+          description: isUsefulDescription(metadata.description) ? metadata.description : null,
+          thumbnail: metadata.image || null,
+          sourceUrl: tab.url,
+          timestamp: Date.now(),
+        });
+      }
+      return;
     }
 
-    // Prefer active tab in current window; fallback to most recently accessed tab.
-    const activeTabs = await chrome.tabs.query({
-        url: "http://localhost:5173/*",
-        active: true,
-        currentWindow: true
-    });
-    const targetTab = activeTabs[0]
-        || [...tabs].sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+    if (command === 'capture-visible') {
+      const [tab] = await queryTabs({ active: true, currentWindow: true });
+      if (!tab?.id) return;
 
-    return new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(targetTab.id, { action: 'SAVE_ITEM', item }, (response) => {
-            if (chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message));
-            } else if (response && response.success) {
-                resolve();
-            } else {
-                reject(new Error("Failed to save to web app"));
-            }
-        });
-    });
+      const scan = await requestImageScan(tab.id, 'visible_with_total');
+      await openMultiSelectWindow({
+        sourceTabId: tab.id,
+        sourceUrl: scan.sourceUrl || tab.url || '',
+        visibleImages: scan.visibleImages || [],
+        totalImagesCount: scan.totalCount || 0,
+      });
+      return;
+    }
+
+    if (command === 'smart-picker') {
+      const [tab] = await queryTabs({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+
+      await chrome.scripting.insertCSS({
+        target: { tabId: tab.id },
+        files: ['picker.css'],
+      });
+
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['picker.js'],
+      });
+    }
+  } catch (error) {
+    console.error('Command handling failed:', error?.message || error);
+  }
+});
+
+async function handleRuntimeMessage(request, sender) {
+  switch (request?.action) {
+    case ACTIONS.ping:
+      return { success: true, worker: 'ready', at: Date.now() };
+
+    case ACTIONS.saveCapturedItem: {
+      if (!request.item || typeof request.item !== 'object') {
+        return { success: false, error: 'No capture payload provided.' };
+      }
+      await saveItemToWebApp(request.item);
+      return { success: true };
+    }
+
+    case ACTIONS.openMultiSelect: {
+      await openMultiSelectWindow({
+        sourceTabId: request.sourceTabId || sender?.tab?.id || null,
+        sourceUrl: request.sourceUrl || sender?.tab?.url || '',
+        visibleImages: request.images || [],
+        totalImagesCount: request.totalImagesCount || (request.images || []).length,
+      });
+      return { success: true };
+    }
+
+    case ACTIONS.getDreamlabOrgData: {
+      const tab = await getPreferredDreamlabTab();
+      const response = await sendTabMessageWithBridge(tab.id, { action: CONTENT_ACTIONS.getOrgData });
+      if (!response || response.success !== true) {
+        return { success: false, error: response?.error || 'Could not load Dreamlab organization data.' };
+      }
+
+      return {
+        success: true,
+        sourceTabId: tab.id,
+        workspaces: response.workspaces || [],
+        projects: response.projects || [],
+        collections: response.collections || [],
+        activeContext: response.activeContext || {},
+      };
+    }
+
+    case ACTIONS.getMultiSelectState: {
+      const stored = await getStorage(STORAGE_KEYS.multiSelectState);
+      return { success: true, state: stored?.[STORAGE_KEYS.multiSelectState] || null };
+    }
+
+    case ACTIONS.scanSourceImages: {
+      const stored = await getStorage(STORAGE_KEYS.multiSelectState);
+      const sourceTabId = request.sourceTabId || stored?.[STORAGE_KEYS.multiSelectState]?.sourceTabId;
+      if (!sourceTabId) {
+        return { success: false, error: 'Source tab is not available.' };
+      }
+
+      const scan = await requestImageScan(sourceTabId, request.scope || 'visible');
+      return {
+        success: true,
+        sourceTabId,
+        sourceUrl: scan.sourceUrl || stored?.[STORAGE_KEYS.multiSelectState]?.sourceUrl || '',
+        images: scan.images || [],
+        visibleImages: scan.visibleImages || [],
+        totalCount: Number(scan.totalCount || 0),
+      };
+    }
+
+    default:
+      return { success: false, error: 'Unknown action.' };
+  }
 }
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  handleRuntimeMessage(request, sender)
+    .then((payload) => sendResponse(payload))
+    .catch((error) => {
+      sendResponse({ success: false, error: error?.message || 'Unexpected extension error.' });
+    });
+  return true;
+});

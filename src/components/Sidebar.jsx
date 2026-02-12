@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import { ChatChannelsMenu } from '../ui/components/ChatChannelsMenu';
 import { DropdownMenu } from '../ui/components/DropdownMenu';
 import { IconButton } from '../ui/components/IconButton';
@@ -6,26 +7,33 @@ import { Avatar } from '../ui/components/Avatar';
 import { Badge } from '../ui/components/Badge';
 import { TextField } from '../ui/components/TextField';
 import * as SubframeCore from "@subframe/core";
-import { FeatherChevronDown, FeatherSearch, FeatherLayoutGrid, FeatherFolder, FeatherSettings, FeatherLogOut, FeatherPlus, FeatherTrash2, FeatherMoreHorizontal } from "@subframe/core";
+import {
+    FeatherChevronDown,
+    FeatherSearch,
+    FeatherLayoutGrid,
+    FeatherFolder,
+    FeatherSettings,
+    FeatherTrash,
+    FeatherLogOut,
+    FeatherPlus
+} from "@subframe/core";
 
 export default function Sidebar({
-    projects,
     collections = [],
-    selectedProjectId,
     selectedCollectionId = null,
-    onProjectSelect,
+    onAllItems,
     onCollectionSelect,
     onCollectionRename,
-    onCreateProject,
-    onDeleteProject,
-    onProjectSettings,
+    onCollectionDelete,
+    onCreateCollection,
     activeWorkspaceId,
     activeWorkspaceName,
     onOpenSettings,
-    totalItemCount = 0
+    totalItemCount = 0,
+    lockScroll = false
 }) {
-    const [isAddingProject, setIsAddingProject] = useState(false);
-    const [newProjectName, setNewProjectName] = useState('');
+    const [isAddingCollection, setIsAddingCollection] = useState(false);
+    const [newCollectionName, setNewCollectionName] = useState('');
     const [editingCollectionId, setEditingCollectionId] = useState(null);
     const [editingCollectionName, setEditingCollectionName] = useState('');
 
@@ -51,27 +59,35 @@ export default function Sidebar({
         cancelCollectionRename();
     };
 
-    const handleCreateProject = (e) => {
+    const handleCreateCollection = (e) => {
         if (e.key === 'Enter') {
-            if (newProjectName.trim() && activeWorkspaceId) {
-                onCreateProject(activeWorkspaceId, newProjectName.trim());
-                setNewProjectName('');
-                setIsAddingProject(false);
+            if (newCollectionName.trim() && activeWorkspaceId) {
+                if (onCreateCollection) {
+                    onCreateCollection(newCollectionName.trim());
+                }
+                setNewCollectionName('');
+                setIsAddingCollection(false);
             } else if (!activeWorkspaceId) {
                 alert('Please select or create a workspace first.');
             }
         } else if (e.key === 'Escape') {
-            setIsAddingProject(false);
-            setNewProjectName('');
+            setIsAddingCollection(false);
+            setNewCollectionName('');
         }
     };
 
-    // Get workspace initials for avatar
     const workspaceInitials = activeWorkspaceName ? activeWorkspaceName.substring(0, 2).toUpperCase() : 'DL';
+    const handleWheelCapture = (event) => {
+        if (!lockScroll) return;
+        event.preventDefault();
+        event.stopPropagation();
+    };
 
     return (
-        <aside className="flex w-72 flex-none flex-col items-start gap-2 self-stretch bg-neutral-50 px-4 py-4 mobile:hidden ml-[68px]">
-            {/* Header with Workspace Dropdown and Search */}
+        <aside
+            className={`flex w-72 flex-none flex-col items-start gap-2 self-stretch bg-neutral-50 px-4 py-4 mobile:hidden ${lockScroll ? 'overflow-hidden' : ''}`}
+            onWheelCapture={handleWheelCapture}
+        >
             <div className="flex w-full items-center gap-4">
                 <div className="flex grow shrink-0 basis-0 items-center gap-2 px-4 py-4">
                     <SubframeCore.DropdownMenu.Root>
@@ -104,7 +120,7 @@ export default function Sidebar({
                                                 {activeWorkspaceName || 'Dreamlab'}
                                             </span>
                                             <span className="line-clamp-1 w-full text-caption font-caption text-subtext-color">
-                                                {projects.length} projects
+                                                {collections.length} collections
                                             </span>
                                         </div>
                                     </div>
@@ -125,183 +141,139 @@ export default function Sidebar({
                 <IconButton
                     icon={<FeatherSearch />}
                     onClick={() => {
-                        // Focus search input in main area
                         document.querySelector('input[placeholder*="Search"]')?.focus();
                     }}
                 />
             </div>
 
-            {/* ChatChannelsMenu */}
             <ChatChannelsMenu className="w-full grow shrink-0 basis-0">
-                {/* All Items */}
                 <ChatChannelsMenu.Item
                     icon={<FeatherLayoutGrid />}
-                    selected={!selectedProjectId}
-                    onClick={() => onProjectSelect(null)}
+                    selected={!selectedCollectionId}
+                    onClick={() => onAllItems && onAllItems()}
                     rightSlot={<Badge variant="neutral">{totalItemCount}</Badge>}
+                    className="rounded-full"
                 >
                     All Items
                 </ChatChannelsMenu.Item>
 
-                {/* Projects Folder */}
                 <ChatChannelsMenu.Folder
-                    label="Projects"
+                    label="Collections"
                     action={
                         <IconButton
                             icon={<FeatherPlus />}
                             size="small"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                setIsAddingProject(true);
+                                setIsAddingCollection(true);
                             }}
                         />
                     }
                 >
-                    {/* Add Project Input */}
-                    {isAddingProject && (
+                    {isAddingCollection && (
                         <div className="px-3 py-1">
                             <TextField className="w-full">
                                 <TextField.Input
                                     autoFocus
                                     type="text"
-                                    placeholder="Project name..."
-                                    value={newProjectName}
-                                    onChange={(e) => setNewProjectName(e.target.value)}
-                                    onKeyDown={handleCreateProject}
+                                    placeholder="Collection name..."
+                                    value={newCollectionName}
+                                    onChange={(e) => setNewCollectionName(e.target.value)}
+                                    onKeyDown={handleCreateCollection}
                                     onBlur={() => {
-                                        setIsAddingProject(false);
-                                        setNewProjectName('');
+                                        setIsAddingCollection(false);
+                                        setNewCollectionName('');
                                     }}
                                 />
                             </TextField>
                         </div>
                     )}
 
-                    {/* Project List */}
-                    {projects.length === 0 && !isAddingProject ? (
+                    {collections.length === 0 && !isAddingCollection ? (
                         <div className="px-3 py-4 text-center">
                             <p className="text-caption font-caption text-subtext-color">
-                                No projects yet
+                                No collections yet
                             </p>
                         </div>
                     ) : (
-                        projects.map(p => {
-                            const projectCollections = collections
-                                .filter((collection) => collection.projectId === p.id)
-                                .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-                            const isProjectSelected = selectedProjectId === p.id;
-                            const showCollections = projectCollections.length > 0;
-
-                            return (
-                                <div key={p.id} className="w-full">
-                                    <div className="group relative flex items-center w-full">
-                                        <ChatChannelsMenu.Item
-                                            icon={<FeatherFolder />}
-                                            selected={isProjectSelected && !selectedCollectionId}
-                                            onClick={() => onProjectSelect(p.id)}
-                                            className="flex-1"
-                                        >
-                                            {p.name}
-                                        </ChatChannelsMenu.Item>
-
-                                        {/* Project Actions Menu */}
-                                        <div className="absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        collections.map((collection) => (
+                            <div key={collection.id} className="flex w-full flex-col">
+                                <div className="group relative flex h-10 w-full items-center">
+                                    {editingCollectionId === collection.id ? (
+                                        <input
+                                            autoFocus
+                                            type="text"
+                                            value={editingCollectionName}
+                                            onChange={(e) => setEditingCollectionName(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    submitCollectionRename(collection);
+                                                } else if (e.key === 'Escape') {
+                                                    e.preventDefault();
+                                                    cancelCollectionRename();
+                                                }
+                                            }}
+                                            onBlur={() => submitCollectionRename(collection)}
+                                            className="h-10 w-full rounded-full border border-brand-300 bg-white px-3.5 text-body font-body text-default-font outline-none focus:border-brand-600"
+                                        />
+                                    ) : (
+                                        <>
+                                            <button
+                                                type="button"
+                                                className={`h-10 w-full rounded-full border px-3.5 pr-11 text-left text-body font-body transition-colors ${selectedCollectionId === collection.id
+                                                    ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
+                                                    : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
+                                                    }`}
+                                                onClick={() => onCollectionSelect && onCollectionSelect(collection.id)}
+                                                onDoubleClick={() => startCollectionRename(collection)}
+                                                title={collection.name}
+                                            >
+                                                <span className="truncate flex items-center gap-2">
+                                                    <FeatherFolder className="h-4 w-4 shrink-0" />
+                                                    <span className="truncate">{collection.name}</span>
+                                                </span>
+                                            </button>
                                             <SubframeCore.DropdownMenu.Root>
                                                 <SubframeCore.DropdownMenu.Trigger asChild={true}>
-                                                    <IconButton
-                                                        icon={<FeatherMoreHorizontal className="w-4 h-4" />}
-                                                        size="small"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
+                                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
+                                                        <IconButton
+                                                            icon={<MoreHorizontal className="w-3.5 h-3.5" />}
+                                                            size="small"
+                                                            className="h-7 w-7"
+                                                        />
+                                                    </div>
                                                 </SubframeCore.DropdownMenu.Trigger>
                                                 <SubframeCore.DropdownMenu.Portal>
                                                     <SubframeCore.DropdownMenu.Content
                                                         side="right"
                                                         align="start"
-                                                        sideOffset={4}
+                                                        sideOffset={6}
                                                         asChild={true}
                                                     >
                                                         <DropdownMenu>
                                                             <DropdownMenu.DropdownItem
                                                                 icon={<FeatherSettings />}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    onProjectSettings(p);
-                                                                }}
+                                                                onClick={() => startCollectionRename(collection)}
                                                             >
-                                                                Settings
+                                                                Rename
                                                             </DropdownMenu.DropdownItem>
+                                                            <DropdownMenu.DropdownDivider />
                                                             <DropdownMenu.DropdownItem
-                                                                icon={<FeatherTrash2 className="text-error-600" />}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    onDeleteProject(p.id, p.name);
-                                                                }}
+                                                                icon={<FeatherTrash />}
+                                                                onClick={() => onCollectionDelete && onCollectionDelete(collection)}
                                                             >
-                                                                <span className="text-error-600">Delete Project</span>
+                                                                Delete Collection
                                                             </DropdownMenu.DropdownItem>
                                                         </DropdownMenu>
                                                     </SubframeCore.DropdownMenu.Content>
                                                 </SubframeCore.DropdownMenu.Portal>
                                             </SubframeCore.DropdownMenu.Root>
-                                        </div>
-                                    </div>
-
-                                    {showCollections ? (
-                                        <div className="ml-7 mt-1 mb-2 flex flex-col gap-0.5">
-                                            {projectCollections.map((collection) => (
-                                                <div key={collection.id} className="group flex h-7 w-full items-center gap-1">
-                                                    {editingCollectionId === collection.id ? (
-                                                        <input
-                                                            autoFocus
-                                                            type="text"
-                                                            value={editingCollectionName}
-                                                            onChange={(e) => setEditingCollectionName(e.target.value)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
-                                                                    e.preventDefault();
-                                                                    submitCollectionRename(collection);
-                                                                } else if (e.key === 'Escape') {
-                                                                    e.preventDefault();
-                                                                    cancelCollectionRename();
-                                                                }
-                                                            }}
-                                                            onBlur={() => submitCollectionRename(collection)}
-                                                            className="h-7 w-full rounded-md border border-brand-300 bg-white px-2 text-caption font-caption text-default-font outline-none focus:border-brand-600"
-                                                        />
-                                                    ) : (
-                                                        <>
-                                                            <button
-                                                                type="button"
-                                                                className={`h-7 grow rounded-md px-2 text-left text-caption font-caption transition-colors ${
-                                                                    isProjectSelected && selectedCollectionId === collection.id
-                                                                        ? 'bg-brand-100 text-brand-700'
-                                                                        : 'text-subtext-color hover:bg-neutral-100 hover:text-default-font'
-                                                                }`}
-                                                                onClick={() => onCollectionSelect && onCollectionSelect(p.id, collection.id)}
-                                                                onDoubleClick={() => startCollectionRename(collection)}
-                                                                title={collection.name}
-                                                            >
-                                                                <span className="truncate">{collection.name}</span>
-                                                            </button>
-                                                            <IconButton
-                                                                icon={<FeatherSettings className="w-3.5 h-3.5" />}
-                                                                size="small"
-                                                                className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    startCollectionRename(collection);
-                                                                }}
-                                                            />
-                                                        </>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : null}
+                                        </>
+                                    )}
                                 </div>
-                            );
-                        })
+                            </div>
+                        ))
                     )}
                 </ChatChannelsMenu.Folder>
             </ChatChannelsMenu>

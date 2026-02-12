@@ -1,45 +1,73 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <title>Select Images - Dreamlab</title>
-    <link rel="stylesheet" href="multi-select.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dreamlab Image Review</title>
+  <link rel="stylesheet" href="multi-select.css" />
 </head>
-
 <body>
-    <div class="modal-header">
-        <h2>📸 Select Images to Save</h2>
-        <button class="close-btn" id="closeBtn">✕</button>
-    </div>
+  <main class="shell">
+    <header class="header">
+      <div class="header-title-wrap">
+        <h1>Image Capture Review</h1>
+        <p id="sourceLabel">Source page</p>
+      </div>
+      <button id="closeBtn" class="icon-btn" type="button" aria-label="Close">X</button>
+    </header>
 
-    <div class="modal-body">
-        <div class="view-toggle">
-            <p id="imageCount">Found <strong id="visibleCount">0</strong> images in current view</p>
-            <button id="toggleViewBtn" class="toggle-btn">
-                📄 Show all images on page (<span id="totalCount">0</span> total)
-            </button>
+    <section class="toolbar panel">
+      <div class="toolbar-row">
+        <p class="count-copy">
+          Showing <strong id="visibleCount">0</strong> visible images
+          <span class="muted">out of <strong id="totalCount">0</strong> on page</span>
+        </p>
+        <button id="toggleViewBtn" class="btn btn-neutral" type="button">Show all images</button>
+      </div>
+
+      <div class="destination-grid">
+        <div class="field">
+          <label for="workspaceSelect">Workspace</label>
+          <select id="workspaceSelect">
+            <option value="">Select workspace</option>
+          </select>
         </div>
 
-        <div class="image-grid" id="imageGrid">
-            <!-- Images populated by JS -->
-        </div>
-    </div>
-
-    <div class="modal-footer">
-        <div class="bulk-actions">
-            <button id="selectAllBtn">Select All</button>
-            <button id="deselectAllBtn">Deselect All</button>
+        <div class="field">
+          <label for="collectionSelect">Collection</label>
+          <select id="collectionSelect">
+            <option value="">No collection</option>
+          </select>
         </div>
 
-        <div class="save-actions">
-            <button id="cancelBtn" class="btn-secondary">Cancel</button>
-            <button id="saveBtn" class="btn-primary">
-                Save <span id="selectedCount">0</span> items
-            </button>
+        <div class="field">
+          <label for="tagsInput">Tags</label>
+          <input id="tagsInput" type="text" placeholder="campaign, references" autocomplete="off" />
         </div>
-    </div>
+      </div>
+    </section>
 
-    <script src="multi-select.js"></script>
+    <section class="grid-wrap panel">
+      <div id="imageGrid" class="image-grid" role="list"></div>
+      <div id="emptyState" class="empty-state" hidden>No images available for this scope.</div>
+    </section>
+
+    <footer class="footer panel">
+      <div class="footer-left">
+        <button id="selectAllBtn" class="btn btn-neutral" type="button">Select all</button>
+        <button id="deselectAllBtn" class="btn btn-neutral" type="button">Clear</button>
+      </div>
+
+      <div class="footer-right">
+        <span class="selected-copy"><strong id="selectedCount">0</strong> selected</span>
+        <button id="cancelBtn" class="btn btn-neutral" type="button">Cancel</button>
+        <button id="saveBtn" class="btn btn-brand" type="button" disabled>Save Selected</button>
+      </div>
+    </footer>
+
+    <div id="status" class="status" role="status"></div>
+  </main>
+
+  <script src="multi-select.js"></script>
 </body>
-
 </html>

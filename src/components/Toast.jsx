@@ -21,7 +21,7 @@ export function Toast({ message, type = 'success', onClose }) {
             setTimeout(onClose, 300);
         }, 3000);
         return () => clearTimeout(timer);
-    }, [onClose]);
+    }, [message, type]);
 
     return (
         <AnimatePresence>

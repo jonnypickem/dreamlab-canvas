@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Rnd } from 'react-rnd';
-import { X, ExternalLink, Type, Image as ImageIcon, Link as LinkIcon, Move } from 'lucide-react';
+import { Camera, Link as LinkIcon, FileText, Info } from 'lucide-react';
 
 // Helper to ensure size is always a number
 const parseSize = (val, fallback) => {
@@ -10,14 +10,31 @@ const parseSize = (val, fallback) => {
     return isNaN(parsed) ? fallback : parsed;
 };
 
-const CanvasItem = ({ item, onUpdate, onDelete, isSelected, onSelect, scale }) => {
+const hasFiniteNumber = (value) => {
+    if (value == null) return false;
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed);
+};
+
+const CanvasItem = ({
+    item,
+    initialPosition = null,
+    onUpdate,
+    isSelected,
+    onSelect,
+    onOpenDetails,
+    scale,
+    isPanMode = false
+}) => {
     // Default dimensions based on type
     const defaultWidth = item.type === 'image' ? 300 : 280;
     const defaultHeight = item.type === 'image' ? 200 : 160;
 
     const [position, setPosition] = useState(() => {
-        const x = parseSize(item.canvas?.x, 100 + Math.random() * 200);
-        const y = parseSize(item.canvas?.y, 100 + Math.random() * 200);
+        const fallbackX = parseSize(initialPosition?.x, 120);
+        const fallbackY = parseSize(initialPosition?.y, 120);
+        const x = parseSize(item.canvas?.x, fallbackX);
+        const y = parseSize(item.canvas?.y, fallbackY);
         return { x, y };
     });
 
@@ -26,17 +43,29 @@ const CanvasItem = ({ item, onUpdate, onDelete, isSelected, onSelect, scale }) =
         const h = parseSize(item.canvas?.h, defaultHeight);
         return { width: w, height: h };
     });
-
-    const [isDragging, setIsDragging] = useState(false);
+    const [mediaAspectRatio, setMediaAspectRatio] = useState(null);
+    const hasSavedSize = hasFiniteNumber(item.canvas?.w) && hasFiniteNumber(item.canvas?.h);
+    const mediaSource = item.type === 'image' ? item.content : item.thumbnail;
+    const hasMediaCard = item.type === 'image' || Boolean(item.thumbnail);
+    const hasAutoSizedFromMediaRef = useRef(false);
+    const suppressClickRef = useRef(false);
+    const dragStateRef = useRef({ startX: 0, startY: 0, moved: false });
 
     // Debounce save
     const timeoutRef = useRef(null);
 
     const handleDragStop = (e, d) => {
-        setIsDragging(false);
         const newPos = { x: d.x, y: d.y };
         setPosition(newPos);
         saveChanges(newPos, size);
+        if (dragStateRef.current.moved) {
+            suppressClickRef.current = true;
+            window.setTimeout(() => {
+                suppressClickRef.current = false;
+            }, 0);
+        } else {
+            suppressClickRef.current = false;
+        }
     };
 
     const handleResizeStop = (e, direction, ref, delta, pos) => {
@@ -63,124 +92,195 @@ const CanvasItem = ({ item, onUpdate, onDelete, isSelected, onSelect, scale }) =
         }, 500);
     };
 
-    const getIcon = (type) => {
+    useEffect(() => {
+        hasAutoSizedFromMediaRef.current = false;
+    }, [item.id]);
+
+    useEffect(() => {
+        if (!mediaSource) {
+            setMediaAspectRatio(null);
+            return;
+        }
+
+        let cancelled = false;
+        const img = new Image();
+        img.onload = () => {
+            if (cancelled) return;
+            const { naturalWidth, naturalHeight } = img;
+            if (!naturalWidth || !naturalHeight) return;
+            setMediaAspectRatio(naturalWidth / naturalHeight);
+        };
+        img.onerror = () => {
+            if (!cancelled) setMediaAspectRatio(null);
+        };
+        img.src = mediaSource;
+
+        return () => {
+            cancelled = true;
+        };
+    }, [mediaSource]);
+
+    useEffect(() => {
+        if (!hasMediaCard) return;
+        if (!mediaAspectRatio) return;
+        if (hasSavedSize) return;
+        if (hasAutoSizedFromMediaRef.current) return;
+
+        const nextWidth = parseSize(size.width, defaultWidth);
+        const nextHeight = Math.max(120, Math.round(nextWidth / mediaAspectRatio));
+        if (nextHeight === size.height) {
+            hasAutoSizedFromMediaRef.current = true;
+            return;
+        }
+
+        const nextSize = { width: nextWidth, height: nextHeight };
+        setSize(nextSize);
+        saveChanges(position, nextSize);
+        hasAutoSizedFromMediaRef.current = true;
+    }, [hasMediaCard, mediaAspectRatio, hasSavedSize, size.width, size.height, defaultWidth, position]);
+
+    const getTypeIcon = (type) => {
         switch (type) {
-            case 'image': return <ImageIcon className="w-4 h-4" />;
-            case 'text': return <Type className="w-4 h-4" />;
+            case 'image': return <Camera className="w-4 h-4" />;
+            case 'text': return <FileText className="w-4 h-4" />;
             case 'link': return <LinkIcon className="w-4 h-4" />;
             default: return <LinkIcon className="w-4 h-4" />;
         }
+    };
+
+    const domainName = (url) => {
+        if (!url) return '';
+        try {
+            return new URL(url).hostname.replace('www.', '');
+        } catch (e) {
+            return url;
+        }
+    };
+
+    const lockAspectRatio = useMemo(() => {
+        if (!hasMediaCard) return false;
+        if (mediaAspectRatio && Number.isFinite(mediaAspectRatio) && mediaAspectRatio > 0) {
+            return mediaAspectRatio;
+        }
+        if (size.width > 0 && size.height > 0) {
+            return size.width / size.height;
+        }
+        return true;
+    }, [hasMediaCard, mediaAspectRatio, size.width, size.height]);
+
+    const handleCardClick = (event) => {
+        if (suppressClickRef.current) {
+            event.stopPropagation();
+            return;
+        }
+        event.stopPropagation();
+        onSelect(item.id, event);
     };
 
     return (
         <Rnd
             size={{ width: size.width, height: size.height }}
             position={{ x: position.x, y: position.y }}
-            onDragStart={() => {
-                setIsDragging(true);
-                onSelect(item.id);
+            onDragStart={(e, d) => {
+                dragStateRef.current = { startX: d.x, startY: d.y, moved: false };
+            }}
+            onDrag={(e, d) => {
+                const dx = Math.abs(d.x - dragStateRef.current.startX);
+                const dy = Math.abs(d.y - dragStateRef.current.startY);
+                if (dx > 2 || dy > 2) {
+                    dragStateRef.current.moved = true;
+                }
             }}
             onDragStop={handleDragStop}
             onResizeStop={handleResizeStop}
-            bounds=".dreamlab-canvas-content"
             scale={scale}
             style={{ zIndex: isSelected ? 1000 : (item.canvas?.z || 1) }}
-            className={`group ${isSelected ? 'z-50' : ''}`}
-            dragHandleClassName="drag-handle"
-            enableResizing={item.type === 'image' || !!item.thumbnail}
+            className={`group canvas-item-root ${isSelected ? 'z-50' : ''}`}
+            disableDragging={isPanMode}
+            cancel=".canvas-item-no-drag, a, button, input, textarea, select"
+            enableResizing={!isPanMode && hasMediaCard}
+            lockAspectRatio={lockAspectRatio}
             minWidth={200}
             minHeight={100}
         >
             <div
-                className={`flex flex-col h-full bg-white rounded-xl shadow-sm overflow-hidden border transition-shadow duration-200
-                    ${isSelected ? 'border-zinc-800 shadow-xl' : 'border-zinc-200 hover:shadow-md'}
+                className={`group relative flex h-full w-full flex-col overflow-hidden rounded-lg bg-white shadow-sm transition-all duration-200
+                    ${isSelected
+                        ? 'border-2 border-orange-600'
+                        : 'border border-[var(--ds-gray-200)] hover:border-orange-600 hover:shadow-md'
+                    }
                 `}
-                onClick={(e) => {
+                onClick={handleCardClick}
+                onDoubleClick={(e) => {
                     e.stopPropagation();
-                    onSelect(item.id);
+                    onOpenDetails?.(item);
                 }}
             >
-                {/* Header / Drag Handle */}
-                <div
-                    className={`drag-handle flex items-center justify-between px-3 py-2 bg-zinc-50 border-b border-zinc-100 cursor-move
-                        ${isSelected ? 'bg-zinc-100' : ''}
-                    `}
+                <div className="absolute top-2 left-2 z-20 flex opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <div className="bg-white shadow-sm border border-neutral-100 p-1.5 rounded-md flex items-center justify-center">
+                        <div className="text-orange-600">
+                            {getTypeIcon(item.type)}
+                        </div>
+                    </div>
+                </div>
+
+                <button
+                    onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenDetails?.(item);
+                    }}
+                    className="canvas-item-no-drag absolute z-20 top-2 right-2 p-1.5 rounded-md bg-white/95 border border-neutral-100 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity hover:text-zinc-900 hover:bg-white"
+                    aria-label="Open details"
+                    title="Open details"
                 >
-                    <div className="flex items-center gap-2 text-zinc-500">
-                        {getIcon(item.type)}
-                        <span className="text-xs font-medium truncate max-w-[150px]">
-                            {item.type === 'link' ? new URL(item.sourceUrl).hostname : item.type}
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
-                            className="p-1 hover:bg-zinc-200 rounded text-zinc-400 hover:text-red-500"
-                        >
-                            <X size={14} />
-                        </button>
-                    </div>
-                </div>
+                    <Info size={14} />
+                </button>
 
-                {/* Content */}
-                <div className="flex-grow overflow-hidden relative bg-white flex flex-col">
-                    {(item.type === 'image' || item.type === 'link') && (
-                        <div className="w-full h-full relative image-container">
-                            {(item.type === 'image' || item.thumbnail) ? (
-                                <img
-                                    src={item.type === 'image' ? item.content : item.thumbnail}
-                                    alt="content"
-                                    className="w-full h-full object-cover pointer-events-none"
-                                    onError={(e) => {
-                                        const container = e.currentTarget.closest('.image-container');
-                                        if (container) {
-                                            e.currentTarget.style.display = 'none';
-                                            const placeholder = container.querySelector('.link-placeholder');
-                                            if (placeholder) placeholder.style.display = 'flex';
-                                        }
-                                        const fallback = e.currentTarget.closest('.flex-col').querySelector('.text-fallback');
-                                        if (fallback) fallback.classList.remove('hidden');
-                                    }}
-                                />
-                            ) : null}
+                <div className="flex-grow overflow-hidden relative bg-white">
+                    {item.type === 'image' && (
+                        <img
+                            src={item.content}
+                            alt={item.title || 'Captured Image'}
+                            className="w-full h-full object-contain pointer-events-none bg-white"
+                        />
+                    )}
 
-                            <div
-                                className={`link-placeholder absolute inset-0 flex items-center justify-center bg-zinc-50 ${item.thumbnail || item.type === 'image' ? 'hidden' : ''}`}
-                            >
-                                <LinkIcon className="w-8 h-8 text-zinc-200" />
-                            </div>
+                    {item.type === 'link' && (
+                        item.thumbnail ? (
+                            <img
+                                src={item.thumbnail}
+                                alt={item.title || 'Link Thumbnail'}
+                                className="w-full h-full object-contain pointer-events-none bg-white"
+                                onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    const fallback = e.currentTarget.parentElement?.querySelector('.canvas-link-fallback');
+                                    if (fallback) fallback.classList.remove('hidden');
+                                }}
+                            />
+                        ) : null
+                    )}
 
-                            {item.thumbnail && (
-                                <div className="absolute inset-0 p-3 flex flex-col justify-end bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none">
-                                    <p className="text-[11px] font-semibold text-white line-clamp-2 leading-tight">
-                                        {item.content}
-                                    </p>
-                                </div>
-                            )}
+                    {item.type === 'link' && (
+                        <div className={`canvas-link-fallback w-full h-full bg-zinc-50 flex flex-col items-center justify-center p-4 ${item.thumbnail ? 'hidden' : 'flex'}`}>
+                            <LinkIcon size={42} className="text-zinc-200 mb-2" />
+                            <span className="text-xs text-zinc-400 font-mono truncate max-w-full">
+                                {domainName(item.sourceUrl)}
+                            </span>
                         </div>
                     )}
-                    {item.type !== 'image' && (
-                        <div className={`p-4 text-sm text-zinc-800 font-medium whitespace-pre-wrap ${item.thumbnail || item.type === 'link' ? 'hidden text-fallback' : ''}`}>
-                            {item.content}
+
+                    {item.type === 'text' && (
+                        <div className="w-full h-full p-4 bg-white flex items-center justify-center">
+                            <p className="text-sm text-[var(--ds-gray-1000)] line-clamp-6 text-center leading-relaxed">
+                                "{item.content}"
+                            </p>
                         </div>
                     )}
                 </div>
-
-                {/* Footer (Source) */}
-                {(item.type === 'link' || item.sourceUrl) && (
-                    <div className="px-3 py-2 bg-zinc-50 border-t border-zinc-100 flex items-center gap-2">
-                        <ExternalLink size={12} className="text-zinc-400" />
-                        <a
-                            href={item.sourceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] text-zinc-500 hover:text-zinc-800 truncate"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {item.sourceUrl}
-                        </a>
-                    </div>
-                )}
             </div>
         </Rnd>
     );

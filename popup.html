@@ -1,171 +1,56 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <style>
-        body {
-            width: 320px;
-            padding: 16px;
-            font-family: 'Geist', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: #FFFFFF;
-            color: #171717;
-            margin: 0;
-        }
-
-        .header {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            color: #171717;
-            letter-spacing: -0.01em;
-        }
-
-        .preview {
-            background-color: #FAFAFA;
-            border: 1px solid #EBEBEB;
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 16px;
-            max-height: 120px;
-            overflow-y: auto;
-            font-size: 13px;
-            color: #666666;
-            font-weight: 500;
-            line-height: 1.5;
-        }
-
-        .preview img {
-            max-width: 100%;
-            border-radius: 6px;
-            display: block;
-        }
-
-        button {
-            width: 100%;
-            padding: 10px 16px;
-            background-color: #171717;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 14px;
-            transition: all 0.15s;
-        }
-
-        button:hover {
-            background-color: #2D2D2D;
-        }
-
-        button:active {
-            transform: scale(0.98);
-        }
-
-        button:disabled {
-            background-color: #F2F2F2;
-            color: #A8A8A8;
-            cursor: not-allowed;
-        }
-
-        .organization-selects {
-            margin-top: 16px;
-            border-top: 1px solid #EBEBEB;
-            padding-top: 16px;
-        }
-
-        .select-group {
-            margin-bottom: 12px;
-        }
-
-        label {
-            display: block;
-            font-size: 11px;
-            color: #8F8F8F;
-            margin-bottom: 6px;
-            text-transform: uppercase;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-        }
-
-        select {
-            width: 100%;
-            background: #FFFFFF;
-            border: 1px solid #EBEBEB;
-            color: #171717;
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 13px;
-            font-weight: 500;
-            outline: none;
-            cursor: pointer;
-            transition: border-color 0.15s;
-        }
-
-        select:focus,
-        input[type="text"]:focus {
-            border-color: #171717;
-        }
-
-        input[type="text"] {
-            width: 100%;
-            box-sizing: border-box;
-            background: #FFFFFF;
-            border: 1px solid #EBEBEB;
-            color: #171717;
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 13px;
-            font-weight: 500;
-            outline: none;
-            transition: border-color 0.15s;
-        }
-
-        .status {
-            margin-top: 12px;
-            font-size: 12px;
-            text-align: center;
-            font-weight: 500;
-        }
-
-        .success {
-            color: #0A0;
-        }
-
-        .error {
-            color: #E00;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dreamlab Capture</title>
+  <link rel="stylesheet" href="popup.css" />
 </head>
-
 <body>
-    <div class="header">Dreamlab Capture</div>
-    <div id="preview-container" class="preview">
-        <div id="preview-text">Nothing to capture.</div>
+  <main class="popup-shell" aria-live="polite">
+    <header class="popup-header">
+      <div class="brand-dot" aria-hidden="true"></div>
+      <div>
+        <h1>Dreamlab Capture</h1>
+        <p>Review and route this capture to a collection.</p>
+      </div>
+    </header>
+
+    <section id="preview-container" class="panel preview-panel">
+      <div id="preview-text" class="preview-empty">No pending capture found.</div>
+    </section>
+
+    <section class="panel form-panel">
+      <div class="field-grid">
+        <div class="field">
+          <label for="workspace-select">Workspace</label>
+          <select id="workspace-select">
+            <option value="">Select workspace</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="collection-select">Collection</label>
+          <select id="collection-select">
+            <option value="">No collection</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="tags-input">Tags</label>
+          <input type="text" id="tags-input" placeholder="design, inspiration" autocomplete="off" />
+        </div>
+      </div>
+    </section>
+
+    <div class="action-row">
+      <button id="refresh-btn" class="btn btn-neutral" type="button">Refresh</button>
+      <button id="save-btn" class="btn btn-brand" type="button" disabled>Save Capture</button>
     </div>
 
-    <button id="save-btn" disabled>Save to Library</button>
+    <div id="status" class="status" role="status"></div>
+  </main>
 
-    <div class="organization-selects">
-        <div class="select-group">
-            <label>Workspace</label>
-            <select id="workspace-select">
-                <option value="">Select Workspace</option>
-            </select>
-        </div>
-        <div class="select-group">
-            <label>Project</label>
-            <select id="project-select">
-                <option value="">Select Project</option>
-            </select>
-        </div>
-        <div class="select-group">
-            <label>Tags (comma separated)</label>
-            <input type="text" id="tags-input" placeholder="e.g. design, inspiration">
-        </div>
-    </div>
-
-    <div id="status" class="status"></div>
-    <script src="popup.js"></script>
+  <script src="popup.js"></script>
 </body>
-
 </html>

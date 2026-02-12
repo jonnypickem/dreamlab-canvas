@@ -3,20 +3,16 @@ import {
     getItems,
     clearItems,
     getWorkspaces,
-    getProjects,
     getCollections,
     createCollection,
+    deleteCollection,
+    getCollectionWorkspaceId,
     updateCollection,
     createWorkspace,
-    createProject,
-    deleteProject,
-    updateProject,
     getActiveContext,
     setActiveContext,
-    updateItem,
-    getProject
+    updateItem
 } from './lib/storage';
-import { Plus, Folder, Layout, Settings, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './components/Sidebar';
 import WorkspaceStrip from './components/WorkspaceStrip';
@@ -33,8 +29,6 @@ import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveA
 
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
-import ConfirmDialog from './components/ConfirmDialog';
-import ProjectSettingsModal from './components/ProjectSettingsModal';
 import MasonryGrid from './components/MasonryGrid';
 
 // Subframe Imports
@@ -44,17 +38,15 @@ import { Slider } from "./ui/components/Slider";
 import { ToggleGroup } from "./ui/components/ToggleGroup";
 import { Badge } from "./ui/components/Badge";
 import * as SubframeCore from "@subframe/core";
-import { FeatherChevronLeft, FeatherChevronRight, FeatherLayoutGrid, FeatherSquare, FeatherRotateCcw, FeatherSearch, FeatherFilter } from "@subframe/core";
+import { FeatherChevronLeft, FeatherChevronRight, FeatherLayoutGrid, FeatherSquare, FeatherSearch } from "@subframe/core";
 
 const STAGE_A_AUTO_BACKFILL_ENABLED = true;
 
 function App() {
     const [items, setItems] = useState([]);
     const [workspaces, setWorkspaces] = useState([]);
-    const [projects, setProjects] = useState([]);
     const [collections, setCollections] = useState([]);
     const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
-    const [selectedProjectId, setSelectedProjectId] = useState(null);
     const [selectedCollectionId, setSelectedCollectionId] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [editingItem, setEditingItem] = useState(null);
@@ -68,12 +60,6 @@ function App() {
         setToastCallback(setToast);
     }, []);
 
-    // Project Deletion State
-    const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, projectId: null, projectName: '' });
-
-    // Project Settings State
-    const [editingProject, setEditingProject] = useState(null);
-
     // View Mode State
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'canvas'
 
@@ -86,66 +72,48 @@ function App() {
     const [lastSelectedItemId, setLastSelectedItemId] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
     const stageABackfillCooldownRef = useRef(0);
+    const [isCanvasTitleEditing, setIsCanvasTitleEditing] = useState(false);
+    const [canvasTitleDraft, setCanvasTitleDraft] = useState('');
+    const canvasTitleInputRef = useRef(null);
 
-    const activeProject = selectedProjectId ? projects.find((p) => p.id === selectedProjectId) || null : null;
-    const projectCollections = useMemo(() => {
-        if (!selectedProjectId) return [];
+    const handleCanvasModeWheelCapture = useCallback((event) => {
+        if (viewMode !== 'canvas') return;
+        event.preventDefault();
+    }, [viewMode]);
+
+    const workspaceCollections = useMemo(() => {
+        if (!activeWorkspaceId) return [];
         return collections
-            .filter((collection) => collection.projectId === selectedProjectId)
+            .filter((collection) => getCollectionWorkspaceId(collection) === activeWorkspaceId)
             .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-    }, [collections, selectedProjectId]);
+    }, [collections, activeWorkspaceId]);
+
     const activeCollection = useMemo(() => {
         if (!selectedCollectionId) return null;
         if (selectedCollectionId === '__unsorted__') {
             return { id: '__unsorted__', name: 'Unsorted' };
         }
-        return projectCollections.find((collection) => collection.id === selectedCollectionId) || null;
-    }, [projectCollections, selectedCollectionId]);
+        return workspaceCollections.find((collection) => collection.id === selectedCollectionId) || null;
+    }, [workspaceCollections, selectedCollectionId]);
 
-    const projectCollectionItemCounts = useMemo(() => {
-        const counts = {};
-        if (!selectedProjectId) return counts;
-        for (const item of items) {
-            if (item.projectId !== selectedProjectId) continue;
-            const key = item.collectionId || '__unsorted__';
-            counts[key] = (counts[key] || 0) + 1;
-        }
-        return counts;
-    }, [items, selectedProjectId]);
+    useEffect(() => {
+        setCanvasTitleDraft(activeCollection?.name || 'All Items');
+        setIsCanvasTitleEditing(false);
+    }, [activeCollection?.id, activeCollection?.name, selectedCollectionId]);
 
-    const visibleCollectionCards = useMemo(() => {
-        if (!selectedProjectId) return [];
-        const normalizedSearch = searchQuery.trim().toLowerCase();
-        const regularCollections = projectCollections
-            .filter((collection) => (
-                !normalizedSearch || collection.name.toLowerCase().includes(normalizedSearch)
-            ))
-            .map((collection) => ({
-                id: collection.id,
-                name: collection.name,
-                count: projectCollectionItemCounts[collection.id] || 0,
-                updatedAt: collection.updatedAt || collection.createdAt || 0,
-                isUnsorted: false,
-                kind: collection.kind || 'custom',
-            }));
+    useEffect(() => {
+        if (!isCanvasTitleEditing) return;
+        canvasTitleInputRef.current?.focus();
+        canvasTitleInputRef.current?.select();
+    }, [isCanvasTitleEditing]);
 
-        const unsortedCount = projectCollectionItemCounts.__unsorted__ || 0;
-        const unsortedMatches = !normalizedSearch || 'unsorted'.includes(normalizedSearch);
-        if (unsortedCount > 0 && unsortedMatches) {
-            regularCollections.push({
-                id: '__unsorted__',
-                name: 'Unsorted',
-                count: unsortedCount,
-                updatedAt: Date.now(),
-                isUnsorted: true,
-            });
-        }
-
-        return regularCollections;
-    }, [projectCollections, projectCollectionItemCounts, searchQuery, selectedProjectId]);
+    const workspaceItemCount = useMemo(
+        () => items.filter((item) => !activeWorkspaceId || item.workspaceId === activeWorkspaceId).length,
+        [items, activeWorkspaceId]
+    );
 
     const filteredItems = useMemo(() => items.filter((item) => {
-        const matchesProject = !selectedProjectId || item.projectId === selectedProjectId;
+        const matchesWorkspace = !activeWorkspaceId || item.workspaceId === activeWorkspaceId;
         const matchesCollection = !selectedCollectionId
             || (selectedCollectionId === '__unsorted__'
                 ? !item.collectionId
@@ -155,8 +123,8 @@ function App() {
             || item.sourceUrl.toLowerCase().includes(searchQuery.toLowerCase())
             || (item.tags && item.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase())));
         const matchesTag = !tagFilter || (item.tags && item.tags.includes(tagFilter));
-        return matchesProject && matchesCollection && matchesSearch && matchesTag;
-    }), [items, searchQuery, selectedProjectId, selectedCollectionId, tagFilter]);
+        return matchesWorkspace && matchesCollection && matchesSearch && matchesTag;
+    }), [items, searchQuery, activeWorkspaceId, selectedCollectionId, tagFilter]);
 
     const scopedImageItems = useMemo(
         () => filteredItems.filter((item) => item.type === 'image'),
@@ -195,35 +163,28 @@ function App() {
 
     const loadData = () => {
         const ws = getWorkspaces();
-        const p = getProjects();
         const c = getCollections();
         const ctx = getActiveContext();
 
         setItems(getItems());
         setWorkspaces(ws);
-        setProjects(p);
         setCollections(c);
 
         // Set active context from persistence, or fallback to first workspace
         if (ctx.workspaceId && ws.some(w => w.id === ctx.workspaceId)) {
             setActiveWorkspaceId(ctx.workspaceId);
-            if (ctx.projectId && p.some(proj => proj.id === ctx.projectId)) {
-                setSelectedProjectId(ctx.projectId);
-                if (ctx.collectionId) {
-                    const collectionIsValid = ctx.collectionId === '__unsorted__'
-                        || c.some((collection) => collection.id === ctx.collectionId && collection.projectId === ctx.projectId);
-                    setSelectedCollectionId(collectionIsValid ? ctx.collectionId : null);
-                } else {
-                    setSelectedCollectionId(null);
-                }
+            if (ctx.collectionId) {
+                const collectionIsValid = ctx.collectionId === '__unsorted__'
+                    || c.some((collection) => (
+                        collection.id === ctx.collectionId
+                        && getCollectionWorkspaceId(collection) === ctx.workspaceId
+                    ));
+                setSelectedCollectionId(collectionIsValid ? ctx.collectionId : null);
             } else {
-                // If project from context is invalid, clear selected project
-                setSelectedProjectId(null);
                 setSelectedCollectionId(null);
             }
         } else if (ws.length > 0) { // If no valid context, or context workspace invalid, default to first workspace
             setActiveWorkspaceId(ws[0].id);
-            setSelectedProjectId(null); // Clear any old project selection
             setSelectedCollectionId(null);
         } else {
             // No workspaces exist -> Create default "Dreamlab" workspace
@@ -235,9 +196,9 @@ function App() {
     // Persist active context whenever it changes
     useEffect(() => {
         if (activeWorkspaceId) {
-            setActiveContext(activeWorkspaceId, selectedProjectId, selectedCollectionId);
+            setActiveContext(activeWorkspaceId, selectedCollectionId);
         }
-    }, [activeWorkspaceId, selectedProjectId, selectedCollectionId]);
+    }, [activeWorkspaceId, selectedCollectionId]);
 
     useEffect(() => {
         loadData();
@@ -247,7 +208,7 @@ function App() {
 
         // Listen for storage changes
         window.addEventListener('storage', (e) => {
-            if (['dreamlab_items', 'dreamlab_workspaces', 'dreamlab_projects', 'dreamlab_collections', 'dreamlab_active_context'].includes(e.key) || e.key === null) {
+            if (['dreamlab_items', 'dreamlab_workspaces', 'dreamlab_collections', 'dreamlab_active_context'].includes(e.key) || e.key === null) {
                 loadData();
             }
         });
@@ -259,22 +220,17 @@ function App() {
     }, []);
 
     useEffect(() => {
-        if (!selectedProjectId) {
-            if (selectedCollectionId) {
-                setSelectedCollectionId(null);
-            }
-            return;
-        }
         if (!selectedCollectionId || selectedCollectionId === '__unsorted__') {
             return;
         }
         const stillValid = collections.some(
-            (collection) => collection.id === selectedCollectionId && collection.projectId === selectedProjectId
+            (collection) => collection.id === selectedCollectionId
+                && getCollectionWorkspaceId(collection) === activeWorkspaceId
         );
         if (!stillValid) {
             setSelectedCollectionId(null);
         }
-    }, [collections, selectedCollectionId, selectedProjectId]);
+    }, [collections, selectedCollectionId, activeWorkspaceId]);
 
     // Tagging Processing Effect
     useEffect(() => {
@@ -424,7 +380,7 @@ function App() {
 
         const saveImageFromBlob = async (blob) => {
             if (!activeWorkspaceId) {
-                setToast({ message: 'Select a project first', type: 'error' });
+                setToast({ message: 'Select a workspace first', type: 'error' });
                 return;
             }
 
@@ -462,12 +418,12 @@ function App() {
                         content: base64,
                         sourceUrl: 'clipboard',
                         workspaceId: activeWorkspaceId,
-                        projectId: selectedProjectId,
+                        projectId: null,
                         collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
                         tags: [],
                         createdAt: Date.now()
                     };
-                    await saveItemWithTags(newItem, selectedProjectId);
+                    await saveItemWithTags(newItem, null);
                     setToast({ message: 'Image pasted', type: 'success' });
                     return;
                 } catch (error) {
@@ -508,7 +464,7 @@ function App() {
 
         const saveImageFromBase64 = async (base64Data) => {
             if (!activeWorkspaceId) {
-                setToast({ message: 'Select a project first', type: 'error' });
+                setToast({ message: 'Select a workspace first', type: 'error' });
                 return;
             }
             try {
@@ -587,7 +543,7 @@ function App() {
 
         const saveLink = async (url) => {
             if (!activeWorkspaceId) {
-                setToast({ message: 'Select a project first', type: 'error' });
+                setToast({ message: 'Select a workspace first', type: 'error' });
                 return;
             }
 
@@ -597,11 +553,11 @@ function App() {
                 content: url,
                 sourceUrl: url,
                 workspaceId: activeWorkspaceId,
-                projectId: selectedProjectId,
+                projectId: null,
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
                 createdAt: Date.now()
             };
-            saveItemWithTags(newItem, selectedProjectId);
+            saveItemWithTags(newItem, null);
             setToast({ message: 'Link pasted', type: 'success' });
 
             // Could attempt to fetch OG image from backend here if setup,
@@ -611,7 +567,7 @@ function App() {
 
         const saveText = async (text) => {
             if (!activeWorkspaceId) {
-                setToast({ message: 'Select a project first', type: 'error' });
+                setToast({ message: 'Select a workspace first', type: 'error' });
                 return;
             }
 
@@ -620,17 +576,17 @@ function App() {
                 content: text,
                 sourceUrl: 'clipboard',
                 workspaceId: activeWorkspaceId,
-                projectId: selectedProjectId,
+                projectId: null,
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
                 createdAt: Date.now()
             };
-            saveItemWithTags(newItem, selectedProjectId);
+            saveItemWithTags(newItem, null);
             setToast({ message: 'Text pasted', type: 'success' });
         };
 
         document.addEventListener('paste', handlePaste);
         return () => document.removeEventListener('paste', handlePaste);
-    }, [activeWorkspaceId, selectedCollectionId, selectedProjectId]);
+    }, [activeWorkspaceId, selectedCollectionId]);
 
     const handleClear = () => {
         clearItems();
@@ -655,11 +611,6 @@ function App() {
         // For now, reliance on event listener is fine
     };
 
-    const getProjectName = (id) => {
-        const p = projects.find(p => p.id === id);
-        return p ? p.name : null;
-    };
-
     const getWorkspaceName = (id) => {
         const ws = workspaces.find(ws => ws.id === id);
         return ws ? ws.name : null;
@@ -674,7 +625,7 @@ function App() {
     const getDefaultCollectionName = () => {
         const base = 'New Collection';
         const existing = new Set(
-            projectCollections
+            workspaceCollections
                 .map((collection) => String(collection?.name || '').trim().toLowerCase())
                 .filter(Boolean)
         );
@@ -687,46 +638,70 @@ function App() {
         return `${base} ${Date.now()}`;
     };
 
-    const canGoBack = Boolean(selectedCollectionId || selectedProjectId);
-    const isCollectionOverview = Boolean(selectedProjectId) && !selectedCollectionId;
+    const canGoBack = Boolean(selectedCollectionId);
 
-    const headerTitle = !selectedProjectId
-        ? 'All Items'
-        : selectedCollectionId
-            ? (activeCollection?.name || 'Collection')
-            : `${activeProject?.name || 'Project'} Collections`;
+    const headerTitle = selectedCollectionId
+        ? (activeCollection?.name || 'Collection')
+        : 'All Items';
 
-    const headerSubtitle = !selectedProjectId
-        ? `${items.length} items across your workspaces`
-        : selectedCollectionId
-            ? `Collection in ${activeProject?.name || 'project'}`
-            : `${projectCollections.length} collection${projectCollections.length === 1 ? '' : 's'} in ${getWorkspaceName(activeProject?.workspaceId) || 'workspace'}`;
+    const headerSubtitle = selectedCollectionId
+        ? `Collection in ${getWorkspaceName(activeWorkspaceId) || 'workspace'}`
+        : `${workspaceItemCount} items in ${getWorkspaceName(activeWorkspaceId) || 'workspace'}`;
 
     const handleBackNavigate = () => {
         if (selectedCollectionId) {
             setSelectedCollectionId(null);
-            return;
-        }
-        if (selectedProjectId) {
-            setSelectedProjectId(null);
-            setSelectedCollectionId(null);
         }
     };
 
-    const handleCreateCollection = async () => {
-        if (!selectedProjectId) return;
+    const handleOpenItemDetails = useCallback((itemOrId) => {
+        const itemId = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
+        if (!itemId) return;
+        const liveItem = items.find((candidate) => candidate.id === itemId);
+        if (!liveItem) return;
+        setEditingItem(liveItem);
+    }, [items]);
+
+    const handleCanvasTitleSave = useCallback(() => {
+        if (!activeCollection || !activeCollection.id || activeCollection.id === '__unsorted__') {
+            setIsCanvasTitleEditing(false);
+            return;
+        }
+        const nextName = canvasTitleDraft.trim();
+        if (!nextName || nextName === activeCollection.name) {
+            setCanvasTitleDraft(activeCollection.name);
+            setIsCanvasTitleEditing(false);
+            return;
+        }
+        const updated = updateCollection(activeCollection.id, { name: nextName });
+        if (updated) {
+            setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
+        }
+        setIsCanvasTitleEditing(false);
+    }, [activeCollection, canvasTitleDraft]);
+
+    const handleCanvasTitleCancel = useCallback(() => {
+        setCanvasTitleDraft(activeCollection?.name || 'All Items');
+        setIsCanvasTitleEditing(false);
+    }, [activeCollection?.name]);
+
+    const handleCreateCollection = async (requestedNameInput = null) => {
+        if (!activeWorkspaceId) return;
+        if (requestedNameInput !== null && !String(requestedNameInput || '').trim()) return;
 
         const suggestedName = getDefaultCollectionName();
-        let requestedName = null;
-        try {
-            requestedName = prompt('Collection name:', suggestedName);
-        } catch {
-            requestedName = suggestedName;
+        let requestedName = requestedNameInput;
+        if (requestedNameInput === null) {
+            try {
+                requestedName = prompt('Collection name:', suggestedName);
+            } catch {
+                requestedName = suggestedName;
+            }
         }
 
         const finalName = String(requestedName || '').trim() || suggestedName;
 
-        const tryCreateCollection = () => createCollection(selectedProjectId, finalName);
+        const tryCreateCollection = () => createCollection(activeWorkspaceId, finalName);
 
         try {
             const created = tryCreateCollection();
@@ -918,13 +893,13 @@ function App() {
         setIsExporting(true);
 
         try {
-            const projectName = selectedProjectId
-                ? getProjectName(selectedProjectId)
-                : getWorkspaceName(activeWorkspaceId) || 'dreamlab';
+            const exportName = selectedCollectionId
+                ? (activeCollection?.name || getWorkspaceName(activeWorkspaceId) || 'dreamlab')
+                : (getWorkspaceName(activeWorkspaceId) || 'dreamlab');
 
             const result = await exportItemsAsZip(
                 exportableItems,
-                projectName,
+                exportName,
                 (current, total, message) => {
                     if (message) {
                         setToast({ message, type: 'info' });
@@ -945,13 +920,17 @@ function App() {
         } finally {
             setIsExporting(false);
         }
-    }, [items, selectedItems, selectedProjectId, activeWorkspaceId, clearSelection]);
+    }, [items, selectedItems, selectedCollectionId, activeCollection, activeWorkspaceId, clearSelection]);
 
     const handleAddTags = useCallback(() => {
         const tag = prompt('Enter tag to add to selected items:');
         if (!tag || tag.trim() === '') return;
 
         const trimmedTag = tag.trim();
+        if (trimmedTag.includes(',')) {
+            setToast({ message: 'Commas are not allowed in tags', type: 'error' });
+            return;
+        }
         selectedItems.forEach(itemId => {
             const item = items.find(i => i.id === itemId);
             if (item) {
@@ -968,37 +947,34 @@ function App() {
 
     useEffect(() => {
         clearSelection();
-    }, [selectedProjectId, selectedCollectionId, clearSelection]);
+    }, [selectedCollectionId, clearSelection]);
 
     return (
-        <div className="flex h-screen overflow-hidden bg-default-background">
+        <div
+            className="flex h-screen w-screen overflow-hidden bg-default-background pl-[68px]"
+            onWheelCapture={handleCanvasModeWheelCapture}
+        >
             <WorkspaceStrip
                 workspaces={workspaces}
                 activeWorkspaceId={activeWorkspaceId}
                 onWorkspaceChange={(workspaceId) => {
                     setActiveWorkspaceId(workspaceId);
-                    setSelectedProjectId(null);
                     setSelectedCollectionId(null);
                 }}
                 onAddWorkspace={() => {
                     const name = prompt('Workspace Name:');
                     if (name) createWorkspace(name);
                 }}
+                lockScroll={viewMode === 'canvas'}
             />
             {/* Sidebar is hidden on mobile in Subframe example, but we keep it responsive or as is */}
             <Sidebar
-                projects={projects.filter(p => p.workspaceId === activeWorkspaceId)}
-                collections={collections.filter((collection) => projects.some(
-                    (project) => project.id === collection.projectId && project.workspaceId === activeWorkspaceId
-                ))}
-                selectedProjectId={selectedProjectId}
+                collections={workspaceCollections}
                 selectedCollectionId={selectedCollectionId}
-                onProjectSelect={(nextProjectId) => {
-                    setSelectedProjectId(nextProjectId);
+                onAllItems={() => {
                     setSelectedCollectionId(null);
                 }}
-                onCollectionSelect={(projectId, collectionId) => {
-                    setSelectedProjectId(projectId);
+                onCollectionSelect={(collectionId) => {
                     setSelectedCollectionId(collectionId);
                 }}
                 onCollectionRename={(collection, nextNameInput) => {
@@ -1011,84 +987,67 @@ function App() {
                         setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
                     }
                 }}
-                onCreateProject={createProject}
-                onDeleteProject={(id, name) => setDeleteConfirm({ isOpen: true, projectId: id, projectName: name })}
-                onProjectSettings={(project) => setEditingProject(project)}
+                onCollectionDelete={(collection) => {
+                    if (!collection?.id) return;
+                    const confirmed = window.confirm(
+                        `Delete "${collection.name}" and all items inside it? This cannot be undone.`
+                    );
+                    if (!confirmed) return;
+
+                    deleteCollection(collection.id, { moveItemsToUnsorted: false });
+                    if (selectedCollectionId === collection.id) {
+                        setSelectedCollectionId(null);
+                    }
+                    setToast({ message: `Deleted collection "${collection.name}" and its items`, type: 'success' });
+                }}
+                onCreateCollection={(collectionName) => {
+                    void handleCreateCollection(collectionName);
+                }}
                 activeWorkspaceId={activeWorkspaceId}
                 activeWorkspaceName={getWorkspaceName(activeWorkspaceId)}
                 onOpenSettings={() => setShowSettings(true)}
-                totalItemCount={items.length}
+                totalItemCount={workspaceItemCount}
+                lockScroll={viewMode === 'canvas'}
             />
 
-            <main className="flex grow shrink-0 basis-0 flex-col items-start self-stretch overflow-hidden relative bg-white">
-                {/* Replaced Header with Subframe Structure */}
-                <div className="flex w-full flex-col items-start gap-4 px-8 pt-8 pb-4">
-                    <div className="flex w-full items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="neutral-tertiary"
-                                size="small"
-                                icon={<FeatherChevronLeft />}
-                                onClick={handleBackNavigate}
-                                disabled={!canGoBack}
-                            />
-                            <div className="flex items-center gap-1 text-caption font-caption text-subtext-color">
-                                <button
-                                    type="button"
-                                    className="hover:text-default-font"
-                                    onClick={() => {
-                                        setSelectedProjectId(null);
-                                        setSelectedCollectionId(null);
-                                    }}
-                                >
-                                    {getWorkspaceName(activeWorkspaceId) || 'Workspace'}
-                                </button>
-                                {selectedProjectId ? <FeatherChevronRight className="text-caption font-caption text-neutral-400" /> : null}
-                                {selectedProjectId ? (
-                                    <button
-                                        type="button"
-                                        className="hover:text-default-font"
-                                        onClick={() => setSelectedCollectionId(null)}
-                                    >
-                                        {activeProject?.name || 'Project'}
-                                    </button>
-                                ) : null}
-                                {selectedCollectionId ? <FeatherChevronRight className="text-caption font-caption text-neutral-400" /> : null}
-                                {selectedCollectionId ? (
-                                    <span className="text-default-font">{activeCollection?.name || 'Collection'}</span>
-                                ) : null}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex w-full items-end justify-between">
-                        <div className="flex flex-col items-start gap-1">
-                            <span className="text-heading-1 font-heading-1 text-default-font">
-                                {headerTitle}
-                            </span>
-                            <span className="text-caption font-caption text-subtext-color">
-                                {headerSubtitle}
-                            </span>
-                        </div>
-                        {isCollectionOverview ? (
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    variant="brand-primary"
-                                    size="small"
-                                    onClick={handleCreateCollection}
-                                >
-                                    New Collection
-                                </Button>
-                                <Button
-                                    variant="neutral-tertiary"
-                                    size="small"
-                                    icon={<FeatherRotateCcw />}
-                                    onClick={handleClear}
-                                >
-                                    Reset
-                                </Button>
+            <main className="flex grow shrink basis-0 min-w-0 flex-col items-start self-stretch overflow-hidden relative bg-white">
+                {viewMode !== 'canvas' && (
+                    <div className="flex w-full flex-col items-start gap-4 px-8 pt-8 pb-4">
+                        {selectedCollectionId ? (
+                            <div className="flex w-full items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="neutral-tertiary"
+                                        size="small"
+                                        icon={<FeatherChevronLeft />}
+                                        onClick={handleBackNavigate}
+                                        disabled={!canGoBack}
+                                    />
+                                    <div className="flex items-center gap-1 text-caption font-caption text-subtext-color">
+                                        <button
+                                            type="button"
+                                            className="hover:text-default-font"
+                                            onClick={() => {
+                                                setSelectedCollectionId(null);
+                                            }}
+                                        >
+                                            {getWorkspaceName(activeWorkspaceId) || 'Workspace'}
+                                        </button>
+                                        <FeatherChevronRight className="text-caption font-caption text-neutral-400" />
+                                        <span className="text-default-font">{activeCollection?.name || 'Collection'}</span>
+                                    </div>
+                                </div>
                             </div>
                         ) : null}
-                        {!isCollectionOverview && (
+                        <div className="flex w-full items-end justify-between">
+                            <div className="flex flex-col items-start gap-1">
+                                <span className="text-heading-1 font-heading-1 text-default-font">
+                                    {headerTitle}
+                                </span>
+                                <span className="text-caption font-caption text-subtext-color">
+                                    {headerSubtitle}
+                                </span>
+                            </div>
                             <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-2">
                                     <span className="text-caption-bold font-caption-bold text-subtext-color">
@@ -1103,123 +1062,105 @@ function App() {
                                         onValueChange={(val) => setZoomLevel(val)}
                                     />
                                 </div>
-                                <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
-                                    <ToggleGroup.Item
-                                        icon={<FeatherLayoutGrid />}
-                                        value="grid"
-                                    />
-                                    <ToggleGroup.Item icon={<FeatherSquare />} value="canvas" />
-                                </ToggleGroup>
-                                <Button
-                                    variant="neutral-tertiary"
-                                    size="small"
-                                    icon={<FeatherRotateCcw />}
-                                    onClick={handleClear}
-                                >
-                                    Reset
-                                </Button>
+                            </div>
+                        </div>
+                        {tagFilter && (
+                            <div className="flex items-center gap-2">
+                                <Badge variant="neutral" onClick={() => setTagFilter(null)} className="cursor-pointer hover:bg-neutral-200">
+                                    {tagFilter} <span className="ml-1">×</span>
+                                </Badge>
                             </div>
                         )}
                     </div>
-                    {/* Tag Filter Chip */}
-                    {tagFilter && (
-                        <div className="flex items-center gap-2">
-                            <Badge variant="neutral" onClick={() => setTagFilter(null)} className="cursor-pointer hover:bg-neutral-200">
-                                {tagFilter} <span className="ml-1">×</span>
-                            </Badge>
-                        </div>
-                    )}
-                </div>
+                )}
 
                 {/* Content Area */}
-                <div className="flex w-full grow shrink-0 basis-0 flex-col items-start px-8 pb-8 overflow-y-auto">
-                    {isCollectionOverview ? (
-                        <div className="flex w-full flex-col gap-4">
-                            {visibleCollectionCards.length === 0 ? (
-                                <div className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-neutral-border bg-neutral-50 px-6 py-16">
-                                    <span className="text-body-bold font-body-bold text-default-font">No collections yet</span>
-                                    <span className="mt-1 text-caption font-caption text-subtext-color">Create a collection to start organizing this project's datasets.</span>
-                                    <Button className="mt-4" variant="brand-primary" size="small" onClick={handleCreateCollection}>
-                                        Create Collection
-                                    </Button>
+                <div className={`relative flex w-full grow shrink-0 basis-0 flex-col items-start ${viewMode === 'canvas' ? 'overflow-hidden p-8' : 'overflow-y-auto px-8 pb-8'}`}>
+                    <AnimatePresence mode="wait">
+                        {viewMode === 'canvas' ? (
+                            <motion.div
+                                key="canvas"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="relative w-full h-full"
+                            >
+                                <div className="absolute left-4 top-4 z-20">
+                                    <div
+                                        className="flex min-w-[220px] max-w-[340px] items-center rounded-full border border-neutral-200 bg-white px-[30px] py-[16px] text-default-font shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        {isCanvasTitleEditing ? (
+                                            <input
+                                                ref={canvasTitleInputRef}
+                                                type="text"
+                                                value={canvasTitleDraft}
+                                                onChange={(e) => setCanvasTitleDraft(e.target.value)}
+                                                onBlur={handleCanvasTitleSave}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        handleCanvasTitleSave();
+                                                    } else if (e.key === 'Escape') {
+                                                        e.preventDefault();
+                                                        handleCanvasTitleCancel();
+                                                    }
+                                                }}
+                                                className="w-full bg-transparent text-heading-2 font-semibold text-default-font outline-none"
+                                            />
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                className="w-full truncate text-left text-heading-2 font-semibold text-default-font"
+                                                onClick={() => {
+                                                    if (!activeCollection || activeCollection.id === '__unsorted__') return;
+                                                    setIsCanvasTitleEditing(true);
+                                                }}
+                                                title={activeCollection?.name || 'All Items'}
+                                            >
+                                                {activeCollection?.name || 'All Items'}
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                            ) : (
-                                <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                    {visibleCollectionCards.map((collection) => (
-                                        <button
-                                            key={collection.id}
-                                            type="button"
-                                            className="flex min-h-[136px] flex-col gap-3 rounded-lg border border-neutral-border bg-default-background px-4 py-4 text-left hover:border-brand-600 hover:bg-brand-50"
-                                            onClick={() => setSelectedCollectionId(collection.id)}
-                                        >
-                                            <div className="flex items-center justify-between gap-2">
-                                                <span className="truncate text-body-bold font-body-bold text-default-font">{collection.name}</span>
-                                                {collection.isUnsorted ? (
-                                                    <Badge variant="warning">Legacy</Badge>
-                                                ) : collection.kind === 'generated_outputs' ? (
-                                                    <Badge variant="brand">Generated</Badge>
-                                                ) : (
-                                                    <Badge variant="neutral">{collection.count} items</Badge>
-                                                )}
-                                            </div>
-                                            <span className="text-caption font-caption text-subtext-color">
-                                                {collection.isUnsorted
-                                                    ? 'Items not yet assigned to a collection'
-                                                    : 'Open this dataset and collect visual references'}
-                                            </span>
-                                            <span className="mt-auto text-caption-bold font-caption-bold text-brand-700">Open Collection</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <AnimatePresence mode="wait">
-                            {viewMode === 'canvas' ? (
-                                <motion.div
-                                    key="canvas"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                    className="w-full h-full"
-                                >
-                                    <CanvasView
-                                        items={filteredItems}
-                                        onUpdateItem={handleUpdateItem}
-                                        onDeleteItem={handleDelete}
-                                    />
-                                </motion.div>
-                            ) : (
-                                <motion.div
-                                    key="grid"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                    className="w-full h-full"
-                                >
-                                    {filteredItems.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center w-full h-64 border border-dashed border-neutral-border rounded-lg bg-neutral-50">
-                                            <div className="bg-neutral-100 p-3 rounded-full mb-3">
-                                                <FeatherSearch className="text-neutral-400 w-6 h-6" />
-                                            </div>
-                                            <span className="text-body-bold font-body-bold text-default-font">Nothing here yet</span>
-                                            <span className="text-caption font-caption text-subtext-color mt-1">Start capturing inspiration.</span>
+                                <CanvasView
+                                    items={filteredItems}
+                                    onUpdateItem={handleUpdateItem}
+                                    onDeleteItem={handleDelete}
+                                    onOpenItem={handleOpenItemDetails}
+                                />
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                key="grid"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="w-full h-full"
+                            >
+                                {filteredItems.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center w-full h-64 border border-dashed border-neutral-border rounded-lg bg-neutral-50">
+                                        <div className="bg-neutral-100 p-3 rounded-full mb-3">
+                                            <FeatherSearch className="text-neutral-400 w-6 h-6" />
                                         </div>
-                                    ) : (
-                                        <MasonryGrid
-                                            items={filteredItems}
-                                            onItemClick={setEditingItem}
-                                            zoomLevel={zoomLevel[0]}
-                                            selectedItems={selectedItems}
-                                            onSelectItem={handleSelectItem}
-                                        />
-                                    )}
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    )}
+                                        <span className="text-body-bold font-body-bold text-default-font">Nothing here yet</span>
+                                        <span className="text-caption font-caption text-subtext-color mt-1">Start capturing inspiration.</span>
+                                    </div>
+                                ) : (
+                                    <MasonryGrid
+                                        items={filteredItems}
+                                        onItemClick={handleOpenItemDetails}
+                                        zoomLevel={zoomLevel[0]}
+                                        selectedItems={selectedItems}
+                                        onSelectItem={handleSelectItem}
+                                    />
+                                )}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                 </div>
 
@@ -1229,6 +1170,7 @@ function App() {
                         <ItemModal
                             item={editingItem}
                             onClose={() => setEditingItem(null)}
+                            onToast={setToast}
                             onUpdate={(updated) => {
                                 handleUpdateItem(updated.id, updated);
                                 setEditingItem(updated);
@@ -1259,47 +1201,10 @@ function App() {
                             onClose={() => setShowSettings(false)}
                             activeWorkspace={workspaces.find(w => w.id === activeWorkspaceId)}
                             onUpdateWorkspace={loadData}
+                            onResetAllData={handleClear}
                         />
                     )}
                 </AnimatePresence>
-
-                {/* Project Settings Modal */}
-                <AnimatePresence>
-                    {editingProject && (
-                        <ProjectSettingsModal
-                            project={editingProject}
-                            onClose={() => setEditingProject(null)}
-                            onUpdate={(id, updates) => {
-                                updateProject(id, updates);
-                                setToast({ message: 'Project updated', type: 'success' });
-                            }}
-                            onDelete={(id, name) => {
-                                setEditingProject(null);
-                                setDeleteConfirm({ isOpen: true, projectId: id, projectName: name });
-                            }}
-                        />
-                    )}
-                </AnimatePresence>
-
-                {/* Delete Project Confirmation Dialog */}
-                <ConfirmDialog
-                    isOpen={deleteConfirm.isOpen}
-                    onClose={() => setDeleteConfirm({ isOpen: false, projectId: null, projectName: '' })}
-                    onConfirm={() => {
-                        deleteProject(deleteConfirm.projectId);
-                        // Clear selection if we just deleted the selected project
-                        if (selectedProjectId === deleteConfirm.projectId) {
-                            setSelectedProjectId(null);
-                            setSelectedCollectionId(null);
-                        }
-                        setToast({ message: `Project "${deleteConfirm.projectName}" deleted`, type: 'success' });
-                    }}
-                    title={`Delete "${deleteConfirm.projectName}"?`}
-                    message="All items in this project will be moved to 'All Items'. This action cannot be undone."
-                    confirmLabel="Delete"
-                    cancelLabel="Cancel"
-                    variant="destructive"
-                />
 
                 {/* Toast Notifications */}
                 <AnimatePresence>
@@ -1345,14 +1250,13 @@ function App() {
                                 </div>
                             </div>
                         </div>
-                        <Button
-                            variant="neutral-secondary"
-                            size="medium"
-                            icon={<FeatherFilter />}
-                            onClick={() => { }}
-                        >
-                            Filter
-                        </Button>
+                        <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
+                            <ToggleGroup.Item
+                                icon={<FeatherLayoutGrid />}
+                                value="grid"
+                            />
+                            <ToggleGroup.Item icon={<FeatherSquare />} value="canvas" />
+                        </ToggleGroup>
                     </div>
                 )}
             </main>

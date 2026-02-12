@@ -29,6 +29,9 @@ export default function TagInput({ tags = [], onChange }) {
 
     const addTag = (tag) => {
         const trimmed = tag.trim();
+        if (trimmed.includes(',')) {
+            return;
+        }
         if (trimmed && !tags.includes(trimmed)) {
             onChange([...tags, trimmed]);
             setInputValue('');
@@ -41,6 +44,10 @@ export default function TagInput({ tags = [], onChange }) {
     };
 
     const handleKeyDown = (e) => {
+        if (e.key === ',') {
+            e.preventDefault();
+            return;
+        }
         if (e.key === 'Enter') {
             e.preventDefault();
             addTag(inputValue);
@@ -85,7 +92,7 @@ export default function TagInput({ tags = [], onChange }) {
                     type="text"
                     value={inputValue}
                     onChange={(e) => {
-                        setInputValue(e.target.value);
+                        setInputValue(e.target.value.replace(/,/g, ''));
                         setShowSuggestions(true);
                     }}
                     onKeyDown={handleKeyDown}

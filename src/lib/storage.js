@@ -14,21 +14,30 @@ function isQuotaExceededError(error) {
         || /quota/i.test(error?.message || '');
 }
 
-// Active Context (persists the last selected Workspace/Project)
+// Active Context (persists the last selected Workspace/Collection)
 export const getActiveContext = () => {
     const ctx = localStorage.getItem(ACTIVE_CONTEXT_KEY);
     const parsed = ctx ? JSON.parse(ctx) : {};
     return {
         workspaceId: parsed.workspaceId || null,
+        // Keep for backward compatibility with older records.
         projectId: parsed.projectId || null,
         collectionId: parsed.collectionId || null,
     };
 };
 
-export const setActiveContext = (workspaceId, projectId, collectionId = null) => {
-    localStorage.setItem(ACTIVE_CONTEXT_KEY, JSON.stringify({ workspaceId, projectId, collectionId }));
+export function setActiveContext(workspaceId, collectionOrLegacyProjectId = null, legacyCollectionId = undefined) {
+    const collectionId = legacyCollectionId === undefined
+        ? collectionOrLegacyProjectId
+        : legacyCollectionId;
+
+    localStorage.setItem(ACTIVE_CONTEXT_KEY, JSON.stringify({
+        workspaceId: workspaceId || null,
+        projectId: null,
+        collectionId: collectionId || null
+    }));
     window.dispatchEvent(new Event('storage-update'));
-};
+}
 
 export const getItems = () => {
     const items = localStorage.getItem(STORAGE_KEY);
@@ -45,12 +54,47 @@ export const getProjects = () => {
     return p ? JSON.parse(p) : [];
 };
 
-export const getCollections = (projectId = null) => {
+export const getCollectionWorkspaceId = (collection, projectWorkspaceMap = null) => {
+    if (!collection || typeof collection !== 'object') return null;
+    if (collection.workspaceId) return collection.workspaceId;
+    if (!collection.projectId) return null;
+
+    const map = projectWorkspaceMap || new Map(
+        getProjects().map((project) => [project.id, project.workspaceId || null])
+    );
+    return map.get(collection.projectId) || null;
+};
+
+export const getCollections = (filter = null) => {
     const raw = localStorage.getItem(COLLECTIONS_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return [];
-    if (!projectId) return parsed;
-    return parsed.filter((collection) => collection.projectId === projectId);
+    if (!filter) return parsed;
+
+    // Legacy usage: getCollections(projectId)
+    if (typeof filter === 'string') {
+        return parsed.filter((collection) => collection.projectId === filter);
+    }
+
+    if (filter.projectId) {
+        return parsed.filter((collection) => collection.projectId === filter.projectId);
+    }
+
+    if (filter.workspaceId) {
+        const projectWorkspaceMap = new Map(
+            getProjects().map((project) => [project.id, project.workspaceId || null])
+        );
+        return parsed.filter(
+            (collection) => getCollectionWorkspaceId(collection, projectWorkspaceMap) === filter.workspaceId
+        );
+    }
+
+    return parsed;
+};
+
+export const getCollectionsForWorkspace = (workspaceId) => {
+    if (!workspaceId) return [];
+    return getCollections({ workspaceId });
 };
 
 export const createWorkspace = (name, icon = null) => {
@@ -95,11 +139,19 @@ export const createProject = (workspaceId, name) => {
     return newProject;
 };
 
-export const createCollection = (projectId, name) => {
+export const createCollection = (workspaceIdOrProjectId, name) => {
     const collections = getCollections();
+    const workspaces = getWorkspaces();
+    const project = getProject(workspaceIdOrProjectId);
+    const isWorkspaceId = workspaces.some((workspace) => workspace.id === workspaceIdOrProjectId);
+    const workspaceId = isWorkspaceId
+        ? workspaceIdOrProjectId
+        : (project?.workspaceId || workspaceIdOrProjectId || null);
+
     const newCollection = {
         id: crypto.randomUUID(),
-        projectId,
+        workspaceId,
+        projectId: isWorkspaceId ? null : (project?.id || null),
         name,
         kind: 'custom',
         createdAt: Date.now(),

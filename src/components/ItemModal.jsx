@@ -1,10 +1,13 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { updateItem, getWorkspaces, getProjects, getPrimitiveAnalysisStore } from '../lib/storage';
+import {
+    updateItem,
+    getWorkspaces,
+    getCollections,
+    getCollectionWorkspaceId
+} from '../lib/storage';
 import { fetchImageViaProxy } from '../utils/imageProxy';
-import { getPrimitiveVersionMap } from '../services/analysisSchemaRegistry';
-import { getImageAnalysisStatus } from '../utils/analysisStatus';
 import { Button } from "../ui/components/Button";
 import { TextField } from "../ui/components/TextField";
 import { Select } from "../ui/components/Select";
@@ -29,23 +32,42 @@ import {
     FeatherChevronRight
 } from "@subframe/core";
 
-export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, onPrev, hasNext, hasPrev }) {
+const uniqueTags = (tags = []) => [...new Set((tags || []).filter(Boolean))];
+
+const getContextTagText = (contextTag) => (
+    typeof contextTag === 'string' ? contextTag : contextTag?.tag
+);
+
+export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, onPrev, hasNext, hasPrev, onToast }) {
     const [content, setContent] = useState(item.content);
     const [title, setTitle] = useState(item.title || '');
     const [description, setDescription] = useState(item.description || '');
-    const [tags, setTags] = useState(item.tags || []);
     const [tagInput, setTagInput] = useState('');
-    const [projectId, setProjectId] = useState(item.projectId || 'unassigned');
-    const [currentItem, setCurrentItem] = useState(item);
+    const [collectionId, setCollectionId] = useState(item.collectionId || 'unassigned');
+    const [objectiveTagsState, setObjectiveTagsState] = useState(() => uniqueTags(item.objectiveTags || item.tags || []));
+    const [contextTagsState, setContextTagsState] = useState(() => item.contextTags || []);
+    const [searchTagsState, setSearchTagsState] = useState(() => {
+        const contextTags = (item.contextTags || []).map(getContextTagText).filter(Boolean);
+        return uniqueTags(item.tags || [...(item.objectiveTags || []), ...contextTags]);
+    });
+
+    const emitToast = (message, type = 'info') => {
+        if (onToast) onToast({ message, type });
+    };
 
     // Sync state when item changes (for navigation)
     useEffect(() => {
         setContent(item.content);
         setTitle(item.title || '');
         setDescription(item.description || '');
-        setTags(item.tags || []);
-        setProjectId(item.projectId || 'unassigned');
-        setCurrentItem(item);
+        setCollectionId(item.collectionId || 'unassigned');
+        const objectiveTags = uniqueTags(item.objectiveTags || item.tags || []);
+        const contextTags = item.contextTags || [];
+        const contextTagValues = contextTags.map(getContextTagText).filter(Boolean);
+        const searchTags = uniqueTags(item.tags || [...objectiveTags, ...contextTagValues]);
+        setObjectiveTagsState(objectiveTags);
+        setContextTagsState(contextTags);
+        setSearchTagsState(searchTags);
     }, [item]);
 
     // Keyboard Navigation
@@ -73,74 +95,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     });
     const [expandedTags, setExpandedTags] = useState(false);
     const [expandedContextTags, setExpandedContextTags] = useState(false);
-    const [analysisTick, setAnalysisTick] = useState(0);
-    const [selectedPrimitiveBlock, setSelectedPrimitiveBlock] = useState('');
-
-    useEffect(() => {
-        const onStorageUpdate = () => setAnalysisTick((t) => t + 1);
-        window.addEventListener('storage-update', onStorageUpdate);
-        return () => window.removeEventListener('storage-update', onStorageUpdate);
-    }, []);
-
-    const analysisSummary = useMemo(() => {
-        const primitiveStore = getPrimitiveAnalysisStore();
-        const versionMap = getPrimitiveVersionMap();
-        return getImageAnalysisStatus(currentItem, primitiveStore, versionMap);
-    }, [currentItem, analysisTick]);
-
-    const analysisBadge = useMemo(() => {
-        if (currentItem.type !== 'image') {
-            return { label: 'N/A', variant: 'neutral' };
-        }
-        if (analysisSummary.status === 'done') {
-            return { label: 'Analysed', variant: 'success' };
-        }
-        if (analysisSummary.status === 'in_progress') {
-            return { label: 'In progress', variant: 'warning' };
-        }
-        if (analysisSummary.status === 'failed') {
-            return { label: 'Failed', variant: 'error' };
-        }
-        return { label: 'Unanalysed', variant: 'neutral' };
-    }, [analysisSummary, currentItem.type]);
-
-    const primitiveDebugRecord = useMemo(() => {
-        if (currentItem.type !== 'image' || !currentItem.imageHash) return null;
-        const primitiveStore = getPrimitiveAnalysisStore();
-        return primitiveStore?.[currentItem.imageHash] || null;
-    }, [currentItem.type, currentItem.imageHash, analysisTick]);
-
-    const primitiveDebugBlocks = useMemo(() => {
-        const primitives = primitiveDebugRecord?.primitives || {};
-        return Object.keys(primitives)
-            .sort((a, b) => a.localeCompare(b))
-            .map((key) => ({
-                key,
-                payload: primitives[key],
-            }));
-    }, [primitiveDebugRecord]);
-
-    useEffect(() => {
-        if (primitiveDebugBlocks.length === 0) {
-            if (selectedPrimitiveBlock) {
-                setSelectedPrimitiveBlock('');
-            }
-            return;
-        }
-        const hasSelection = primitiveDebugBlocks.some((block) => block.key === selectedPrimitiveBlock);
-        if (!hasSelection) {
-            setSelectedPrimitiveBlock(primitiveDebugBlocks[0].key);
-        }
-    }, [primitiveDebugBlocks, selectedPrimitiveBlock]);
-
-    const selectedPrimitivePayload = useMemo(() => (
-        primitiveDebugBlocks.find((block) => block.key === selectedPrimitiveBlock)?.payload || null
-    ), [primitiveDebugBlocks, selectedPrimitiveBlock]);
-
-    const selectedPrimitiveJson = useMemo(() => {
-        if (!selectedPrimitivePayload) return '';
-        return JSON.stringify(selectedPrimitivePayload, null, 2);
-    }, [selectedPrimitivePayload]);
 
     const toggleImageFit = () => {
         const newFit = imageFit === 'cover' ? 'contain' : 'cover';
@@ -149,22 +103,22 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     };
 
     const workspaces = getWorkspaces();
-    const projects = getProjects();
+    const collections = getCollections();
     const currentWorkspace = workspaces.find(w => w.id === item.workspaceId);
-    const availableProjects = currentWorkspace
-        ? projects.filter(p => p.workspaceId === item.workspaceId)
+    const availableCollections = currentWorkspace
+        ? collections.filter((collection) => getCollectionWorkspaceId(collection) === item.workspaceId)
         : [];
 
     const handleSave = () => {
-        const nextProjectId = projectId === 'unassigned' ? null : projectId;
-        const projectChanged = nextProjectId !== (item.projectId || null);
+        const nextCollectionId = collectionId === 'unassigned' ? null : collectionId;
         const updated = updateItem(item.id, {
             content,
             title: title.trim() || null,
             description,
-            tags,
-            projectId: nextProjectId,
-            collectionId: projectChanged ? null : (item.collectionId || null),
+            objectiveTags: objectiveTagsState,
+            contextTags: contextTagsState,
+            tags: searchTagsState,
+            collectionId: nextCollectionId,
         });
         onUpdate(updated);
         onClose();
@@ -182,10 +136,13 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     };
 
     const handleCopyContent = async () => {
-        if (item.type === 'image') {
+        const imageSource = item.type === 'image'
+            ? item.content
+            : (item.type === 'link' ? item.thumbnail : null);
+
+        if (imageSource) {
             try {
-                const response = await fetch(item.content);
-                const blob = await response.blob();
+                const blob = await fetchImageViaProxy(imageSource);
                 let pngBlob = blob;
                 if (blob.type !== 'image/png') {
                     const img = new Image();
@@ -205,29 +162,47 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                 await navigator.clipboard.write([
                     new ClipboardItem({ 'image/png': pngBlob })
                 ]);
+                emitToast('Copied image', 'success');
+                return;
             } catch {
-                await navigator.clipboard.writeText(item.sourceUrl || item.content);
+                try {
+                    await navigator.clipboard.writeText(item.sourceUrl || item.content || '');
+                    emitToast('Copied URL', 'info');
+                    return;
+                } catch {
+                    emitToast('Clipboard permission failed', 'error');
+                    return;
+                }
             }
-        } else {
-            await navigator.clipboard.writeText(item.sourceUrl || content);
+        }
+
+        try {
+            await navigator.clipboard.writeText(item.sourceUrl || content || '');
+            emitToast(item.type === 'text' ? 'Copied text' : 'Copied URL', 'success');
+        } catch {
+            emitToast('Clipboard permission failed', 'error');
         }
     };
 
     const handleDownload = async () => {
-        const content = item.content;
-        if (!content) return;
-        const isDownloadable = item.type === 'image' ||
-            (item.type === 'link' && (content.startsWith('data:') || content.startsWith('http')));
-        if (!isDownloadable) return;
-
-        let ext = 'jpg';
-        if (content.startsWith('data:image/png') || content.includes('.png')) ext = 'png';
-        else if (content.startsWith('data:image/webp') || content.includes('.webp')) ext = 'webp';
-
-        const filename = `${item.title || 'image'}-${item.id.slice(0, 8)}.${ext}`;
+        const source = item.type === 'image' ? item.content : item.thumbnail;
+        if (!source) {
+            emitToast('No thumbnail available for download', 'error');
+            return;
+        }
 
         try {
-            const blob = await fetchImageViaProxy(content);
+            const blob = await fetchImageViaProxy(source);
+            const inferredType = blob.type || '';
+            const ext = inferredType.includes('png') ? 'png'
+                : inferredType.includes('webp') ? 'webp'
+                    : inferredType.includes('gif') ? 'gif'
+                        : inferredType.includes('jpeg') ? 'jpg'
+                            : (source.includes('.png') ? 'png'
+                                : source.includes('.webp') ? 'webp'
+                                    : source.includes('.gif') ? 'gif'
+                                        : 'jpg');
+            const filename = `${item.title || 'image'}-${item.id.slice(0, 8)}.${ext}`;
             const blobUrl = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = blobUrl;
@@ -236,22 +211,57 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(blobUrl);
-        } catch (error) {
-            window.open(content, '_blank');
+            emitToast('Downloaded image', 'success');
+        } catch {
+            emitToast('Failed to download image', 'error');
         }
     };
 
     const handleAddTag = (e) => {
         if (e.key === 'Enter' && tagInput.trim()) {
-            if (!tags.includes(tagInput.trim())) {
-                setTags([...tags, tagInput.trim()]);
+            const nextTag = tagInput.trim();
+            if (nextTag.includes(',')) {
+                return;
+            }
+            if (!objectiveTagsState.includes(nextTag)) {
+                const nextObjectiveTags = [...objectiveTagsState, nextTag];
+                setObjectiveTagsState(nextObjectiveTags);
+                setSearchTagsState(uniqueTags([...searchTagsState, nextTag]));
             }
             setTagInput('');
         }
     };
 
-    const handleRemoveTag = (tagToRemove) => {
-        setTags(tags.filter(t => t !== tagToRemove));
+    const persistTagState = (nextObjectiveTags, nextContextTags, nextSearchTags) => {
+        setObjectiveTagsState(nextObjectiveTags);
+        setContextTagsState(nextContextTags);
+        setSearchTagsState(nextSearchTags);
+        const updated = updateItem(item.id, {
+            objectiveTags: nextObjectiveTags,
+            contextTags: nextContextTags,
+            tags: nextSearchTags,
+        });
+        if (onUpdate) onUpdate(updated);
+    };
+
+    const handleRemoveObjectiveTag = (tagToRemove) => {
+        const nextObjectiveTags = objectiveTagsState.filter((t) => t !== tagToRemove);
+        const nextContextTags = contextTagsState.filter((ct) => getContextTagText(ct) !== tagToRemove);
+        const nextSearchTags = searchTagsState.filter((t) => t !== tagToRemove);
+        persistTagState(nextObjectiveTags, nextContextTags, nextSearchTags);
+    };
+
+    const handleRemoveContextTag = (indexToRemove) => {
+        const removed = contextTagsState[indexToRemove];
+        const removedTagText = getContextTagText(removed);
+        const nextContextTags = contextTagsState.filter((_, idx) => idx !== indexToRemove);
+        const nextObjectiveTags = removedTagText
+            ? objectiveTagsState.filter((t) => t !== removedTagText)
+            : objectiveTagsState;
+        const nextSearchTags = removedTagText
+            ? searchTagsState.filter((t) => t !== removedTagText)
+            : searchTagsState;
+        persistTagState(nextObjectiveTags, nextContextTags, nextSearchTags);
     };
 
     const getTypeIcon = () => {
@@ -265,11 +275,11 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
 
     // Tag Limiting Logic
     const TAG_LIMIT = 10;
-    const visibleTags = expandedTags ? (currentItem.objectiveTags || tags || []) : (currentItem.objectiveTags || tags || []).slice(0, TAG_LIMIT);
-    const hasMoreTags = (currentItem.objectiveTags || tags || []).length > TAG_LIMIT;
+    const visibleTags = expandedTags ? objectiveTagsState : objectiveTagsState.slice(0, TAG_LIMIT);
+    const hasMoreTags = objectiveTagsState.length > TAG_LIMIT;
 
-    const visibleContextTags = expandedContextTags ? (currentItem.contextTags || []) : (currentItem.contextTags || []).slice(0, TAG_LIMIT);
-    const hasMoreContextTags = (currentItem.contextTags || []).length > TAG_LIMIT;
+    const visibleContextTags = expandedContextTags ? contextTagsState : contextTagsState.slice(0, TAG_LIMIT);
+    const hasMoreContextTags = contextTagsState.length > TAG_LIMIT;
 
     return (
         <div
@@ -368,53 +378,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             placeholder="Add a title..."
                         />
 
-                        {currentItem.type === 'image' && (
-                            <div className="flex items-center gap-2">
-                                <Badge variant={analysisBadge.variant}>{analysisBadge.label}</Badge>
-                                <span className="text-caption font-caption text-subtext-color">
-                                    {analysisSummary.completed}/{analysisSummary.total} primitive blocks
-                                </span>
-                            </div>
-                        )}
-
-                        {currentItem.type === 'image' && (
-                            <details className="rounded-md border border-neutral-200 bg-neutral-50">
-                                <summary className="cursor-pointer select-none px-3 py-2 text-xs font-bold uppercase tracking-wider text-neutral-500">
-                                    Primitive Debug
-                                </summary>
-                                <div className="px-3 pb-3 pt-1 flex flex-col gap-2">
-                                    <span className="text-[11px] text-neutral-500 break-all">
-                                        imageHash: {currentItem.imageHash || 'missing'}
-                                    </span>
-                                    {primitiveDebugBlocks.length === 0 ? (
-                                        <span className="text-xs text-neutral-500">
-                                            No primitive cache found yet for this image.
-                                        </span>
-                                    ) : (
-                                        <>
-                                            <label className="text-[11px] font-medium text-neutral-600 uppercase tracking-wide">
-                                                Primitive Block
-                                            </label>
-                                            <select
-                                                value={selectedPrimitiveBlock}
-                                                onChange={(e) => setSelectedPrimitiveBlock(e.target.value)}
-                                                className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm text-neutral-800 focus:outline-none focus:border-brand-500"
-                                            >
-                                                {primitiveDebugBlocks.map((block) => (
-                                                    <option key={block.key} value={block.key}>
-                                                        {block.key}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <pre className="max-h-56 overflow-auto rounded-md border border-neutral-200 bg-white p-2 text-[11px] leading-relaxed text-neutral-700">
-                                                {selectedPrimitiveJson}
-                                            </pre>
-                                        </>
-                                    )}
-                                </div>
-                            </details>
-                        )}
-
                         {/* Content Source */}
                         <div className="flex flex-col gap-2">
                             <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Content Source</span>
@@ -458,16 +421,16 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             />
                         </div>
 
-                        {/* Project Select */}
+                        {/* Collection Select */}
                         <div className="flex flex-col gap-2">
-                            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Project</span>
+                            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Collection</span>
                             <Select
-                                value={projectId}
-                                onValueChange={setProjectId}
+                                value={collectionId}
+                                onValueChange={setCollectionId}
                             >
-                                <Select.Item value="unassigned">No Project</Select.Item>
-                                {availableProjects.map(p => (
-                                    <Select.Item key={p.id} value={p.id}>{p.name}</Select.Item>
+                                <Select.Item value="unassigned">No Collection</Select.Item>
+                                {availableCollections.map((collection) => (
+                                    <Select.Item key={collection.id} value={collection.id}>{collection.name}</Select.Item>
                                 ))}
                             </Select>
                         </div>
@@ -479,19 +442,19 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             {/* Objective Tags */}
                             <div className="flex flex-wrap gap-2">
                                 {visibleTags.map((tag, i) => (
-                                    <Badge key={i} variant="neutral" onClick={() => handleRemoveTag(tag)} className="cursor-pointer hover:bg-neutral-200">
+                                    <Badge key={i} variant="neutral" onClick={() => handleRemoveObjectiveTag(tag)} className="cursor-pointer hover:bg-neutral-200">
                                         {tag} ×
                                     </Badge>
                                 ))}
                                 {hasMoreTags && (
                                     <button onClick={() => setExpandedTags(!expandedTags)} className="text-xs text-neutral-500 hover:text-neutral-800 font-medium px-1">
-                                        {expandedTags ? "Show less" : `+${(currentItem.objectiveTags || tags).length - TAG_LIMIT} more`}
+                                        {expandedTags ? "Show less" : `+${objectiveTagsState.length - TAG_LIMIT} more`}
                                     </button>
                                 )}
                             </div>
 
                             {/* Context Tags */}
-                            {currentItem.contextTags && currentItem.contextTags.length > 0 && (
+                            {contextTagsState.length > 0 && (
                                 <div className="flex flex-col gap-2 mt-2">
                                     <div className="flex items-center gap-1.5">
                                         <FeatherSparkles className="w-3 h-3 text-brand-600" />
@@ -499,17 +462,12 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {visibleContextTags.map((ct, i) => {
-                                            const tagText = typeof ct === 'string' ? ct : ct.tag;
+                                            const tagText = getContextTagText(ct);
                                             return (
                                                 <span
                                                     key={i}
                                                     className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-brand-50 text-brand-700 border border-brand-200 cursor-pointer hover:bg-brand-100 transition-colors"
-                                                    onClick={() => {
-                                                        const newContextTags = currentItem.contextTags.filter((_, idx) => idx !== i);
-                                                        // Optimistic update logic if needed
-                                                        updateItem(item.id, { contextTags: newContextTags });
-                                                        setCurrentItem({ ...currentItem, contextTags: newContextTags });
-                                                    }}
+                                                    onClick={() => handleRemoveContextTag(i)}
                                                 >
                                                     {tagText} ×
                                                 </span>
@@ -517,7 +475,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                         })}
                                         {hasMoreContextTags && (
                                             <button onClick={() => setExpandedContextTags(!expandedContextTags)} className="text-xs text-brand-600 hover:text-brand-800 font-medium px-1">
-                                                {expandedContextTags ? "Show less" : `+${currentItem.contextTags.length - TAG_LIMIT} more`}
+                                                {expandedContextTags ? "Show less" : `+${contextTagsState.length - TAG_LIMIT} more`}
                                             </button>
                                         )}
                                     </div>
@@ -528,7 +486,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 <TextField.Input
                                     placeholder="+ Add tag"
                                     value={tagInput}
-                                    onChange={e => setTagInput(e.target.value)}
+                                    onChange={e => setTagInput(e.target.value.replace(/,/g, ''))}
                                     onKeyDown={handleAddTag}
                                 />
                             </TextField>
@@ -556,6 +514,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                     className="flex-1"
                                     icon={<FeatherDownload />}
                                     onClick={handleDownload}
+                                    disabled={item.type === 'link' && !item.thumbnail}
                                 >
                                     Download
                                 </Button>

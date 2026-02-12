@@ -3,10 +3,17 @@ import { Avatar } from '../ui/components/Avatar';
 import { IconButton } from '../ui/components/IconButton';
 import * as SubframeCore from '@subframe/core';
 
-export default function WorkspaceStrip({ workspaces, activeWorkspaceId, onWorkspaceChange, onAddWorkspace }) {
+export default function WorkspaceStrip({ workspaces, activeWorkspaceId, onWorkspaceChange, onAddWorkspace, lockScroll = false }) {
+    const handleWheelCapture = (event) => {
+        if (!lockScroll) return;
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
     return (
         <div
-            className="fixed left-0 top-0 h-screen z-50 flex flex-col items-center py-4 gap-3 overflow-y-auto overflow-x-hidden bg-neutral-100 border-r border-neutral-border w-[68px]"
+            className={`fixed left-0 top-0 h-screen z-50 flex flex-col items-center py-4 gap-3 overflow-x-hidden bg-neutral-100 border-r border-neutral-border w-[68px] ${lockScroll ? 'overflow-hidden' : 'overflow-y-auto'}`}
+            onWheelCapture={handleWheelCapture}
         >
             {/* Workspaces */}
             <div className="flex flex-col gap-3 w-full items-center px-3">

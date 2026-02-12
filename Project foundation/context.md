@@ -16,6 +16,97 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Last Fix**: Migrated Stage A analysis to `/api/stagea` queue runtime with adaptive cooldowns, retry windows, and remote polling fallback logic.
 
 ## Changelog
+### [0.19.40] - 2026-02-12
+#### Changed
+- **Collection-first Canvas + Sidebar UX Polish** (`src/App.jsx`, `src/components/Sidebar.jsx`, `src/components/CanvasView.jsx`, `src/components/CanvasItem.jsx`, `src/components/WorkspaceStrip.jsx`, `src/index.css`):
+  - Removed non-essential top header clutter in canvas mode and moved to a collection-name chip anchored inside the canvas frame.
+  - Added inline collection rename directly from the on-canvas title chip.
+  - Standardized sidebar collection interactions with hover menu (`...`) and action menu entries (`Rename`, `Delete Collection`).
+  - Updated active tab visuals and spacing:
+    - stronger orange outline
+    - reduced fill intensity
+    - tighter vertical spacing
+    - fully pill-shaped tabs (including `All Items`)
+  - Improved canvas interaction behavior and layout lock so touchpad/magic-mouse movement pans canvas without drifting surrounding layout.
+  - Restored balanced white framing around the canvas while keeping full canvas focus.
+
+#### Fixed
+- **Details Modal Reliability + Action Semantics** (`src/components/ItemModal.jsx`, `src/components/Toast.jsx`, `src/components/TagInput.jsx`, `src/App.jsx`):
+  - Fixed white-screen regression by restoring missing `Badge` import in `ItemModal`.
+  - Reworked modal tag handling to deterministic state buckets:
+    - `objectiveTags`
+    - `contextTags`
+    - `tags` (search)
+  - Tag deletion via `×` now persists immediately and removes across all relevant tag stores.
+  - Copy/Download actions now resolve media source by type:
+    - image items -> image
+    - link items with thumbnail -> thumbnail image
+    - link without thumbnail -> URL fallback / disabled download
+  - Fixed copy-image flow bug caused by treating an արդեն-fetched Blob as a Response.
+  - Added explicit toast feedback for copy/download success and fallback/error states.
+  - Fixed toast auto-dismiss lifecycle so toasts no longer get stuck when modal-driven state rerenders.
+
+#### Changed
+- **Collection Deletion Semantics** (`src/App.jsx`, `src/lib/storage.js` usage):
+  - Deleting a collection now removes items inside that collection (instead of moving them to `All Items`), with updated confirmation copy.
+
+#### Removed
+- **All Items Breadcrumb Clutter** (`src/App.jsx`):
+  - Breadcrumb row now hides in `All Items` view.
+
+#### Problems & Fixes
+- **Problem**: Modal actions felt unreliable (tag delete, copy/download, persistent toast), and canvas/sidebar UI had inconsistent interaction and visual behavior after collection-mode refactor.
+- **Fix**: Re-established deterministic modal state updates, corrected copy/download source selection, fixed toast lifecycle dependencies, and aligned canvas/sidebar affordances to a cleaner collection-first interaction model.
+
+### [0.19.39] - 2026-02-12
+#### Rebuilt
+- **Chrome Plugin Architecture Refactor** (`background.js`, `content.js`, `manifest.json`):
+  - Reworked extension message flow into a clearer action-router model in background worker:
+    - `saveCapturedItem`
+    - `getDreamlabOrgData`
+    - `getMultiSelectState`
+    - `scanSourceImages`
+    - `openMultiSelect`
+  - Centralized page-image scan handling through content-script action `SCAN_PAGE_IMAGES` to reduce duplicated scan logic across popup windows and command handlers.
+  - Added local app host compatibility for both loopback variants and preview host:
+    - `http://localhost:5173/*`
+    - `http://127.0.0.1:5173/*`
+    - `http://localhost:4173/*`
+    - `http://127.0.0.1:4173/*`
+  - Updated command descriptions and extension metadata for collection-first capture flow.
+
+#### Changed
+- **Popup UI + Capture Routing UX** (`popup.html`, `popup.css`, `popup.js`):
+  - Rebuilt popup layout using a tokenized neutral/brand style system aligned with design rules.
+  - Removed legacy dense inline styles and migrated to dedicated stylesheet (`popup.css`).
+  - Added destination controls that match collection architecture:
+    - workspace
+    - project
+    - collection
+    - tags
+  - Switched popup org-data loading to background-mediated API (`getDreamlabOrgData`) instead of direct tab-query coupling.
+
+- **Multi-Select Review UI + Flow** (`multi-select.html`, `multi-select.css`, `multi-select.js`):
+  - Rebuilt image review modal styling/layout to align with plugin design direction and remove emoji-based labels.
+  - Added destination controls (workspace/project/collection/tags) directly in multi-select save flow.
+  - Added scope toggle behavior backed by background scan action (`scanSourceImages`) for reliable all-images retrieval from source tab.
+  - Added clearer save-state/status feedback and selected-count behavior.
+
+- **Smart Picker Visual Language Alignment** (`picker.css`, `picker.js`):
+  - Updated picker highlight and status chip colors to brand/semantic palette.
+  - Updated copy and state transitions to non-emoji UI messaging.
+
+#### Removed
+- **Dead Area Selection Runtime**:
+  - Removed unused files:
+    - `area-selector.css`
+    - `area-selector.js`
+  - This path was no longer wired into active command flow and created architectural noise.
+
+#### Problems & Fixes
+- **Problem**: Extension code had diverging UX patterns (popup vs multi-select), duplicated scan logic, localhost-only host assumptions, and outdated collection targeting support.
+- **Fix**: Rebuilt extension around a background-driven message contract, shared content scan endpoint, collection-aware destination controls, and design-rule-aligned UI surfaces.
+
 ### [0.19.38] - 2026-02-12
 #### Changed
 - **App Locked to Collection Flow** (`src/App.jsx`):

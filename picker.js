@@ -1,4 +1,6 @@
 (() => {
+    const DEFAULT_MESSAGE = 'Dreamlab Picker: Click to capture an image or background (Esc to cancel)';
+
     if (window.dreamlabPickerActive) {
         // Toggle off if already active
         if (typeof cleanup === 'function') cleanup();
@@ -11,7 +13,7 @@
     // Create instruction message
     const msg = document.createElement('div');
     msg.className = 'dreamlab-picker-overlay-msg';
-    msg.textContent = 'Dreamlab Picker: Click to capture image/background (Esc to cancel)';
+    msg.textContent = DEFAULT_MESSAGE;
     document.body.appendChild(msg);
 
     // Visual helper for highlighting
@@ -23,12 +25,11 @@
             hoveredElement = target;
             hoveredElement.classList.add('dreamlab-picker-highlight');
             if (text) {
-                const prev = msg.textContent;
                 msg.textContent = text;
                 // Revert text after a moment if it was a transient status
                 if (text !== 'Captured!') {
                     setTimeout(() => {
-                        if (msg.textContent === text) msg.textContent = 'Dreamlab Picker: Click to capture image/background (Esc to cancel)';
+                        if (msg.textContent === text) msg.textContent = DEFAULT_MESSAGE;
                     }, 2000);
                 }
             }
@@ -111,7 +112,8 @@
 
             // Success!
             showHighlight(visualElement || target, "Captured!");
-            msg.style.background = '#00AA00';
+            msg.style.background = '#15803d';
+            msg.style.borderColor = '#166534';
 
             // Get page metadata for title/description
             const getMeta = (name) => {
@@ -138,7 +140,8 @@
             // Failure
             console.log("Dreamlab Picker: No visual content found.");
             msg.textContent = 'No image found at this location';
-            msg.style.background = '#FF3366';
+            msg.style.background = '#b91c1c';
+            msg.style.borderColor = '#991b1b';
         }
     }
 
