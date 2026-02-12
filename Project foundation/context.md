@@ -12,10 +12,63 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Repository**: [github.com/jonnypickem/dreamlab-canvas](https://github.com/jonnypickem/dreamlab-canvas)
 
 ## Current Status
--   **Status**: Vibe Analysis & Generation Pipeline Integrated
--   **Last Fix**: Implemented throttled request queue (5s delay) to resolve Gemini API 429 rate limiting.
+-   **Status**: Stage A Remote Queue + Rate-Limit Hardening Integrated
+-   **Last Fix**: Migrated Stage A analysis to `/api/stagea` queue runtime with adaptive cooldowns, retry windows, and remote polling fallback logic.
 
 ## Changelog
+### [0.19.38] - 2026-02-12
+#### Changed
+- **App Locked to Collection Flow** (`src/App.jsx`):
+  - Removed mode switching state and persistence (`dreamlab_work_mode`).
+  - Removed Vibe/Creation navigation, headers, and render branches.
+  - Collection flow is now the default and only workspace mode.
+  - Floating bottom bar now focuses only on collection search/filter actions.
+  - Pipeline debug view now reports Stage A only.
+
+#### Removed
+- **Vibe Mode UI + Pipeline**:
+  - Removed `src/components/VibeModePanel.jsx`.
+  - Removed `src/services/vibePipeline.js`.
+  - Removed `src/services/lensRouting.js`.
+
+- **Creation Mode UI + Generation Services**:
+  - Removed `src/components/CreationCanvas.jsx`.
+  - Removed `src/components/CreationModePanel.jsx`.
+  - Removed `src/services/geminiImage.js`.
+
+#### Problems & Fixes
+- **Problem**: Collection/plugin work was sharing a mixed-mode codepath with Vibe and Creation features, increasing UI complexity and maintenance risk for this branch goal.
+- **Fix**: Split branch to a collection-first architecture and removed non-essential mode surfaces/services so only collection + capture pathways remain active.
+
+### [0.19.37] - 2026-02-12
+#### Added
+- **Stage A Backend Queue Runtime + API Endpoints** (`server/stageAQueueRuntime.js`, `server/index.js`, `vite.config.js`):
+  - Added dedicated Stage A runtime with schema loading, batch planning, adaptive backoff, and in-memory result snapshots by `itemId`.
+  - Added Stage A endpoints:
+    - `POST /api/stagea/enqueue`
+    - `GET /api/stagea/status`
+    - `GET /api/stagea/result`
+  - Mirrored Stage A endpoints inside Vite dev middleware so frontend uses one `/api/stagea/*` contract in dev and server modes.
+
+#### Changed
+- **Primitive Analysis Uses Remote Queue First** (`src/services/primitiveAnalysis.js`):
+  - Stage A now queues to backend first, then polls remote status/results.
+  - Added automatic fallback to local queue if remote enqueue fails.
+  - Added TPM-safe primitive chunking (`STAGE_A_MAX_PRIMITIVES_PER_CALL`) and updated model defaults to `gemini-2.5-pro`.
+  - Added per-item `rate_limited` handling with `analysisRetryAt` so retries wait for cooldown windows.
+
+- **Backfill Throughput + Cooldown Safety** (`src/App.jsx`, `src/utils/analysisStatus.js`):
+  - Increased backfill cadence and queue batch size for faster recovery on large image sets.
+  - Backfill now skips items currently in active `rate_limited` cooldown.
+  - `rate_limited` now counts as in-progress for analysis status interpretation.
+
+- **Model Alignment Across Pipelines** (`src/services/geminiVision.js`, `src/services/vibePipeline.js`):
+  - Updated vision and vibe chat default model fallbacks from `gemini-2.0-flash` to `gemini-2.5-pro`.
+
+#### Problems & Fixes
+- **Problem**: Stage A local-only processing was still vulnerable to Gemini 429 bursts, creating stale in-progress loops and slow backfill on larger queues.
+- **Fix**: Moved Stage A orchestration to a backend queue runtime with adaptive global pauses, per-item retry scheduling, and remote status/result syncing to prevent repeated hammering during cooldown periods.
+
 ### [0.19.36] - 2026-02-10
 #### Rebuilt
 - **Creation Node Canvas Restored** (`src/components/CreationCanvas.jsx`, `src/App.jsx`):

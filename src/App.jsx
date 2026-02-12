@@ -31,15 +31,12 @@ import { getPrimitiveVersionMap } from './services/analysisSchemaRegistry';
 import { getImageAnalysisStatus } from './utils/analysisStatus';
 import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveAnalysis';
 import { getPipelineDebugEvents, clearPipelineDebugEvents } from './services/pipelineDebug';
-import { getStageBQueueStatus } from './services/vibePipeline';
 
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import ProjectSettingsModal from './components/ProjectSettingsModal';
 import MasonryGrid from './components/MasonryGrid';
-import VibeModePanel from './components/VibeModePanel';
-import CreationCanvas from './components/CreationCanvas';
 
 // Subframe Imports
 import { Button } from "./ui/components/Button";
@@ -78,16 +75,6 @@ function App() {
     // Project Settings State
     const [editingProject, setEditingProject] = useState(null);
 
-    // Workspace Mode State
-    const [workMode, setWorkMode] = useState(() => {
-        try {
-            const persisted = localStorage.getItem('dreamlab_work_mode');
-            return persisted || 'collection';
-        } catch {
-            return 'collection';
-        }
-    }); // 'collection' | 'vibe' | 'creation'
-
     // View Mode State
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'canvas'
 
@@ -101,7 +88,6 @@ function App() {
     const [isExporting, setIsExporting] = useState(false);
     const stageABackfillCooldownRef = useRef(0);
     const [pipelineTick, setPipelineTick] = useState(0);
-    const [creationRunSignal, setCreationRunSignal] = useState(0);
 
     const activeProject = selectedProjectId ? projects.find((p) => p.id === selectedProjectId) || null : null;
     const projectCollections = useMemo(() => {
@@ -247,7 +233,6 @@ function App() {
     }, [analysisBackfillCandidates]);
 
     const stageAQueueStatus = useMemo(() => getStageAQueueStatus(), [pipelineTick, items]);
-    const stageBQueueStatus = useMemo(() => getStageBQueueStatus(), [pipelineTick, items]);
     const pipelineDebugEvents = useMemo(() => getPipelineDebugEvents(12), [pipelineTick, items]);
 
 
@@ -296,14 +281,6 @@ function App() {
             setActiveContext(activeWorkspaceId, selectedProjectId, selectedCollectionId);
         }
     }, [activeWorkspaceId, selectedProjectId, selectedCollectionId]);
-
-    useEffect(() => {
-        try {
-            localStorage.setItem('dreamlab_work_mode', workMode);
-        } catch {
-            // Ignore persistence errors.
-        }
-    }, [workMode]);
 
     useEffect(() => {
         loadData();
@@ -759,27 +736,19 @@ function App() {
     };
 
     const canGoBack = Boolean(selectedCollectionId || selectedProjectId);
-    const isCollectionOverview = workMode === 'collection' && Boolean(selectedProjectId) && !selectedCollectionId;
+    const isCollectionOverview = Boolean(selectedProjectId) && !selectedCollectionId;
 
-    const headerTitle = workMode === 'vibe'
-        ? 'Vibe Mode'
-        : workMode === 'creation'
-            ? 'Creation Mode'
-            : (!selectedProjectId
-                ? 'All Items'
-                : selectedCollectionId
-                    ? (activeCollection?.name || 'Collection')
-                    : `${activeProject?.name || 'Project'} Collections`);
+    const headerTitle = !selectedProjectId
+        ? 'All Items'
+        : selectedCollectionId
+            ? (activeCollection?.name || 'Collection')
+            : `${activeProject?.name || 'Project'} Collections`;
 
-    const headerSubtitle = workMode === 'vibe'
-        ? 'Chat your intent, route lenses, and run deep analysis on anchor images.'
-        : workMode === 'creation'
-            ? 'Generate references and save outputs into your generated collection.'
-            : (!selectedProjectId
-                ? `${items.length} items across your workspaces`
-                : selectedCollectionId
-                    ? `Collection in ${activeProject?.name || 'project'}`
-                    : `${projectCollections.length} collection${projectCollections.length === 1 ? '' : 's'} in ${getWorkspaceName(activeProject?.workspaceId) || 'workspace'}`);
+    const headerSubtitle = !selectedProjectId
+        ? `${items.length} items across your workspaces`
+        : selectedCollectionId
+            ? `Collection in ${activeProject?.name || 'project'}`
+            : `${projectCollections.length} collection${projectCollections.length === 1 ? '' : 's'} in ${getWorkspaceName(activeProject?.workspaceId) || 'workspace'}`;
 
     const handleBackNavigate = () => {
         if (selectedCollectionId) {
@@ -1047,7 +1016,7 @@ function App() {
 
     useEffect(() => {
         clearSelection();
-    }, [selectedProjectId, selectedCollectionId, workMode, clearSelection]);
+    }, [selectedProjectId, selectedCollectionId, clearSelection]);
 
     return (
         <div className="flex h-screen overflow-hidden bg-default-background">
@@ -1179,10 +1148,6 @@ function App() {
                                         <Badge variant={stageAQueueStatus.isProcessing ? 'warning' : 'success'}>
                                             Stage A {stageAQueueStatus.isProcessing ? 'processing' : 'idle'}
                                         </Badge>
-                                        <Badge variant="neutral">Stage B pending: {stageBQueueStatus.pending}</Badge>
-                                        <Badge variant={stageBQueueStatus.isProcessing ? 'warning' : 'success'}>
-                                            Stage B {stageBQueueStatus.isProcessing ? 'processing' : 'idle'}
-                                        </Badge>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <span>Recent events</span>
@@ -1232,7 +1197,7 @@ function App() {
                                 </Button>
                             </div>
                         ) : null}
-                        {workMode === 'collection' && !isCollectionOverview && (
+                        {!isCollectionOverview && (
                             <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-2">
                                     <span className="text-caption-bold font-caption-bold text-subtext-color">
@@ -1266,7 +1231,7 @@ function App() {
                         )}
                     </div>
                     {/* Tag Filter Chip */}
-                    {tagFilter && workMode === 'collection' && (
+                    {tagFilter && (
                         <div className="flex items-center gap-2">
                             <Badge variant="neutral" onClick={() => setTagFilter(null)} className="cursor-pointer hover:bg-neutral-200">
                                 {tagFilter} <span className="ml-1">×</span>
@@ -1277,140 +1242,93 @@ function App() {
 
                 {/* Content Area */}
                 <div className="flex w-full grow shrink-0 basis-0 flex-col items-start px-8 pb-8 overflow-y-auto">
-                    {workMode === 'collection' ? (
-                        <>
-                            {isCollectionOverview ? (
-                                <div className="flex w-full flex-col gap-4">
-                                    {visibleCollectionCards.length === 0 ? (
-                                        <div className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-neutral-border bg-neutral-50 px-6 py-16">
-                                            <span className="text-body-bold font-body-bold text-default-font">No collections yet</span>
-                                            <span className="mt-1 text-caption font-caption text-subtext-color">Create a collection to start organizing this project's datasets.</span>
-                                            <Button className="mt-4" variant="brand-primary" size="small" onClick={handleCreateCollection}>
-                                                Create Collection
-                                            </Button>
-                                        </div>
-                                    ) : (
-                                        <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                            {visibleCollectionCards.map((collection) => (
-                                                <button
-                                                    key={collection.id}
-                                                    type="button"
-                                                    className="flex min-h-[136px] flex-col gap-3 rounded-lg border border-neutral-border bg-default-background px-4 py-4 text-left hover:border-brand-600 hover:bg-brand-50"
-                                                    onClick={() => setSelectedCollectionId(collection.id)}
-                                                >
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <span className="truncate text-body-bold font-body-bold text-default-font">{collection.name}</span>
-                                                        {collection.isUnsorted ? (
-                                                            <Badge variant="warning">Legacy</Badge>
-                                                        ) : collection.kind === 'generated_outputs' ? (
-                                                            <Badge variant="brand">Generated</Badge>
-                                                        ) : (
-                                                            <Badge variant="neutral">{collection.count} items</Badge>
-                                                        )}
-                                                    </div>
-                                                    <span className="text-caption font-caption text-subtext-color">
-                                                        {collection.isUnsorted
-                                                            ? 'Items not yet assigned to a collection'
-                                                            : 'Open this dataset and collect visual references'}
-                                                    </span>
-                                                    <span className="mt-auto text-caption-bold font-caption-bold text-brand-700">Open Collection</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
+                    {isCollectionOverview ? (
+                        <div className="flex w-full flex-col gap-4">
+                            {visibleCollectionCards.length === 0 ? (
+                                <div className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-neutral-border bg-neutral-50 px-6 py-16">
+                                    <span className="text-body-bold font-body-bold text-default-font">No collections yet</span>
+                                    <span className="mt-1 text-caption font-caption text-subtext-color">Create a collection to start organizing this project's datasets.</span>
+                                    <Button className="mt-4" variant="brand-primary" size="small" onClick={handleCreateCollection}>
+                                        Create Collection
+                                    </Button>
                                 </div>
                             ) : (
-                                <AnimatePresence mode="wait">
-                                    {viewMode === 'canvas' ? (
-                                        <motion.div
-                                            key="canvas"
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            exit={{ opacity: 0 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="w-full h-full"
+                                <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                    {visibleCollectionCards.map((collection) => (
+                                        <button
+                                            key={collection.id}
+                                            type="button"
+                                            className="flex min-h-[136px] flex-col gap-3 rounded-lg border border-neutral-border bg-default-background px-4 py-4 text-left hover:border-brand-600 hover:bg-brand-50"
+                                            onClick={() => setSelectedCollectionId(collection.id)}
                                         >
-                                            <CanvasView
-                                                items={filteredItems}
-                                                onUpdateItem={handleUpdateItem}
-                                                onDeleteItem={handleDelete}
-                                            />
-                                        </motion.div>
-                                    ) : (
-                                        <motion.div
-                                            key="grid"
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            exit={{ opacity: 0 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="w-full h-full"
-                                        >
-                                            {filteredItems.length === 0 ? (
-                                                <div className="flex flex-col items-center justify-center w-full h-64 border border-dashed border-neutral-border rounded-lg bg-neutral-50">
-                                                    <div className="bg-neutral-100 p-3 rounded-full mb-3">
-                                                        <FeatherSearch className="text-neutral-400 w-6 h-6" />
-                                                    </div>
-                                                    <span className="text-body-bold font-body-bold text-default-font">Nothing here yet</span>
-                                                    <span className="text-caption font-caption text-subtext-color mt-1">Start capturing inspiration.</span>
-                                                </div>
-                                            ) : (
-                                                <MasonryGrid
-                                                    items={filteredItems}
-                                                    onItemClick={setEditingItem}
-                                                    zoomLevel={zoomLevel[0]}
-                                                    selectedItems={selectedItems}
-                                                    onSelectItem={handleSelectItem}
-                                                />
-                                            )}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            )}
-                        </>
-                    ) : null}
-
-                    {workMode === 'vibe' ? (
-                        <VibeModePanel
-                            items={filteredItems}
-                            activeWorkspaceId={activeWorkspaceId}
-                            selectedProjectId={selectedProjectId}
-                        />
-                    ) : null}
-
-                    {workMode === 'creation' ? (
-                        <motion.div
-                            key="creation-canvas"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="w-full h-full"
-                        >
-                            {!selectedProjectId ? (
-                                <div className="flex flex-col items-center justify-center w-full h-64 border border-dashed border-neutral-border rounded-lg bg-neutral-50">
-                                    <div className="bg-neutral-100 p-3 rounded-full mb-3">
-                                        <FeatherSquare className="text-neutral-400 w-6 h-6" />
-                                    </div>
-                                    <span className="text-body-bold font-body-bold text-default-font">Select a project to create</span>
-                                    <span className="text-caption font-caption text-subtext-color mt-1">Creation flow runs on the selected project context.</span>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="truncate text-body-bold font-body-bold text-default-font">{collection.name}</span>
+                                                {collection.isUnsorted ? (
+                                                    <Badge variant="warning">Legacy</Badge>
+                                                ) : collection.kind === 'generated_outputs' ? (
+                                                    <Badge variant="brand">Generated</Badge>
+                                                ) : (
+                                                    <Badge variant="neutral">{collection.count} items</Badge>
+                                                )}
+                                            </div>
+                                            <span className="text-caption font-caption text-subtext-color">
+                                                {collection.isUnsorted
+                                                    ? 'Items not yet assigned to a collection'
+                                                    : 'Open this dataset and collect visual references'}
+                                            </span>
+                                            <span className="mt-auto text-caption-bold font-caption-bold text-brand-700">Open Collection</span>
+                                        </button>
+                                    ))}
                                 </div>
-                            ) : (
-                                <CreationCanvas
-                                    projectId={selectedProjectId}
-                                    collectionId={selectedCollectionId}
-                                    activeWorkspaceId={activeWorkspaceId}
-                                    projectItems={items.filter((item) => {
-                                        if (item.projectId !== selectedProjectId || item.type !== 'image') return false;
-                                        if (!selectedCollectionId) return true;
-                                        if (selectedCollectionId === '__unsorted__') return !item.collectionId;
-                                        return item.collectionId === selectedCollectionId;
-                                    })}
-                                    runSignal={creationRunSignal}
-                                    onRunMessage={setToast}
-                                />
                             )}
-                        </motion.div>
-                    ) : null}
+                        </div>
+                    ) : (
+                        <AnimatePresence mode="wait">
+                            {viewMode === 'canvas' ? (
+                                <motion.div
+                                    key="canvas"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="w-full h-full"
+                                >
+                                    <CanvasView
+                                        items={filteredItems}
+                                        onUpdateItem={handleUpdateItem}
+                                        onDeleteItem={handleDelete}
+                                    />
+                                </motion.div>
+                            ) : (
+                                <motion.div
+                                    key="grid"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="w-full h-full"
+                                >
+                                    {filteredItems.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center w-full h-64 border border-dashed border-neutral-border rounded-lg bg-neutral-50">
+                                            <div className="bg-neutral-100 p-3 rounded-full mb-3">
+                                                <FeatherSearch className="text-neutral-400 w-6 h-6" />
+                                            </div>
+                                            <span className="text-body-bold font-body-bold text-default-font">Nothing here yet</span>
+                                            <span className="text-caption font-caption text-subtext-color mt-1">Start capturing inspiration.</span>
+                                        </div>
+                                    ) : (
+                                        <MasonryGrid
+                                            items={filteredItems}
+                                            onItemClick={setEditingItem}
+                                            zoomLevel={zoomLevel[0]}
+                                            selectedItems={selectedItems}
+                                            onSelectItem={handleSelectItem}
+                                        />
+                                    )}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    )}
 
                 </div>
 
@@ -1504,7 +1422,7 @@ function App() {
                 </AnimatePresence>
 
                 {/* Floating Bottom Bar: Search or Selection Toolbar */}
-                {selectedItems.size > 0 && workMode === 'collection' ? (
+                {selectedItems.size > 0 ? (
                     <SelectionToolbar
                         selectedCount={selectedItems.size}
                         onCopy={handleCopySelection}
@@ -1516,80 +1434,34 @@ function App() {
                     />
                 ) : (
                     <div className="flex items-center gap-3 rounded-full border border-solid border-neutral-border bg-white px-4 py-4 fixed bottom-8 left-1/2 z-10 -translate-x-1/2 focus-within:shadow-[0px_0px_32px_-4px_rgba(234,88,12,0.3),0px_0px_8px_-2px_rgba(234,88,12,0.3)]">
-                        <div className="flex items-center rounded-full bg-neutral-100 p-1">
-                            <button
-                                type="button"
-                                className={`rounded-full px-3 py-1.5 text-body font-body transition-colors ${workMode === 'collection' ? 'bg-brand-600 text-white' : 'text-neutral-700 hover:bg-white'}`}
-                                onClick={() => setWorkMode('collection')}
+                        <div className="flex w-96 flex-none items-center relative">
+                            <TextField
+                                className="h-auto grow shrink-0 basis-0"
+                                variant="outline"
+                                icon={<FeatherSearch />}
                             >
-                                Collection
-                            </button>
-                            <button
-                                type="button"
-                                className={`rounded-full px-3 py-1.5 text-body font-body transition-colors ${workMode === 'vibe' ? 'bg-brand-600 text-white' : 'text-neutral-700 hover:bg-white'}`}
-                                onClick={() => setWorkMode('vibe')}
-                            >
-                                Vibe
-                            </button>
-                            <button
-                                type="button"
-                                className={`rounded-full px-3 py-1.5 text-body font-body transition-colors ${workMode === 'creation' ? 'bg-brand-600 text-white' : 'text-neutral-700 hover:bg-white'}`}
-                                onClick={() => setWorkMode('creation')}
-                            >
-                                Creation
-                            </button>
-                        </div>
-
-                        {workMode === 'collection' ? (
-                            <>
-                                <div className="h-8 w-px bg-neutral-200" />
-                                <div className="flex w-96 flex-none items-center relative">
-                                    <TextField
-                                        className="h-auto grow shrink-0 basis-0"
-                                        variant="outline"
-                                        icon={<FeatherSearch />}
-                                    >
-                                        <TextField.Input
-                                            className="pr-8"
-                                            placeholder="Search content, URLs, or tags..."
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                        />
-                                    </TextField>
-                                    <div className="flex items-center gap-1 absolute right-3 pointer-events-none">
-                                        <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
-                                            <span className="text-caption font-caption text-subtext-color">⌘</span>
-                                            <span className="text-caption font-caption text-subtext-color">K</span>
-                                        </div>
-                                    </div>
+                                <TextField.Input
+                                    className="pr-8"
+                                    placeholder="Search content, URLs, or tags..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </TextField>
+                            <div className="flex items-center gap-1 absolute right-3 pointer-events-none">
+                                <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
+                                    <span className="text-caption font-caption text-subtext-color">⌘</span>
+                                    <span className="text-caption font-caption text-subtext-color">K</span>
                                 </div>
-                                <Button
-                                    variant="neutral-secondary"
-                                    size="medium"
-                                    icon={<FeatherFilter />}
-                                    onClick={() => { }}
-                                >
-                                    Filter
-                                </Button>
-                            </>
-                        ) : (
-                            <>
-                                <span className="text-sm text-subtext-color px-1">
-                                    {workMode === 'vibe'
-                                        ? 'Intent chat + lens routing + anchor analysis'
-                                        : 'Node-based generation flow'}
-                                </span>
-                                {workMode === 'creation' ? (
-                                    <Button
-                                        variant="brand-primary"
-                                        size="medium"
-                                        onClick={() => setCreationRunSignal((value) => value + 1)}
-                                    >
-                                        Generate
-                                    </Button>
-                                ) : null}
-                            </>
-                        )}
+                            </div>
+                        </div>
+                        <Button
+                            variant="neutral-secondary"
+                            size="medium"
+                            icon={<FeatherFilter />}
+                            onClick={() => { }}
+                        >
+                            Filter
+                        </Button>
                     </div>
                 )}
             </main>
