@@ -221,11 +221,15 @@ function App() {
         const primitiveStore = getPrimitiveAnalysisStore();
         const versionMap = getPrimitiveVersionMap();
         const staleCutoff = Date.now() - (2 * 60 * 1000);
+        const now = Date.now();
         return scopedImageItems.filter((item) => {
             const status = getImageAnalysisStatus(item, primitiveStore, versionMap).status;
             const isStaleInProgress = status === 'in_progress'
                 && ['queued', 'processing', 'in_progress'].includes(item.analysisStatus)
                 && Number(item.analysisUpdatedAt || 0) < staleCutoff;
+            const isRateLimitedAndWaiting = item.analysisStatus === 'rate_limited'
+                && Number(item.analysisRetryAt || 0) > now;
+            if (isRateLimitedAndWaiting) return false;
             return status === 'unanalysed' || status === 'failed' || isStaleInProgress;
         });
     }, [scopedImageItems, items]);
@@ -234,11 +238,12 @@ function App() {
         if (!STAGE_A_AUTO_BACKFILL_ENABLED) return;
         if (analysisBackfillCandidates.length === 0) return;
         const now = Date.now();
-        if (now - stageABackfillCooldownRef.current < 45000) return;
+        if (now - stageABackfillCooldownRef.current < 10000) return;
         const queueStatus = getStageAQueueStatus();
-        if (queueStatus.pending >= 5) return;
+        if (queueStatus.pending >= 20) return;
+        const batchSize = Math.max(1, Math.min(15, analysisBackfillCandidates.length));
         stageABackfillCooldownRef.current = now;
-        queueStageABackfill(analysisBackfillCandidates, { maxToQueue: 1 });
+        queueStageABackfill(analysisBackfillCandidates, { maxToQueue: batchSize });
     }, [analysisBackfillCandidates]);
 
     const stageAQueueStatus = useMemo(() => getStageAQueueStatus(), [pipelineTick, items]);

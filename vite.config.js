@@ -1,16 +1,89 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { enqueueStageAAnalysis, getStageAQueueSnapshot, getStageAResult } from './server/stageAQueueRuntime.js'
 
 /**
  * Vite plugin that embeds the image proxy server directly into Vite's dev server.
  * This handles /api/proxy requests to bypass CORS when downloading external images.
  */
 function imageProxyPlugin() {
+  const readJsonBody = async (req) => {
+    const chunks = []
+    for await (const chunk of req) {
+      chunks.push(chunk)
+    }
+    if (chunks.length === 0) return {}
+    const raw = Buffer.concat(chunks).toString('utf8')
+    if (!raw.trim()) return {}
+    return JSON.parse(raw)
+  }
+
   return {
     name: 'image-proxy',
     configureServer(server) {
       // Register middleware before Vite's internal middleware
       server.middlewares.use(async (req, res, next) => {
+        if (req.url?.startsWith('/api/stagea')) {
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 204
+            res.end()
+            return
+          }
+
+          const parsedUrl = new URL(req.url, 'http://localhost')
+
+          if (req.method === 'POST' && parsedUrl.pathname === '/api/stagea/enqueue') {
+            try {
+              const payload = await readJsonBody(req)
+              const items = Array.isArray(payload?.items)
+                ? payload.items
+                : (payload?.item ? [payload.item] : [])
+              const result = await enqueueStageAAnalysis(items)
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify(result))
+              return
+            } catch (error) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: error?.message || 'Failed to enqueue Stage A analysis.' }))
+              return
+            }
+          }
+
+          if (req.method === 'GET' && parsedUrl.pathname === '/api/stagea/status') {
+            const snapshot = getStageAQueueSnapshot()
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(snapshot))
+            return
+          }
+
+          if (req.method === 'GET' && parsedUrl.pathname === '/api/stagea/result') {
+            const itemId = parsedUrl.searchParams.get('itemId')
+            const result = getStageAResult(itemId)
+            if (!result) {
+              res.statusCode = 404
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: 'Result not found for itemId.' }))
+              return
+            }
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result))
+            return
+          }
+
+          res.statusCode = 404
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: 'Unknown Stage A endpoint.' }))
+          return
+        }
+
         // Only handle /api/proxy requests
         if (!req.url?.startsWith('/api/proxy')) {
           return next()

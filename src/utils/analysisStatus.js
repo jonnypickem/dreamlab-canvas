@@ -47,7 +47,7 @@ export function getImageAnalysisStatus(item, primitiveStore = {}, versionMap = {
         });
     }
 
-    const hasInProgressHint = ['queued', 'processing', 'in_progress'].includes(item.analysisStatus);
+    const hasInProgressHint = ['queued', 'processing', 'in_progress', 'rate_limited'].includes(item.analysisStatus);
     const ratio = total > 0 ? completed / total : 0;
 
     let status = 'unanalysed';

@@ -8,7 +8,7 @@ import {
 import { pushPipelineDebugEvent } from './pipelineDebug';
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-const VIBE_CHAT_MODEL = import.meta.env.VITE_GEMINI_VIBE_CHAT_MODEL || 'gemini-2.0-flash';
+const VIBE_CHAT_MODEL = import.meta.env.VITE_GEMINI_VIBE_CHAT_MODEL || 'gemini-2.5-pro';
 const STAGE_B_MODEL = import.meta.env.VITE_GEMINI_STAGE_B_MODEL || 'gemini-2.5-pro';
 const VIBE_RUNS_KEY = 'dreamlab_vibe_runs';
 

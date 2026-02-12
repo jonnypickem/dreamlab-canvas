@@ -8,18 +8,28 @@ import {
 import { getPrimitiveSchemas } from './analysisSchemaRegistry';
 import { pushPipelineDebugEvent } from './pipelineDebug';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-const STAGE_A_BASE_DELAY_MS = 15000;
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const STAGE_A_MODEL = import.meta.env.VITE_GEMINI_STAGE_A_MODEL || 'gemini-2.5-pro';
+const STAGE_A_BASE_DELAY_MS = 25000;
 const STAGE_A_MAX_PROMPT_CHARS = 30000;
 const STAGE_A_MAX_RETRIES = 3;
 const STAGE_A_MAX_BACKOFF_MS = 90000;
-const STAGE_A_RATE_LIMIT_COOLDOWN_MS = 60000;
-// Temporary safety mode: analyze only one queued image at a time.
-const STAGE_A_SINGLE_IMAGE_MODE = true;
+const STAGE_A_RATE_LIMIT_COOLDOWN_MS = 120000;
+const STAGE_A_RATE_LIMIT_GLOBAL_PAUSE_MS = 15 * 60 * 1000;
+const STAGE_A_RATE_LIMIT_ITEM_RETRY_MS = 10 * 60 * 1000;
+const STAGE_A_MAX_OUTPUT_TOKENS = 2200;
+// Stage A processes all queued images sequentially (not locked to a single image id).
+const STAGE_A_SINGLE_IMAGE_MODE = false;
 // Run compact multi-primitive batches in one request when possible.
 const STAGE_A_SINGLE_PRIMITIVE_PER_REQUEST = false;
 // Stage A target: all primitive blocks per image.
 const STAGE_A_MAX_PRIMITIVES_PER_IMAGE = 9;
+// TPM-safe chunking: request a few primitives per call, not all 9 at once.
+const STAGE_A_MAX_PRIMITIVES_PER_CALL = 3;
+// Preferred path: run Stage A via backend queue.
+const STAGE_A_USE_REMOTE_QUEUE = true;
+const STAGE_A_REMOTE_BASE_URL = '/api/stagea';
+const STAGE_A_REMOTE_POLL_INTERVAL_MS = 3000;
 
 const primitiveQueue = [];
 const queuedIds = new Set();
@@ -27,7 +37,20 @@ let isProcessingQueue = false;
 let lastGeminiCallAt = 0;
 let rateLimitBackoffMs = 0;
 let rateLimitedUntil = 0;
+let consecutiveRateLimitHits = 0;
 let singleImageModeItemId = null;
+let remoteQueueAvailable = STAGE_A_USE_REMOTE_QUEUE;
+let remotePollTimer = null;
+let remotePollInFlight = false;
+const remoteTrackedItemIds = new Set();
+const remoteSyncedResultIds = new Set();
+let remoteQueueStatus = {
+    pending: 0,
+    isProcessing: false,
+    nextAllowedAt: 0,
+    rateLimitedUntil: 0,
+    rateLimitBackoffMs: 0,
+};
 
 function safeUpdateItemAnalysisState(itemId, updates = {}) {
     if (!itemId) return;
@@ -64,20 +87,49 @@ async function waitForGeminiSlot() {
 
 function onGeminiCallSuccess() {
     lastGeminiCallAt = Date.now();
+    consecutiveRateLimitHits = 0;
     if (rateLimitBackoffMs > 0) {
         rateLimitBackoffMs = Math.max(0, Math.floor(rateLimitBackoffMs * 0.6) - 500);
     }
 }
 
-function onGeminiCallRateLimited() {
+function parseRetryAfterMs(headerValue) {
+    if (!headerValue) return 0;
+    const asNumber = Number(headerValue);
+    if (Number.isFinite(asNumber) && asNumber > 0) {
+        return Math.round(asNumber * 1000);
+    }
+    const asDate = new Date(headerValue).getTime();
+    if (Number.isFinite(asDate)) {
+        return Math.max(0, asDate - Date.now());
+    }
+    return 0;
+}
+
+function parseRetryDelayFromMessage(message) {
+    const text = String(message || '').toLowerCase();
+    const match = text.match(/(?:retry|wait|after)\D+(\d+(?:\.\d+)?)\s*(s|sec|second|seconds|m|min|minute|minutes)\b/);
+    if (!match) return 0;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    const unit = match[2];
+    if (unit.startsWith('m')) return Math.round(value * 60 * 1000);
+    return Math.round(value * 1000);
+}
+
+function onGeminiCallRateLimited(retryDelayMs = 0) {
     lastGeminiCallAt = Date.now();
+    consecutiveRateLimitHits += 1;
     rateLimitBackoffMs = Math.min(
         STAGE_A_MAX_BACKOFF_MS,
         rateLimitBackoffMs > 0 ? Math.ceil(rateLimitBackoffMs * 1.8) : 12000
     );
+    const adaptivePauseMs = consecutiveRateLimitHits >= 3
+        ? STAGE_A_RATE_LIMIT_GLOBAL_PAUSE_MS
+        : STAGE_A_RATE_LIMIT_COOLDOWN_MS;
     rateLimitedUntil = Math.max(
         rateLimitedUntil,
-        Date.now() + STAGE_A_RATE_LIMIT_COOLDOWN_MS
+        Date.now() + Math.max(adaptivePauseMs, retryDelayMs)
     );
 }
 
@@ -218,19 +270,30 @@ function splitSchemasForBudget(schemas) {
         return schemas.map((schema) => [schema]);
     }
 
-    const singlePrompt = buildPromptForSchemas(schemas);
-    if (singlePrompt.length <= STAGE_A_MAX_PROMPT_CHARS || schemas.length <= 1) {
-        return [schemas];
+    const maxPerCall = Math.max(1, Math.min(9, STAGE_A_MAX_PRIMITIVES_PER_CALL));
+    const chunks = [];
+    for (let index = 0; index < schemas.length; index += maxPerCall) {
+        chunks.push(schemas.slice(index, index + maxPerCall));
     }
 
-    // At most two batches, per migration handoff.
-    const pivot = Math.ceil(schemas.length / 2);
-    return [schemas.slice(0, pivot), schemas.slice(pivot)];
+    const finalBatches = [];
+    chunks.forEach((batch) => {
+        const prompt = buildPromptForSchemas(batch);
+        if (prompt.length <= STAGE_A_MAX_PROMPT_CHARS || batch.length <= 1) {
+            finalBatches.push(batch);
+            return;
+        }
+
+        const pivot = Math.ceil(batch.length / 2);
+        finalBatches.push(batch.slice(0, pivot), batch.slice(pivot));
+    });
+
+    return finalBatches;
 }
 
 async function callGeminiForBatch(apiKey, prompt, mimeType, base64Data) {
     await waitForGeminiSlot();
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    const response = await fetch(`${GEMINI_BASE_URL}/${STAGE_A_MODEL}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -247,19 +310,21 @@ async function callGeminiForBatch(apiKey, prompt, mimeType, base64Data) {
             }],
             generationConfig: {
                 temperature: 0.1,
-                maxOutputTokens: 4096,
+                maxOutputTokens: STAGE_A_MAX_OUTPUT_TOKENS,
             },
         }),
     });
     if (response.status === 429) {
         let message = 'Gemini rate limited (429)';
+        const retryAfterMs = parseRetryAfterMs(response.headers?.get?.('retry-after'));
         try {
             const payload = await response.json();
             message = payload?.error?.message || message;
         } catch {
             // Keep fallback message.
         }
-        onGeminiCallRateLimited();
+        const retryFromMessageMs = parseRetryDelayFromMessage(message);
+        onGeminiCallRateLimited(Math.max(retryAfterMs, retryFromMessageMs));
         const error = new Error(message);
         error.code = 429;
         throw error;
@@ -428,6 +493,7 @@ async function runPrimitiveAnalysisForItem(item) {
     const schemaBatches = splitSchemasForBudget(pendingSchemas);
     const batchQueue = [...schemaBatches];
     const collectedResults = [];
+    let hitRateLimit = false;
 
     pushPipelineDebugEvent('stageA:batch_plan', 'Stage A batching plan prepared.', {
         itemId: item.id,
@@ -486,6 +552,9 @@ async function runPrimitiveAnalysisForItem(item) {
                 }
             });
         } else {
+            if (result.code === 429) {
+                hitRateLimit = true;
+            }
             const shouldSplitBatch = schemaBatch.length > 1
                 && (result.code === 429 || result.code == null || result.code >= 500);
 
@@ -551,14 +620,20 @@ async function runPrimitiveAnalysisForItem(item) {
         const status = completed >= targetTotal && failed === 0
             ? 'done'
             : (failed > 0 && completed === 0 ? 'failed' : 'in_progress');
+        const isRateLimitedFailure = hitRateLimit && completed === 0;
+        const effectiveStatus = isRateLimitedFailure ? 'rate_limited' : status;
+        const retryAt = isRateLimitedFailure
+            ? Date.now() + Math.max(STAGE_A_RATE_LIMIT_ITEM_RETRY_MS, rateLimitBackoffMs, Math.max(0, rateLimitedUntil - Date.now()))
+            : null;
 
         safeUpdateItemAnalysisState(item.id, {
-            analysisStatus: status,
+            analysisStatus: effectiveStatus,
             analysisProgress: {
                 completed,
                 total: targetTotal,
                 failed,
             },
+            analysisRetryAt: retryAt,
             analysisUpdatedAt: Date.now(),
         });
         pushPipelineDebugEvent('stageA:item_complete', 'Stage A finished image processing.', {
@@ -567,24 +642,226 @@ async function runPrimitiveAnalysisForItem(item) {
             completed,
             failed,
             total: targetTotal,
-            status,
+            status: effectiveStatus,
+            retryAt,
         });
     } else {
+        const isRateLimitedFailure = hitRateLimit;
+        const retryAt = isRateLimitedFailure
+            ? Date.now() + Math.max(STAGE_A_RATE_LIMIT_ITEM_RETRY_MS, rateLimitBackoffMs, Math.max(0, rateLimitedUntil - Date.now()))
+            : null;
         safeUpdateItemAnalysisState(item.id, {
-            analysisStatus: 'failed',
+            analysisStatus: isRateLimitedFailure ? 'rate_limited' : 'failed',
             analysisProgress: {
                 completed: 0,
                 total: targetTotal,
                 failed: targetTotal,
             },
+            analysisRetryAt: retryAt,
             analysisUpdatedAt: Date.now(),
         });
         pushPipelineDebugEvent('stageA:item_failed', 'Stage A finished with no collected results.', {
             itemId: item.id,
             imageHash,
             total: targetTotal,
+            status: isRateLimitedFailure ? 'rate_limited' : 'failed',
+            retryAt,
         });
     }
+}
+
+function mapRemoteAnalysisStatus(status) {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized === 'queued') return 'queued';
+    if (normalized === 'processing') return 'processing';
+    if (normalized === 'rate_limited') return 'rate_limited';
+    if (normalized === 'failed') return 'failed';
+    if (normalized === 'done') return 'done';
+    if (normalized === 'in_progress') return 'in_progress';
+    return 'in_progress';
+}
+
+function isRemoteTerminalStatus(status) {
+    return status === 'done' || status === 'failed';
+}
+
+async function fetchRemoteStageAStatus() {
+    const response = await fetch(`${STAGE_A_REMOTE_BASE_URL}/status`);
+    if (!response.ok) {
+        let message = `Stage A remote status error (${response.status})`;
+        try {
+            const payload = await response.json();
+            message = payload?.error || message;
+        } catch {
+            // keep fallback message
+        }
+        throw new Error(message);
+    }
+    const payload = await response.json();
+    return payload && typeof payload === 'object' ? payload : {};
+}
+
+async function fetchRemoteStageAResult(itemId) {
+    const response = await fetch(`${STAGE_A_REMOTE_BASE_URL}/result?itemId=${encodeURIComponent(itemId)}`);
+    if (!response.ok) {
+        let message = `Stage A remote result error (${response.status})`;
+        try {
+            const payload = await response.json();
+            message = payload?.error || message;
+        } catch {
+            // keep fallback
+        }
+        throw new Error(message);
+    }
+    const payload = await response.json();
+    return payload && typeof payload === 'object' ? payload : null;
+}
+
+async function syncRemoteResultForItem(itemId) {
+    if (!itemId || remoteSyncedResultIds.has(itemId)) return;
+    try {
+        const result = await fetchRemoteStageAResult(itemId);
+        if (!result) return;
+        const status = mapRemoteAnalysisStatus(result.status);
+        const progress = result.analysisProgress || {};
+        const completed = Number(progress.completed || 0);
+        const total = Number(progress.total || 0);
+        const failed = Number(progress.failed || 0);
+        const results = Array.isArray(result.results) ? result.results : [];
+        if (result.imageHash && results.length > 0) {
+            savePrimitiveResultsBatch(itemId, result.imageHash, results);
+        }
+
+        const updates = {
+            analysisStatus: status,
+            analysisProgress: { completed, total, failed },
+            analysisRetryAt: result.retryAt || null,
+            analysisUpdatedAt: result.updatedAt || Date.now(),
+        };
+        if (result.imageHash) {
+            updates.imageHash = result.imageHash;
+        }
+        safeUpdateItemAnalysisState(itemId, updates);
+
+        remoteSyncedResultIds.add(itemId);
+        if (isRemoteTerminalStatus(status)) {
+            remoteTrackedItemIds.delete(itemId);
+            queuedIds.delete(itemId);
+        }
+    } catch (error) {
+        pushPipelineDebugEvent('stageA:remote_result_failed', 'Remote Stage A result sync failed.', {
+            itemId,
+            error: error?.message || 'remote_result_sync_failed',
+        });
+    }
+}
+
+function updateLocalStateFromRemoteSummary(summary) {
+    if (!summary?.itemId) return;
+    const status = mapRemoteAnalysisStatus(summary.status);
+    const progress = summary.analysisProgress || {};
+    const completed = Number(progress.completed || 0);
+    const total = Number(progress.total || 0);
+    const failed = Number(progress.failed || 0);
+    const updates = {
+        analysisStatus: status,
+        analysisProgress: { completed, total, failed },
+        analysisRetryAt: summary.retryAt || null,
+        analysisUpdatedAt: summary.updatedAt || Date.now(),
+    };
+    if (summary.imageHash) {
+        updates.imageHash = summary.imageHash;
+    }
+    safeUpdateItemAnalysisState(summary.itemId, updates);
+
+    if (summary.hasResult) {
+        void syncRemoteResultForItem(summary.itemId);
+    }
+
+    if (isRemoteTerminalStatus(status) && !summary.hasResult) {
+        remoteTrackedItemIds.delete(summary.itemId);
+        queuedIds.delete(summary.itemId);
+    }
+}
+
+function maybeStopRemotePolling() {
+    if (!remotePollTimer) return;
+    const shouldStop = remoteTrackedItemIds.size === 0
+        && !remoteQueueStatus.isProcessing
+        && Number(remoteQueueStatus.pending || 0) === 0;
+    if (shouldStop) {
+        clearInterval(remotePollTimer);
+        remotePollTimer = null;
+    }
+}
+
+async function pollRemoteStageAQueue() {
+    if (!remoteQueueAvailable || remotePollInFlight) return;
+    remotePollInFlight = true;
+    try {
+        const payload = await fetchRemoteStageAStatus();
+        const queue = payload?.queue || {};
+        remoteQueueStatus = {
+            pending: Number(queue.pending || 0),
+            isProcessing: Boolean(queue.isProcessing),
+            nextAllowedAt: Number(queue.nextAllowedAt || 0),
+            rateLimitedUntil: Number(queue.rateLimitedUntil || 0),
+            rateLimitBackoffMs: Number(queue.rateLimitBackoffMs || 0),
+        };
+
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        items.forEach((summary) => {
+            if (summary?.itemId) {
+                remoteTrackedItemIds.add(summary.itemId);
+                updateLocalStateFromRemoteSummary(summary);
+            }
+        });
+
+        maybeStopRemotePolling();
+    } catch (error) {
+        pushPipelineDebugEvent('stageA:remote_status_failed', 'Remote Stage A status poll failed.', {
+            error: error?.message || 'remote_status_poll_failed',
+        });
+    } finally {
+        remotePollInFlight = false;
+    }
+}
+
+function startRemoteStageAPolling() {
+    if (remotePollTimer || !remoteQueueAvailable) return;
+    remotePollTimer = setInterval(() => {
+        void pollRemoteStageAQueue();
+    }, STAGE_A_REMOTE_POLL_INTERVAL_MS);
+    void pollRemoteStageAQueue();
+}
+
+async function enqueueRemoteStageA(item) {
+    const response = await fetch(`${STAGE_A_REMOTE_BASE_URL}/enqueue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            items: [{
+                id: item.id,
+                type: item.type,
+                content: item.content,
+                sourceUrl: item.sourceUrl || null,
+            }],
+        }),
+    });
+
+    if (!response.ok) {
+        let message = `Stage A remote enqueue error (${response.status})`;
+        try {
+            const payload = await response.json();
+            message = payload?.error || message;
+        } catch {
+            // keep fallback message
+        }
+        throw new Error(message);
+    }
+
+    const payload = await response.json();
+    return payload && typeof payload === 'object' ? payload : {};
 }
 
 async function processPrimitiveQueue() {
@@ -617,6 +894,41 @@ async function processPrimitiveQueue() {
  */
 export function queueStageAPrimitiveAnalysis(item) {
     if (!item?.id || item?.type !== 'image') return false;
+    const blockedUntil = Number(item?.analysisRetryAt || 0);
+    if (item?.analysisStatus === 'rate_limited' && blockedUntil > Date.now()) {
+        return false;
+    }
+
+    if (remoteQueueAvailable) {
+        if (queuedIds.has(item.id)) return false;
+        queuedIds.add(item.id);
+        remoteTrackedItemIds.add(item.id);
+        safeUpdateItemAnalysisState(item.id, {
+            analysisStatus: 'queued',
+            analysisUpdatedAt: Date.now(),
+        });
+        pushPipelineDebugEvent('stageA:queued', 'Image queued for remote Stage A.', {
+            itemId: item.id,
+        });
+
+        void enqueueRemoteStageA(item)
+            .then(() => {
+                startRemoteStageAPolling();
+            })
+            .catch((error) => {
+                remoteQueueAvailable = false;
+                remoteTrackedItemIds.delete(item.id);
+                queuedIds.delete(item.id);
+                pushPipelineDebugEvent('stageA:remote_enqueue_failed', 'Remote Stage A enqueue failed. Falling back to local queue.', {
+                    itemId: item.id,
+                    error: error?.message || 'remote_enqueue_failed',
+                });
+                // Fallback path: queue locally if remote endpoint is unavailable.
+                queueStageAPrimitiveAnalysis(item);
+            });
+
+        return true;
+    }
 
     if (STAGE_A_SINGLE_IMAGE_MODE) {
         if (!singleImageModeItemId) {
@@ -654,9 +966,22 @@ export function queueStageAPrimitiveAnalysis(item) {
 }
 
 export function getStageAQueueStatus() {
+    if (remoteQueueAvailable) {
+        return {
+            pending: Number(remoteQueueStatus.pending || 0),
+            isProcessing: Boolean(remoteQueueStatus.isProcessing),
+            nextAllowedAt: Number(remoteQueueStatus.nextAllowedAt || 0),
+            rateLimitedUntil: Number(remoteQueueStatus.rateLimitedUntil || 0),
+            rateLimitBackoffMs: Number(remoteQueueStatus.rateLimitBackoffMs || 0),
+        };
+    }
+
     return {
         pending: primitiveQueue.length,
         isProcessing: isProcessingQueue,
+        nextAllowedAt: Math.max(lastGeminiCallAt + STAGE_A_BASE_DELAY_MS + rateLimitBackoffMs, rateLimitedUntil),
+        rateLimitedUntil,
+        rateLimitBackoffMs,
     };
 }
 

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { enqueueStageAAnalysis, getStageAQueueSnapshot, getStageAResult } from './stageAQueueRuntime.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -7,8 +8,9 @@ const PORT = process.env.PORT || 3001;
 // Enable CORS for the frontend
 app.use(cors({
     origin: ['http://localhost:5173', 'http://localhost:4173'],
-    methods: ['GET']
+    methods: ['GET', 'POST', 'OPTIONS']
 }));
+app.use(express.json({ limit: '25mb' }));
 
 /**
  * Proxy endpoint for fetching external images
@@ -67,6 +69,34 @@ app.get('/api/proxy', async (req, res) => {
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
+});
+
+app.post('/api/stagea/enqueue', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const items = Array.isArray(payload?.items)
+            ? payload.items
+            : (payload?.item ? [payload.item] : []);
+        const result = await enqueueStageAAnalysis(items);
+        res.json(result);
+    } catch (error) {
+        console.error('Stage A enqueue error:', error?.message || error);
+        res.status(500).json({ error: error?.message || 'Failed to enqueue Stage A analysis.' });
+    }
+});
+
+app.get('/api/stagea/status', (req, res) => {
+    res.json(getStageAQueueSnapshot());
+});
+
+app.get('/api/stagea/result', (req, res) => {
+    const itemId = req.query?.itemId;
+    const result = getStageAResult(itemId);
+    if (!result) {
+        res.status(404).json({ error: 'Result not found for itemId.' });
+        return;
+    }
+    res.json(result);
 });
 
 app.listen(PORT, () => {

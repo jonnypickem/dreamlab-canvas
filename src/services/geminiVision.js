@@ -3,7 +3,8 @@
  * Handles AI image analysis for objective and context-aware tagging
  */
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_VISION_MODEL || 'gemini-2.5-pro';
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // Objective analysis prompt - comprehensive visual analysis
 const OBJECTIVE_PROMPT = `You are a professional visual analyst. Analyze this image comprehensively and provide 15-20 descriptive tags.
