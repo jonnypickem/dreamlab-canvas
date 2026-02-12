@@ -30,7 +30,6 @@ import { getPrimitiveAnalysisStore } from './lib/storage';
 import { getPrimitiveVersionMap } from './services/analysisSchemaRegistry';
 import { getImageAnalysisStatus } from './utils/analysisStatus';
 import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveAnalysis';
-import { getPipelineDebugEvents, clearPipelineDebugEvents } from './services/pipelineDebug';
 
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
@@ -87,7 +86,6 @@ function App() {
     const [lastSelectedItemId, setLastSelectedItemId] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
     const stageABackfillCooldownRef = useRef(0);
-    const [pipelineTick, setPipelineTick] = useState(0);
 
     const activeProject = selectedProjectId ? projects.find((p) => p.id === selectedProjectId) || null : null;
     const projectCollections = useMemo(() => {
@@ -165,44 +163,6 @@ function App() {
         [filteredItems]
     );
 
-    const analysisProgress = useMemo(() => {
-        const primitiveStore = getPrimitiveAnalysisStore();
-        const versionMap = getPrimitiveVersionMap();
-        const total = scopedImageItems.length;
-        if (total === 0) {
-            return {
-                total: 0,
-                done: 0,
-                inProgress: 0,
-                unanalysed: 0,
-                failed: 0,
-                percent: 0,
-            };
-        }
-
-        let done = 0;
-        let inProgress = 0;
-        let unanalysed = 0;
-        let failed = 0;
-
-        scopedImageItems.forEach((item) => {
-            const status = getImageAnalysisStatus(item, primitiveStore, versionMap).status;
-            if (status === 'done') done += 1;
-            else if (status === 'failed') failed += 1;
-            else if (status === 'in_progress') inProgress += 1;
-            else unanalysed += 1;
-        });
-
-        return {
-            total,
-            done,
-            inProgress,
-            unanalysed,
-            failed,
-            percent: Math.round((done / total) * 100),
-        };
-    }, [scopedImageItems, items]);
-
     const analysisBackfillCandidates = useMemo(() => {
         const primitiveStore = getPrimitiveAnalysisStore();
         const versionMap = getPrimitiveVersionMap();
@@ -231,9 +191,6 @@ function App() {
         stageABackfillCooldownRef.current = now;
         queueStageABackfill(analysisBackfillCandidates, { maxToQueue: batchSize });
     }, [analysisBackfillCandidates]);
-
-    const stageAQueueStatus = useMemo(() => getStageAQueueStatus(), [pipelineTick, items]);
-    const pipelineDebugEvents = useMemo(() => getPipelineDebugEvents(12), [pipelineTick, items]);
 
 
     const loadData = () => {
@@ -299,11 +256,6 @@ function App() {
             window.removeEventListener('storage-update', loadData);
             window.removeEventListener('storage', loadData);
         };
-    }, []);
-
-    useEffect(() => {
-        const timer = setInterval(() => setPipelineTick((value) => value + 1), 1500);
-        return () => clearInterval(timer);
     }, []);
 
     useEffect(() => {
@@ -1116,67 +1068,6 @@ function App() {
                             <span className="text-caption font-caption text-subtext-color">
                                 {headerSubtitle}
                             </span>
-                            {analysisProgress.total > 0 ? (
-                                <div className="mt-3 flex w-[420px] max-w-full flex-col gap-1">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-caption font-caption text-subtext-color">
-                                            Analysis progress
-                                        </span>
-                                        <span className="text-caption-bold font-caption-bold text-default-font">
-                                            {analysisProgress.done}/{analysisProgress.total} ({analysisProgress.percent}%)
-                                        </span>
-                                    </div>
-                                    <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-200">
-                                        <div
-                                            className="h-full rounded-full bg-brand-600 transition-all"
-                                            style={{ width: `${analysisProgress.percent}%` }}
-                                        />
-                                    </div>
-                                    <span className="text-caption font-caption text-subtext-color">
-                                        {analysisProgress.inProgress} in progress, {analysisProgress.unanalysed} unanalysed
-                                        {analysisProgress.failed > 0 ? `, ${analysisProgress.failed} failed` : ''}
-                                    </span>
-                                </div>
-                            ) : null}
-                            <details className="mt-3 w-[520px] max-w-full rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2">
-                                <summary className="cursor-pointer text-caption-bold font-caption-bold text-default-font">
-                                    Pipeline Debug (Dev)
-                                </summary>
-                                <div className="mt-2 flex flex-col gap-2 text-caption font-caption text-subtext-color">
-                                    <div className="flex flex-wrap gap-2">
-                                        <Badge variant="neutral">Stage A pending: {stageAQueueStatus.pending}</Badge>
-                                        <Badge variant={stageAQueueStatus.isProcessing ? 'warning' : 'success'}>
-                                            Stage A {stageAQueueStatus.isProcessing ? 'processing' : 'idle'}
-                                        </Badge>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span>Recent events</span>
-                                        <button
-                                            type="button"
-                                            className="text-brand-700 hover:text-brand-800"
-                                            onClick={() => clearPipelineDebugEvents()}
-                                        >
-                                            Clear
-                                        </button>
-                                    </div>
-                                    <div className="max-h-40 overflow-auto rounded border border-neutral-200 bg-white p-2">
-                                        {pipelineDebugEvents.length === 0 ? (
-                                            <span>No events yet.</span>
-                                        ) : (
-                                            <div className="flex flex-col gap-1">
-                                                {pipelineDebugEvents.map((event) => (
-                                                    <div key={event.id} className="rounded bg-neutral-50 px-2 py-1">
-                                                        <div className="text-[11px] text-neutral-700">
-                                                            [{new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}] {event.type}
-                                                        </div>
-                                                        <div className="text-[11px] text-neutral-600">{event.message}</div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </details>
                         </div>
                         {isCollectionOverview ? (
                             <div className="flex items-center gap-2">
@@ -1447,7 +1338,7 @@ function App() {
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                 />
                             </TextField>
-                            <div className="flex items-center gap-1 absolute right-3 pointer-events-none">
+                            <div className="flex items-center gap-1 absolute right-[6px] pointer-events-none">
                                 <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
                                     <span className="text-caption font-caption text-subtext-color">⌘</span>
                                     <span className="text-caption font-caption text-subtext-color">K</span>
