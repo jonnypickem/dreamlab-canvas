@@ -1,6 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Link as LinkIcon, FileText, Check } from 'lucide-react';
-import { FeatherSparkles } from '@subframe/core';
+import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
+
+const getLinkTextPayload = (item) => {
+    if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
+    const extractedContent = String(item?.textExtract?.content || '').trim();
+    const tweetFallback = String(item?.linkEmbed?.tweetText || '').trim();
+    const contentFallback = String(item?.content || '').trim();
+    const content = extractedContent || tweetFallback || contentFallback;
+    return {
+        ready: Boolean(content),
+        title: String(item?.textExtract?.title || item?.title || '').trim(),
+        byline: String(item?.textExtract?.byline || item?.linkEmbed?.authorName || '').trim(),
+        content,
+    };
+};
 
 function ItemCard({ item, onClick, isSelected = false, onSelect }) {
     const [isVisible, setIsVisible] = useState(false);
@@ -32,6 +46,10 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
             default: return <LinkIcon size={16} className="text-white" />;
         }
     };
+    const heroText = getHeroTextForItem(item);
+    const supportingText = getSupportingTextForItem(item);
+    const linkTextPayload = getLinkTextPayload(item);
+    const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
 
     const domainName = (url) => {
         try {
@@ -96,7 +114,39 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
 
                     {/* Link Type */}
                     {item.type === 'link' && (
-                        item.thumbnail ? (
+                        showLinkAsText ? (
+                            <div className="w-full bg-white p-4 min-h-[170px] flex flex-col gap-3">
+                                {linkTextPayload.title ? (
+                                    <h3 className="text-heading-3 font-semibold text-[var(--ds-gray-1000)] leading-snug line-clamp-2 text-left">
+                                        {linkTextPayload.title}
+                                    </h3>
+                                ) : null}
+                                {linkTextPayload.byline ? (
+                                    <p className="text-caption text-[var(--ds-gray-700)] line-clamp-1 text-left">
+                                        {linkTextPayload.byline}
+                                    </p>
+                                ) : null}
+                                <p className="text-body text-[var(--ds-gray-1000)] leading-relaxed line-clamp-5 text-left break-words">
+                                    {linkTextPayload.content}
+                                </p>
+                                <span className="text-caption text-[var(--ds-gray-700)] truncate">
+                                    {domainName(item.sourceUrl)}
+                                </span>
+                            </div>
+                        ) : item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' ? (
+                            <div className="w-full bg-white p-4 min-h-[170px] flex flex-col gap-3">
+                                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                                    <span className="font-semibold text-neutral-800">X</span>
+                                    <span>{item.linkEmbed?.authorName || domainName(item.sourceUrl)}</span>
+                                </div>
+                                <p className="text-body text-[var(--ds-gray-1000)] leading-relaxed line-clamp-5 text-left">
+                                    {item.linkEmbed?.tweetText || item.title || item.content || 'Tweet'}
+                                </p>
+                                <span className="text-caption text-[var(--ds-gray-700)] truncate">
+                                    {domainName(item.sourceUrl)}
+                                </span>
+                            </div>
+                        ) : item.thumbnail ? (
                             <img
                                 src={item.thumbnail}
                                 alt={item.title || 'Link Thumbnail'}
@@ -122,10 +172,15 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
 
                     {/* Text Type */}
                     {item.type === 'text' && (
-                        <div className="p-4 bg-white min-h-[120px] flex items-center justify-center">
-                            <p className="text-sm text-[var(--ds-gray-1000)] line-clamp-6 text-center leading-relaxed">
-                                "{item.content}"
+                        <div className="p-5 bg-white min-h-[150px] flex flex-col items-start justify-start gap-2.5">
+                            <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-3 text-left leading-snug w-full">
+                                {heroText}
                             </p>
+                            {supportingText ? (
+                                <p className="text-body text-[var(--ds-gray-700)] line-clamp-4 text-left leading-relaxed w-full">
+                                    {supportingText}
+                                </p>
+                            ) : null}
                         </div>
                     )}
                 </>

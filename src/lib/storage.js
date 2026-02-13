@@ -276,7 +276,8 @@ export const saveItem = (item, project = null) => {
         // New tag structure for AI tagging
         objectiveTags: [...new Set([...(item.tags || []), ...projectDefaultTags])],
         contextTags: [],
-        tags: [...new Set([...(item.tags || []), ...projectDefaultTags])] // Combined for search
+        tags: [...new Set([...(item.tags || []), ...projectDefaultTags])], // Combined for search
+        ...(item.type === 'link' && !item.linkViewMode ? { linkViewMode: 'preview' } : {})
     };
 
     const updatedItems = [newItem, ...items];

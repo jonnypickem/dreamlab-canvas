@@ -31,6 +31,23 @@ const CONTEXT_MENU_IDS = {
   page: 'save-to-dreamlab-page',
 };
 
+const TEXT_FIRST_DOMAINS = [
+  'medium.com',
+  'substack.com',
+  'dev.to',
+  'hashnode.com',
+  'linkedin.com',
+  'notion.site',
+];
+
+const PREVIEW_FIRST_DOMAINS = [
+  'x.com',
+  'twitter.com',
+  'reddit.com',
+];
+
+const MAX_TEXT_EXTRACT_LENGTH = 50000;
+
 function isDreamlabUrl(url) {
   try {
     const parsed = new URL(url);
@@ -38,6 +55,104 @@ function isDreamlabUrl(url) {
   } catch {
     return false;
   }
+}
+
+function normalizeDomain(url) {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function domainMatches(hostname, domain) {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function getDomainDefaultMode(url) {
+  const hostname = normalizeDomain(url);
+  if (!hostname) return 'preview';
+  if (PREVIEW_FIRST_DOMAINS.some((domain) => domainMatches(hostname, domain))) return 'preview';
+  if (TEXT_FIRST_DOMAINS.some((domain) => domainMatches(hostname, domain))) return 'text';
+  return 'preview';
+}
+
+function shouldAttemptTextExtraction(url) {
+  return getDomainDefaultMode(url) === 'text';
+}
+
+function getTweetInfo(url) {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    if (hostname !== 'x.com' && hostname !== 'twitter.com') return null;
+
+    const match = parsed.pathname.match(/\/status\/(\d+)/i);
+    if (!match?.[1]) return null;
+
+    return {
+      tweetId: match[1],
+      canonicalUrl: `https://x.com${parsed.pathname}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTweetEmbed(url) {
+  const tweetInfo = getTweetInfo(url);
+  if (!tweetInfo) return null;
+
+  const oEmbedUrl = `https://publish.twitter.com/oembed?omit_script=true&dnt=true&url=${encodeURIComponent(tweetInfo.canonicalUrl)}`;
+  try {
+    const response = await fetch(oEmbedUrl);
+    if (!response.ok) {
+      throw new Error(`oEmbed request failed with status ${response.status}`);
+    }
+    const data = await response.json();
+    const plainText = normalizeExtractedText(data?.html || '');
+    const tweetText = plainText
+      .replace(/\s*—\s*[^—]+$/, '')
+      .trim()
+      .slice(0, 320);
+
+    return {
+      type: 'tweet',
+      provider: 'x',
+      status: 'ready',
+      tweetId: tweetInfo.tweetId,
+      url: tweetInfo.canonicalUrl,
+      authorName: data?.author_name || null,
+      authorUrl: data?.author_url || null,
+      html: data?.html || null,
+      tweetText: tweetText || null,
+      width: Number(data?.width) || null,
+      fetchedAt: Date.now(),
+    };
+  } catch {
+    return {
+      type: 'tweet',
+      provider: 'x',
+      status: 'failed',
+      tweetId: tweetInfo.tweetId,
+      url: tweetInfo.canonicalUrl,
+      fetchedAt: Date.now(),
+    };
+  }
+}
+
+async function maybeAttachLinkEmbed(item) {
+  if (!item || item.type !== 'link') return item;
+  const sourceUrl = item.sourceUrl || item.content;
+  if (!sourceUrl) return item;
+
+  const tweetEmbed = await fetchTweetEmbed(sourceUrl);
+  if (!tweetEmbed) return item;
+
+  return {
+    ...item,
+    linkEmbed: tweetEmbed,
+  };
 }
 
 function queryTabs(queryInfo) {
@@ -210,6 +325,13 @@ async function fetchMetadataFromUrl(url) {
     },
   });
   const html = await response.text();
+  return parseMetadataFromHtml(html, url);
+}
+
+function parseMetadataFromHtml(html, url) {
+  if (!html || typeof html !== 'string') {
+    return { title: null, image: null, description: null };
+  }
 
   const getMetaMatch = (property) => {
     const regex = new RegExp(
@@ -237,6 +359,168 @@ async function fetchMetadataFromUrl(url) {
     image: image || null,
     description: getMetaMatch('description') || null,
   };
+}
+
+function withCacheBuster(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('dlcb', Date.now().toString());
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function isLikelyStaleMetadata(metadata) {
+  const title = String(metadata?.title || '').trim().toLowerCase();
+  const image = String(metadata?.image || '').trim().toLowerCase();
+
+  if (!metadata?.title && !metadata?.description && !metadata?.image) return true;
+  if (!metadata?.image) return true;
+
+  // Common generic social placeholders that are often stale.
+  if (title === 'x' || title === 'x / twitter') return true;
+  if (image.includes('abs.twimg.com') || image.includes('twitter_card') || image.includes('x.com')) return true;
+
+  return false;
+}
+
+async function fetchMetadataWithFallback(url) {
+  const firstPass = await fetchMetadataFromUrl(url);
+  if (!isLikelyStaleMetadata(firstPass)) return firstPass;
+
+  try {
+    const cacheBustedUrl = withCacheBuster(url);
+    const secondPass = await fetchMetadataFromUrl(cacheBustedUrl);
+    return {
+      title: secondPass?.title || firstPass?.title || null,
+      image: secondPass?.image || firstPass?.image || null,
+      description: secondPass?.description || firstPass?.description || null,
+    };
+  } catch {
+    return firstPass;
+  }
+}
+
+function decodeHtmlEntities(input) {
+  if (!input) return '';
+  return input
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
+function stripHtmlTags(value) {
+  return String(value || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<\/?(article|section|main|aside|header|footer|div|p|span|h\d|li|ul|ol|br)[^>]*>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ');
+}
+
+function normalizeExtractedText(value) {
+  return decodeHtmlEntities(stripHtmlTags(value))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractMetaContent(html, keys = []) {
+  for (const key of keys) {
+    const regex = new RegExp(
+      `<meta[^>]+(?:property|name)=["']${key}["'][^>]*content=["']([^"']+)["'][^>]*>|<meta[^>]*content=["']([^"']+)["'][^>]+(?:property|name)=["']${key}["'][^>]*>`,
+      'i'
+    );
+    const match = html.match(regex);
+    const value = (match && (match[1] || match[2])) ? match[1] || match[2] : '';
+    if (value) return value.trim();
+  }
+  return '';
+}
+
+function extractMainTextFromHtml(html) {
+  const articleMatch = html.match(/<article[\s\S]*?<\/article>/i);
+  const mainMatch = html.match(/<main[\s\S]*?<\/main>/i);
+  const candidate = articleMatch?.[0] || mainMatch?.[0] || html;
+  return normalizeExtractedText(candidate);
+}
+
+async function fetchTextExtractFromUrl(url) {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
+    const html = await response.text();
+    const text = extractMainTextFromHtml(html).slice(0, MAX_TEXT_EXTRACT_LENGTH);
+
+    if (!text || text.length < 120) {
+      return {
+        status: 'unavailable',
+        source: 'extension',
+        extractedAt: Date.now(),
+      };
+    }
+
+    const titleFromMeta = extractMetaContent(html, ['og:title', 'twitter:title']);
+    const byline = extractMetaContent(html, ['author', 'article:author']);
+    const siteName = extractMetaContent(html, ['og:site_name']);
+    const description = extractMetaContent(html, ['description', 'og:description']);
+    const excerpt = normalizeExtractedText(description).slice(0, 300);
+
+    return {
+      status: 'ready',
+      source: 'extension',
+      extractedAt: Date.now(),
+      title: titleFromMeta || null,
+      byline: byline || null,
+      siteName: siteName || normalizeDomain(url) || null,
+      content: text,
+      excerpt: excerpt || text.slice(0, 300),
+      wordCount: text.split(/\s+/).filter(Boolean).length,
+    };
+  } catch {
+    return {
+      status: 'failed',
+      source: 'extension',
+      extractedAt: Date.now(),
+    };
+  }
+}
+
+async function maybeAttachTextExtract(item) {
+  if (!item || item.type !== 'link') return item;
+  const sourceUrl = item.sourceUrl || item.content;
+  if (!sourceUrl) return item;
+
+  if (!shouldAttemptTextExtraction(sourceUrl)) {
+    return {
+      ...item,
+      linkViewMode: 'preview',
+      textExtract: item.textExtract || {
+        status: 'unavailable',
+        source: 'extension',
+        extractedAt: Date.now(),
+      },
+    };
+  }
+
+  const textExtract = await fetchTextExtractFromUrl(sourceUrl);
+  const linkViewMode = textExtract?.status === 'ready' ? 'text' : 'preview';
+  return {
+    ...item,
+    textExtract,
+    linkViewMode,
+  };
+}
+
+async function enrichLinkCapture(item) {
+  const withEmbed = await maybeAttachLinkEmbed(item);
+  return await maybeAttachTextExtract(withEmbed);
 }
 
 async function getPageMetadata(tabId, targetUrl) {
@@ -296,7 +580,7 @@ async function getPageMetadata(tabId, targetUrl) {
       if (domResult.image) return domResult;
 
       try {
-        const fallback = await fetchMetadataFromUrl(targetUrl);
+        const fallback = await fetchMetadataWithFallback(targetUrl);
         return {
           title: domResult.title || fallback.title,
           image: fallback.image,
@@ -307,7 +591,7 @@ async function getPageMetadata(tabId, targetUrl) {
       }
     }
 
-    return await fetchMetadataFromUrl(targetUrl);
+    return await fetchMetadataWithFallback(targetUrl);
   } catch {
     return {};
   }
@@ -411,6 +695,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       sourceUrl: urlToScrape,
       timestamp: Date.now(),
     };
+    item = await enrichLinkCapture(item);
   }
 
   if (item) {
@@ -444,7 +729,7 @@ chrome.commands.onCommand.addListener(async (command) => {
         });
       } else {
         const metadata = await getPageMetadata(tab.id, tab.url);
-        await queuePendingAndTrySave({
+        const linkItem = await enrichLinkCapture({
           type: 'link',
           content: metadata.title || tab.title || tab.url,
           title: metadata.title || tab.title || null,
@@ -453,6 +738,7 @@ chrome.commands.onCommand.addListener(async (command) => {
           sourceUrl: tab.url,
           timestamp: Date.now(),
         });
+        await queuePendingAndTrySave(linkItem);
       }
       return;
     }

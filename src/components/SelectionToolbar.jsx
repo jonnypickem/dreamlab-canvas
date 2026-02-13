@@ -9,7 +9,8 @@ export function SelectionToolbar({
     onDelete,
     onAddTags,
     onClearSelection,
-    isExporting = false
+    isExporting = false,
+    showDownload = true
 }) {
     return (
         <div className="flex items-center justify-between rounded-full border border-solid border-neutral-border bg-white px-6 py-4 shadow-lg fixed bottom-8 left-[calc(50%+144px)] -translate-x-1/2 z-10">
@@ -25,15 +26,17 @@ export function SelectionToolbar({
                 >
                     Copy
                 </Button>
-                <Button
-                    variant="neutral-secondary"
-                    size="medium"
-                    icon={<FeatherDownload />}
-                    onClick={onDownload}
-                    disabled={isExporting}
-                >
-                    {isExporting ? 'Exporting...' : 'Download'}
-                </Button>
+                {showDownload ? (
+                    <Button
+                        variant="neutral-secondary"
+                        size="medium"
+                        icon={<FeatherDownload />}
+                        onClick={onDownload}
+                        disabled={isExporting}
+                    >
+                        {isExporting ? 'Exporting...' : 'Download'}
+                    </Button>
+                ) : null}
                 <Button
                     variant="neutral-secondary"
                     size="medium"

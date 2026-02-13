@@ -20,6 +20,7 @@ import CanvasView from './components/CanvasView';
 import { Toast } from './components/Toast';
 import { SelectionToolbar } from './components/SelectionToolbar';
 import { exportItemsAsZip } from './utils/zipExport';
+import saveAs from 'file-saver';
 import { saveItemWithTags, setToastCallback, processItemTags } from './utils/saveItemWithTags';
 import { compactImageStorage } from './utils/storageCompaction';
 import { getPrimitiveAnalysisStore } from './lib/storage';
@@ -552,6 +553,7 @@ function App() {
                 type: 'link',
                 content: url,
                 sourceUrl: url,
+                linkViewMode: 'preview',
                 workspaceId: activeWorkspaceId,
                 projectId: null,
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
@@ -783,6 +785,37 @@ function App() {
         setLastSelectedItemId(null);
     }, []);
 
+    const safeExportFilename = useCallback((value) => String(value || 'selection')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\w\s-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 80) || 'selection', []);
+
+    const getExportTitleForItem = useCallback((item) => {
+        const explicitTitle = String(item?.title || '').trim();
+        if (explicitTitle) return explicitTitle;
+        if (item?.sourceUrl) {
+            try {
+                return new URL(item.sourceUrl).hostname.replace(/^www\./, '') || 'image';
+            } catch {
+                return 'image';
+            }
+        }
+        return 'image';
+    }, []);
+
+    const selectedItemsData = useMemo(
+        () => items.filter((item) => selectedItems.has(item.id)),
+        [items, selectedItems]
+    );
+
+    const hasDownloadableSelection = useMemo(
+        () => selectedItemsData.some((item) => item.type === 'image'),
+        [selectedItemsData]
+    );
+
     const handleBulkDelete = useCallback(() => {
         if (selectedItems.size === 0) return;
 
@@ -799,14 +832,12 @@ function App() {
         if (selectedItems.size === 0) return;
 
         const selectedItemsList = items.filter(item => selectedItems.has(item.id));
-        const imageItem = selectedItemsList.find(item =>
-            item.type === 'image' || (item.type === 'link' && item.content?.startsWith('data:'))
-        );
+        const imageItem = selectedItemsList.find(item => item.type === 'image');
 
         if (!imageItem) {
-            const textItem = selectedItemsList.find(item => item.type === 'text');
-            if (textItem) {
-                await navigator.clipboard.writeText(textItem.content);
+            const textLikeItem = selectedItemsList.find(item => item.type === 'text' || item.type === 'link');
+            if (textLikeItem) {
+                await navigator.clipboard.writeText(textLikeItem.content || textLikeItem.sourceUrl || '');
                 setToast({ message: 'Text copied to clipboard', type: 'success' });
             } else {
                 setToast({ message: 'Nothing to copy', type: 'error' });
@@ -852,10 +883,7 @@ function App() {
         }
 
         const selectedItemsList = items.filter(item => selectedItems.has(item.id));
-        const exportableItems = selectedItemsList.filter(item =>
-            item.type === 'image' ||
-            (item.type === 'link' && item.content?.startsWith('data:'))
-        );
+        const exportableItems = selectedItemsList.filter(item => item.type === 'image');
 
         if (exportableItems.length === 0) {
             setToast({ message: 'No images to download', type: 'error' });
@@ -869,20 +897,12 @@ function App() {
                 : item.content.startsWith('data:image/gif') ? 'gif'
                     : item.content.startsWith('data:image/webp') ? 'webp'
                         : 'jpg';
-            const filename = `${item.title || 'image'}-${item.id.slice(0, 8)}.${ext}`;
+            const filename = `${safeExportFilename(getExportTitleForItem(item))}-${item.id.slice(0, 8)}.${ext}`;
 
             // Convert data URL to blob URL so Chrome downloads instead of opening a tab
             const response = await fetch(item.content);
             const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
-
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(blobUrl);
+            saveAs(blob, filename);
 
             setToast({ message: 'Image downloaded', type: 'success' });
             clearSelection();
@@ -920,7 +940,7 @@ function App() {
         } finally {
             setIsExporting(false);
         }
-    }, [items, selectedItems, selectedCollectionId, activeCollection, activeWorkspaceId, clearSelection]);
+    }, [items, selectedItems, activeWorkspaceId, clearSelection, safeExportFilename, getExportTitleForItem]);
 
     const handleAddTags = useCallback(() => {
         const tag = prompt('Enter tag to add to selected items:');
@@ -1227,6 +1247,7 @@ function App() {
                         onAddTags={handleAddTags}
                         onClearSelection={clearSelection}
                         isExporting={isExporting}
+                        showDownload={hasDownloadableSelection}
                     />
                 ) : (
                     <div className="flex items-center gap-3 rounded-full border border-solid border-neutral-border bg-white px-4 py-4 fixed bottom-8 left-1/2 z-10 -translate-x-1/2 focus-within:shadow-[0px_0px_32px_-4px_rgba(234,88,12,0.3),0px_0px_8px_-2px_rgba(234,88,12,0.3)]">

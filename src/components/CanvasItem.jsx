@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Rnd } from 'react-rnd';
 import { Camera, Link as LinkIcon, FileText, Info } from 'lucide-react';
+import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 
 // Helper to ensure size is always a number
 const parseSize = (val, fallback) => {
@@ -14,6 +15,21 @@ const hasFiniteNumber = (value) => {
     if (value == null) return false;
     const parsed = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(parsed);
+};
+
+const getLinkTextPayload = (item) => {
+    if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
+    const textExtractContent = String(item?.textExtract?.content || '').trim();
+    const tweetFallback = String(item?.linkEmbed?.tweetText || '').trim();
+    const contentFallback = String(item?.content || '').trim();
+    const content = textExtractContent || tweetFallback || contentFallback;
+
+    return {
+        ready: Boolean(content),
+        title: String(item?.textExtract?.title || item?.title || '').trim(),
+        byline: String(item?.textExtract?.byline || item?.linkEmbed?.authorName || '').trim(),
+        content,
+    };
 };
 
 const CanvasItem = ({
@@ -44,9 +60,14 @@ const CanvasItem = ({
         return { width: w, height: h };
     });
     const [mediaAspectRatio, setMediaAspectRatio] = useState(null);
+    const heroText = getHeroTextForItem(item);
+    const supportingText = getSupportingTextForItem(item);
+    const linkTextPayload = getLinkTextPayload(item);
+    const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
     const hasSavedSize = hasFiniteNumber(item.canvas?.w) && hasFiniteNumber(item.canvas?.h);
-    const mediaSource = item.type === 'image' ? item.content : item.thumbnail;
-    const hasMediaCard = item.type === 'image' || Boolean(item.thumbnail);
+    const mediaSource = item.type === 'image' ? item.content : (showLinkAsText ? null : item.thumbnail);
+    const hasMediaCard = item.type === 'image' || (item.type === 'link' && !showLinkAsText && Boolean(item.thumbnail));
+    const isResizableCard = hasMediaCard || item.type === 'text';
     const hasAutoSizedFromMediaRef = useRef(false);
     const suppressClickRef = useRef(false);
     const dragStateRef = useRef({ startX: 0, startY: 0, moved: false });
@@ -198,10 +219,10 @@ const CanvasItem = ({
             className={`group canvas-item-root ${isSelected ? 'z-50' : ''}`}
             disableDragging={isPanMode}
             cancel=".canvas-item-no-drag, a, button, input, textarea, select"
-            enableResizing={!isPanMode && hasMediaCard}
+            enableResizing={!isPanMode && isResizableCard}
             lockAspectRatio={lockAspectRatio}
-            minWidth={200}
-            minHeight={100}
+            minWidth={item.type === 'text' ? 220 : 200}
+            minHeight={item.type === 'text' ? 140 : 100}
         >
             <div
                 className={`group relative flex h-full w-full flex-col overflow-hidden rounded-lg bg-white shadow-sm transition-all duration-200
@@ -250,7 +271,39 @@ const CanvasItem = ({
                     )}
 
                     {item.type === 'link' && (
-                        item.thumbnail ? (
+                        showLinkAsText ? (
+                            <div className="w-full h-full bg-white p-4 flex flex-col gap-3 overflow-hidden">
+                                {linkTextPayload.title ? (
+                                    <h3 className="text-heading-3 font-semibold text-[var(--ds-gray-1000)] line-clamp-2 text-left leading-snug">
+                                        {linkTextPayload.title}
+                                    </h3>
+                                ) : null}
+                                {linkTextPayload.byline ? (
+                                    <p className="text-caption text-[var(--ds-gray-700)] line-clamp-1 text-left">
+                                        {linkTextPayload.byline}
+                                    </p>
+                                ) : null}
+                                <p className="text-body text-[var(--ds-gray-1000)] leading-relaxed line-clamp-7 text-left break-words">
+                                    {linkTextPayload.content}
+                                </p>
+                                <span className="mt-auto text-caption text-[var(--ds-gray-700)] truncate">
+                                    {domainName(item.sourceUrl)}
+                                </span>
+                            </div>
+                        ) : item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' ? (
+                            <div className="w-full h-full bg-white p-4 flex flex-col gap-3">
+                                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                                    <span className="font-semibold text-neutral-800">X</span>
+                                    <span className="truncate">{item.linkEmbed?.authorName || domainName(item.sourceUrl)}</span>
+                                </div>
+                                <p className="text-body text-[var(--ds-gray-1000)] leading-relaxed line-clamp-6 text-left">
+                                    {item.linkEmbed?.tweetText || item.title || item.content || 'Tweet'}
+                                </p>
+                                <span className="mt-auto text-caption text-[var(--ds-gray-700)] truncate">
+                                    {domainName(item.sourceUrl)}
+                                </span>
+                            </div>
+                        ) : item.thumbnail ? (
                             <img
                                 src={item.thumbnail}
                                 alt={item.title || 'Link Thumbnail'}
@@ -274,10 +327,15 @@ const CanvasItem = ({
                     )}
 
                     {item.type === 'text' && (
-                        <div className="w-full h-full p-4 bg-white flex items-center justify-center">
-                            <p className="text-sm text-[var(--ds-gray-1000)] line-clamp-6 text-center leading-relaxed">
-                                "{item.content}"
+                        <div className="w-full h-full p-5 bg-white flex flex-col items-start justify-start gap-2.5">
+                            <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-4 text-left leading-snug w-full">
+                                {heroText}
                             </p>
+                            {supportingText ? (
+                                <p className="text-body text-[var(--ds-gray-700)] line-clamp-5 text-left leading-relaxed w-full">
+                                    {supportingText}
+                                </p>
+                            ) : null}
                         </div>
                     )}
                 </div>

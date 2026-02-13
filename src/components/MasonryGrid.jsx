@@ -27,6 +27,16 @@ function MasonryGrid({
         768: Math.max(1, 1 + Math.floor(offset / 2)) // md: allow 2 cols if really zoomed out (small items)
     };
 
+    const isSingleVisibleItem = items.length === 1;
+    const singleItemMaxWidthByZoom = {
+        0: 320,
+        1: 380,
+        2: 460,
+        3: 560,
+        4: 660,
+    };
+    const singleItemMaxWidth = singleItemMaxWidthByZoom[zoomLevel] || 460;
+
     return (
         <Masonry
             breakpointCols={breakpointColumnsObj}
@@ -34,13 +44,19 @@ function MasonryGrid({
             columnClassName="masonry-grid-column"
         >
             {items.map(item => (
-                <ItemCard
+                <div
                     key={item.id}
-                    item={item}
-                    onClick={() => onItemClick(item)}
-                    isSelected={selectedItems.has(item.id)}
-                    onSelect={onSelectItem}
-                />
+                    style={isSingleVisibleItem
+                        ? { width: '100%', maxWidth: `${singleItemMaxWidth}px` }
+                        : undefined}
+                >
+                    <ItemCard
+                        item={item}
+                        onClick={() => onItemClick(item)}
+                        isSelected={selectedItems.has(item.id)}
+                        onSelect={onSelectItem}
+                    />
+                </div>
             ))}
         </Masonry>
     );

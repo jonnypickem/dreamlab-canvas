@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     updateItem,
     getWorkspaces,
@@ -8,6 +8,7 @@ import {
     getCollectionWorkspaceId
 } from '../lib/storage';
 import { fetchImageViaProxy } from '../utils/imageProxy';
+import saveAs from 'file-saver';
 import { Button } from "../ui/components/Button";
 import { TextField } from "../ui/components/TextField";
 import { Select } from "../ui/components/Select";
@@ -15,7 +16,6 @@ import { Badge } from "../ui/components/Badge";
 import { IconButton } from "../ui/components/IconButton";
 import * as SubframeUtils from "../ui/utils";
 import {
-    FeatherChevronDown,
     FeatherCopy,
     FeatherDownload,
     FeatherExternalLink,
@@ -31,12 +31,138 @@ import {
     FeatherChevronLeft,
     FeatherChevronRight
 } from "@subframe/core";
+import { getDomainDefaultLinkMode, isTextFirstDomain } from '../utils/linkDomainPolicy';
+import { getLinkViewPreference, setLinkViewPreference } from '../utils/linkTextPreference';
 
 const uniqueTags = (tags = []) => [...new Set((tags || []).filter(Boolean))];
 
 const getContextTagText = (contextTag) => (
     typeof contextTag === 'string' ? contextTag : contextTag?.tag
 );
+
+const MAX_EXTRACTED_TEXT_CHARS = 50000;
+
+function getLinkTextPayload(item) {
+    if (item?.type !== 'link') {
+        return {
+            ready: false,
+            content: '',
+            title: '',
+            byline: '',
+            site: '',
+        };
+    }
+
+    const extractedContent = String(item?.textExtract?.content || '').trim();
+    const tweetFallback = String(item?.linkEmbed?.tweetText || '').trim();
+    const titleFallback = String(item?.title || '').trim();
+    const contentFallback = String(item?.content || '').trim();
+
+    const content = extractedContent || tweetFallback || contentFallback;
+    return {
+        ready: Boolean(content),
+        content: content.slice(0, MAX_EXTRACTED_TEXT_CHARS),
+        title: String(item?.textExtract?.title || item?.title || '').trim(),
+        byline: String(item?.textExtract?.byline || item?.linkEmbed?.authorName || '').trim(),
+        site: String(item?.textExtract?.siteName || '').trim(),
+    };
+}
+
+function getTweetEmbedUrl(item) {
+    const embed = item?.linkEmbed;
+    const sourceUrl = embed?.url || item?.sourceUrl;
+    if (!sourceUrl) return '';
+    try {
+        const parsed = new URL(sourceUrl);
+        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+        if (host !== 'x.com' && host !== 'twitter.com') return '';
+        if (!/\/status\/\d+/i.test(parsed.pathname)) return '';
+        return sourceUrl;
+    } catch {
+        return '';
+    }
+}
+
+function getPreviewLinkLabel(url) {
+    if (!url) return '';
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace(/^www\./, '');
+        const path = parsed.pathname === '/' ? '' : parsed.pathname;
+        const short = `${host}${path}`;
+        if (short.length <= 90) return short;
+        return `${short.slice(0, 87)}...`;
+    } catch {
+        const asString = String(url);
+        if (asString.length <= 90) return asString;
+        return `${asString.slice(0, 87)}...`;
+    }
+}
+
+function cleanTextForDisplay(text) {
+    return String(text || '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/\u00A0/g, ' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .replace(/\(\s+/g, '(')
+        .replace(/\s+\)/g, ')')
+        .trim();
+}
+
+function formatTextIntoParagraphs(text) {
+    const cleaned = cleanTextForDisplay(text);
+    if (!cleaned) return [];
+
+    const hasLineBreaks = /\n/.test(cleaned);
+    if (hasLineBreaks) {
+        return cleaned
+            .split(/\n{2,}/)
+            .map((chunk) => chunk.split('\n').map((line) => line.trim()).filter(Boolean).join(' '))
+            .map((chunk) => chunk.trim())
+            .filter(Boolean);
+    }
+
+    const sentences = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleaned];
+    const normalized = sentences.map((sentence) => sentence.trim()).filter(Boolean);
+    if (normalized.length <= 2) return [cleaned];
+
+    const paragraphs = [];
+    let buffer = '';
+
+    normalized.forEach((sentence) => {
+        const candidate = buffer ? `${buffer} ${sentence}` : sentence;
+        if (candidate.length > 320 && buffer) {
+            paragraphs.push(buffer);
+            buffer = sentence;
+        } else if (buffer.split('.').length > 3) {
+            paragraphs.push(buffer);
+            buffer = sentence;
+        } else {
+            buffer = candidate;
+        }
+    });
+
+    if (buffer) paragraphs.push(buffer);
+    return paragraphs.length > 0 ? paragraphs : [cleaned];
+}
+
+function resolveInitialLinkViewMode(item) {
+    if (item?.type !== 'link') return 'preview';
+    const hasText = getLinkTextPayload(item).ready;
+    const isTweetLink = item?.linkEmbed?.type === 'tweet';
+    if (isTweetLink && hasText) return 'text';
+    const explicitMode = item?.linkViewMode;
+    if (explicitMode === 'text' && hasText) return 'text';
+    if (explicitMode === 'preview') return 'preview';
+
+    const preferredMode = getLinkViewPreference(item?.sourceUrl);
+    if (preferredMode === 'text' && hasText) return 'text';
+    if (preferredMode === 'preview') return 'preview';
+
+    const defaultMode = getDomainDefaultLinkMode(item?.sourceUrl);
+    if (defaultMode === 'text' && hasText) return 'text';
+    return 'preview';
+}
 
 export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, onPrev, hasNext, hasPrev, onToast }) {
     const [content, setContent] = useState(item.content);
@@ -50,6 +176,9 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         const contextTags = (item.contextTags || []).map(getContextTagText).filter(Boolean);
         return uniqueTags(item.tags || [...(item.objectiveTags || []), ...contextTags]);
     });
+    const [linkViewMode, setLinkViewMode] = useState(() => resolveInitialLinkViewMode(item));
+    const [tweetEmbedState, setTweetEmbedState] = useState('idle'); // idle | loading | ready | failed
+    const [centerLinkText, setCenterLinkText] = useState(true);
 
     const emitToast = (message, type = 'info') => {
         if (onToast) onToast({ message, type });
@@ -68,6 +197,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         setObjectiveTagsState(objectiveTags);
         setContextTagsState(contextTags);
         setSearchTagsState(searchTags);
+        setLinkViewMode(resolveInitialLinkViewMode(item));
     }, [item]);
 
     // Keyboard Navigation
@@ -108,9 +238,172 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const availableCollections = currentWorkspace
         ? collections.filter((collection) => getCollectionWorkspaceId(collection) === item.workspaceId)
         : [];
+    const linkTextPayload = getLinkTextPayload(item);
+    const linkTextReady = linkTextPayload.ready;
+    const isTextDefaultDomain = isTextFirstDomain(item?.sourceUrl);
+    const extractedText = linkTextPayload.content;
+    const extractedTitle = linkTextPayload.title;
+    const extractedByline = linkTextPayload.byline;
+    const extractedSite = linkTextPayload.site;
+    const tweetEmbedUrl = getTweetEmbedUrl(item);
+    const previewLinkLabel = getPreviewLinkLabel(item?.sourceUrl);
+    const formattedExtractedParagraphs = useMemo(
+        () => formatTextIntoParagraphs(extractedText),
+        [extractedText]
+    );
+    const tweetEmbedRef = useRef(null);
+    const linkTextViewportRef = useRef(null);
+    const linkTextContentRef = useRef(null);
+
+    useEffect(() => {
+        if (item.type !== 'link' || linkViewMode !== 'text' || !linkTextReady) {
+            setCenterLinkText(true);
+            return;
+        }
+
+        const viewport = linkTextViewportRef.current;
+        const contentNode = linkTextContentRef.current;
+        if (!viewport || !contentNode) return;
+
+        const measure = () => {
+            const shouldCenter = contentNode.scrollHeight <= viewport.clientHeight;
+            setCenterLinkText(shouldCenter);
+        };
+
+        measure();
+
+        const observer = new ResizeObserver(() => measure());
+        observer.observe(viewport);
+        observer.observe(contentNode);
+        window.addEventListener('resize', measure);
+
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', measure);
+        };
+    }, [item.id, item.type, linkViewMode, linkTextReady, extractedText, extractedTitle, extractedByline, extractedSite]);
+
+    useEffect(() => {
+        if (item.type !== 'link') return;
+        if (tweetEmbedState !== 'failed') return;
+        if (!linkTextReady) return;
+        if (linkViewMode === 'text') return;
+        setAndPersistLinkViewMode('text');
+    }, [tweetEmbedState, linkTextReady, linkViewMode, item.type]);
+
+    useEffect(() => {
+        if (!tweetEmbedUrl || item.type !== 'link' || linkViewMode !== 'preview') {
+            setTweetEmbedState('idle');
+            return;
+        }
+        if (!tweetEmbedRef.current) return;
+
+        const container = tweetEmbedRef.current;
+        setTweetEmbedState('loading');
+        container.innerHTML = '';
+        const blockquote = document.createElement('blockquote');
+        blockquote.className = 'twitter-tweet';
+        const anchor = document.createElement('a');
+        anchor.href = tweetEmbedUrl;
+        blockquote.appendChild(anchor);
+        container.appendChild(blockquote);
+
+        let settled = false;
+        const markReady = () => {
+            if (!settled) {
+                settled = true;
+                setTweetEmbedState('ready');
+            }
+        };
+        const markFailed = () => {
+            if (!settled) {
+                settled = true;
+                setTweetEmbedState('failed');
+            }
+        };
+
+        const observer = new MutationObserver(() => {
+            if (container.querySelector('iframe')) {
+                markReady();
+            }
+        });
+        observer.observe(container, { childList: true, subtree: true });
+
+        const timeoutId = window.setTimeout(() => {
+            if (!container.querySelector('iframe')) {
+                markFailed();
+            } else {
+                markReady();
+            }
+        }, 3500);
+
+        const loadWidgets = () => {
+            if (window.twttr?.widgets?.load) {
+                window.twttr.widgets.load(container);
+            } else {
+                markFailed();
+            }
+        };
+
+        const existingScript = document.getElementById('dreamlab-twitter-wjs');
+        if (existingScript) {
+            loadWidgets();
+            return () => {
+                observer.disconnect();
+                window.clearTimeout(timeoutId);
+            };
+        }
+
+        const script = document.createElement('script');
+        script.id = 'dreamlab-twitter-wjs';
+        script.async = true;
+        script.src = 'https://platform.twitter.com/widgets.js';
+        script.onload = loadWidgets;
+        script.onerror = markFailed;
+        document.body.appendChild(script);
+
+        return () => {
+            observer.disconnect();
+            window.clearTimeout(timeoutId);
+        };
+    }, [tweetEmbedUrl, item.type, linkViewMode]);
+
+    const setAndPersistLinkViewMode = (nextMode) => {
+        if (nextMode === 'text' && !linkTextReady) return;
+        if (nextMode !== 'text' && nextMode !== 'preview') return;
+        setLinkViewMode(nextMode);
+        setLinkViewPreference(item?.sourceUrl, nextMode);
+        const updated = updateItem(item.id, { linkViewMode: nextMode });
+        if (onUpdate) onUpdate(updated);
+    };
+
+    const getExportTitle = () => {
+        const explicitTitle = String(title || item?.title || '').trim();
+        if (explicitTitle) return explicitTitle;
+
+        if (item?.sourceUrl) {
+            try {
+                return new URL(item.sourceUrl).hostname.replace(/^www\./, '') || 'image';
+            } catch {
+                // ignore
+            }
+        }
+        return 'image';
+    };
+
+    const toSafeFilename = (value) => String(value || 'export')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\w\s-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 80) || 'export';
 
     const handleSave = () => {
         const nextCollectionId = collectionId === 'unassigned' ? null : collectionId;
+        const linkViewUpdates = item.type === 'link'
+            ? { linkViewMode }
+            : {};
         const updated = updateItem(item.id, {
             content,
             title: title.trim() || null,
@@ -119,6 +412,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
             contextTags: contextTagsState,
             tags: searchTagsState,
             collectionId: nextCollectionId,
+            ...linkViewUpdates,
         });
         onUpdate(updated);
         onClose();
@@ -185,9 +479,13 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     };
 
     const handleDownload = async () => {
-        const source = item.type === 'image' ? item.content : item.thumbnail;
+        if (item.type !== 'image') {
+            emitToast('Download is only available for images', 'info');
+            return;
+        }
+        const source = item.content;
         if (!source) {
-            emitToast('No thumbnail available for download', 'error');
+            emitToast('No image available for download', 'error');
             return;
         }
 
@@ -202,16 +500,10 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 : source.includes('.webp') ? 'webp'
                                     : source.includes('.gif') ? 'gif'
                                         : 'jpg');
-            const filename = `${item.title || 'image'}-${item.id.slice(0, 8)}.${ext}`;
-            const blobUrl = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(blobUrl);
-            emitToast('Downloaded image', 'success');
+            const baseTitle = toSafeFilename(getExportTitle());
+            const filename = `${baseTitle}-${item.id.slice(0, 8)}.${ext}`;
+            saveAs(blob, filename);
+            emitToast(`Downloaded ${filename}`, 'success');
         } catch {
             emitToast('Failed to download image', 'error');
         }
@@ -313,7 +605,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                         </button>
                     )}
 
-                    {/* Image Content */}
+                    {/* Main Preview Content */}
                     {item.type === 'image' ? (
                         <img
                             className={SubframeUtils.twClassNames(
@@ -324,29 +616,98 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             alt="Preview"
                         />
                     ) : item.type === 'link' ? (
-                        <div className="flex flex-col items-center gap-4 p-8">
-                            {item.thumbnail ? (
-                                <img
-                                    src={item.thumbnail}
-                                    className="max-w-full max-h-[400px] rounded-lg shadow-md object-contain"
-                                    alt="Thumbnail"
-                                />
+                        <div className="absolute inset-x-[72px] top-[80px] bottom-[84px]">
+                            {linkViewMode === 'text' && linkTextReady ? (
+                                <div ref={linkTextViewportRef} className="h-full w-full overflow-y-auto">
+                                    <div className={`min-h-full flex flex-col ${centerLinkText ? 'justify-center' : 'justify-start'}`}>
+                                        <div ref={linkTextContentRef} className="w-full max-w-3xl mx-auto py-4 flex flex-col gap-4">
+                                            {extractedTitle ? (
+                                                <h2 className="text-2xl font-semibold text-neutral-900 leading-tight break-words">
+                                                    {extractedTitle}
+                                                </h2>
+                                            ) : null}
+                                            {(extractedByline || extractedSite) ? (
+                                                <p className="text-sm text-neutral-500 break-words">
+                                                    {[extractedByline, extractedSite].filter(Boolean).join(' • ')}
+                                                </p>
+                                            ) : null}
+                                            {formattedExtractedParagraphs.length > 0 ? (
+                                                <div className="flex flex-col gap-4">
+                                                    {formattedExtractedParagraphs.map((paragraph, index) => (
+                                                        <p
+                                                            key={`${index}-${paragraph.slice(0, 24)}`}
+                                                            className="text-base text-neutral-700 break-words leading-relaxed"
+                                                        >
+                                                            {paragraph}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-base text-neutral-700 break-words leading-relaxed">
+                                                    No extracted text available for this link.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
                             ) : (
-                                <div className="w-24 h-24 bg-neutral-200 rounded-lg flex items-center justify-center">
-                                    <FeatherLink className="w-10 h-10 text-neutral-400" />
+                                <div className="h-full w-full flex flex-col items-center justify-center gap-4">
+                                    {tweetEmbedUrl ? (
+                                        <div className="w-full max-w-[600px] max-h-full rounded-lg border border-neutral-200 bg-white p-3 overflow-y-auto">
+                                            <div ref={tweetEmbedRef} className="w-full" />
+                                            {tweetEmbedState === 'failed' ? (
+                                                <div className="mt-3 rounded-md border border-neutral-200 bg-neutral-50 p-3 flex items-center justify-between gap-3">
+                                                    <span className="text-sm text-neutral-600">Tweet embed blocked. Open directly on X.</span>
+                                                    <button
+                                                        className="px-3 py-1.5 text-xs font-medium rounded-full bg-neutral-900 text-white hover:bg-neutral-800"
+                                                        onClick={() => window.open(item.sourceUrl, '_blank')}
+                                                    >
+                                                        Open on X
+                                                    </button>
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    ) : item.thumbnail ? (
+                                        <img
+                                            src={item.thumbnail}
+                                            className="max-w-full max-h-[72%] rounded-lg shadow-md object-contain"
+                                            alt="Thumbnail"
+                                        />
+                                    ) : (
+                                        <div className="w-24 h-24 bg-neutral-200 rounded-lg flex items-center justify-center">
+                                            <FeatherLink className="w-10 h-10 text-neutral-400" />
+                                        </div>
+                                    )}
+                                    <p
+                                        className="text-neutral-500 font-medium text-center truncate w-full max-w-[640px]"
+                                        title={item.sourceUrl || ''}
+                                    >
+                                        {previewLinkLabel}
+                                    </p>
+                                    {isTextDefaultDomain && !linkTextReady ? (
+                                        <p className="text-xs text-neutral-500 bg-white/90 border border-neutral-200 rounded-full px-3 py-1">
+                                            Text view unavailable for this capture. Showing preview.
+                                        </p>
+                                    ) : null}
                                 </div>
                             )}
-                            <p className="text-neutral-500 font-medium">{item.sourceUrl}</p>
                         </div>
                     ) : (
-                        <div className="w-full h-full p-12 overflow-y-auto">
-                            <p className="text-lg text-neutral-700 whitespace-pre-wrap leading-relaxed max-w-2xl mx-auto">{item.content}</p>
+                        <div className="absolute inset-x-[72px] top-[80px] bottom-[84px]">
+                            <div className="h-full w-full overflow-y-auto">
+                                <div className="min-h-full flex items-center justify-center">
+                                    <div className="max-w-2xl mx-auto py-4">
+                                        <p className="text-lg text-neutral-700 whitespace-pre-wrap break-words leading-relaxed">
+                                            {item.content}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 
-                    {/* Bottom Left: Expand/Shrink Toggle (Images only) */}
-                    {item.type === 'image' && (
-                        <div className="absolute bottom-6 left-6 z-10">
+                    <div className="absolute bottom-6 left-6 z-10">
+                        {item.type === 'image' ? (
                             <button
                                 onClick={toggleImageFit}
                                 className="bg-white hover:bg-neutral-50 shadow-sm border border-neutral-100 p-2 rounded-md flex items-center justify-center transition-colors text-neutral-600"
@@ -354,8 +715,29 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             >
                                 {imageFit === 'cover' ? <FeatherMinimize size={16} /> : <FeatherMaximize size={16} />}
                             </button>
-                        </div>
-                    )}
+                        ) : null}
+                        {item.type === 'link' ? (
+                            <div className="inline-flex items-center rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
+                                <button
+                                    onClick={() => setAndPersistLinkViewMode('preview')}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${linkViewMode === 'preview' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'}`}
+                                    title="Show link preview"
+                                >
+                                    Preview
+                                </button>
+                                <button
+                                    onClick={() => setAndPersistLinkViewMode('text')}
+                                    disabled={!linkTextReady}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${linkViewMode === 'text'
+                                        ? 'bg-neutral-900 text-white'
+                                        : 'text-neutral-600 hover:bg-neutral-100'} ${!linkTextReady ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''}`}
+                                    title={linkTextReady ? 'Show extracted text' : 'Text not available for this link yet'}
+                                >
+                                    Text
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
                 </div>
 
                 {/* Right Pane: Info & Actions (40%) */}
@@ -502,23 +884,22 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                         <div className="flex items-center gap-2 w-full">
                             <Button
                                 variant="neutral-secondary"
-                                className="flex-1" // Use flex-1 for equal width if tailored, or just auto
+                                className="flex-1"
                                 icon={<FeatherCopy />}
                                 onClick={handleCopyContent}
                             >
                                 Copy
                             </Button>
-                            {(item.type === 'image' || item.type === 'link') && (
+                            {item.type === 'image' ? (
                                 <Button
                                     variant="neutral-secondary"
                                     className="flex-1"
                                     icon={<FeatherDownload />}
                                     onClick={handleDownload}
-                                    disabled={item.type === 'link' && !item.thumbnail}
                                 >
                                     Download
                                 </Button>
-                            )}
+                            ) : null}
                             {item.sourceUrl && (
                                 <Button
                                     variant="neutral-secondary"

@@ -381,7 +381,7 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem }) => {
                         if (isZoomGesture) {
                             const nextScale = Math.max(
                                 MIN_SCALE,
-                                Math.min(MAX_SCALE, scale * (event.deltaY < 0 ? 1.12 : 0.88))
+                                Math.min(MAX_SCALE, scale * (event.deltaY < 0 ? 1.06 : 0.94))
                             );
                             if (nextScale === scale) return;
 

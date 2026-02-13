@@ -16,6 +16,68 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Last Fix**: Migrated Stage A analysis to `/api/stagea` queue runtime with adaptive cooldowns, retry windows, and remote polling fallback logic.
 
 ## Changelog
+### [0.19.42] - 2026-02-13
+#### Changed
+- **Download UX Rollback to Image-Only** (`src/App.jsx`, `src/components/SelectionToolbar.jsx`, `src/components/ItemModal.jsx`):
+  - Removed text export/download flows (`PDF/MD/TXT`) from selection toolbar.
+  - Removed format selector UI from modal and selection bar.
+  - Removed text/link download actions throughout app surfaces.
+  - Restricted download behavior to real image items only (`item.type === "image"`).
+  - Selection toolbar now hides `Download` when selected items contain no images.
+
+#### Kept
+- **Image Download Behavior**:
+  - Single image selection: direct file download.
+  - Multi-image selection: ZIP export flow remains unchanged.
+
+#### Problems & Fixes
+- **Problem**: Text export/download interactions were causing unstable browser download behavior (UUID-like file names and non-deterministic save outcomes).
+- **Fix**: Rolled back all text/link download UX and logic, restoring deterministic image-only downloads as the default product behavior.
+
+### [0.19.41] - 2026-02-12
+#### Added
+- **Hero Text System for Text Items** (`src/components/ItemCard.jsx`, `src/components/CanvasItem.jsx`, `src/utils/textPresentation.js`):
+  - Added shared text presentation helpers for deterministic hero/support text composition (`title -> content -> fallback`).
+  - Replaced small centered quote styling for text cards with editorial top-left hierarchy in both Grid and Canvas:
+    - larger heading style
+    - semibold emphasis
+    - controlled line clamps
+    - optional supporting excerpt when title exists.
+
+- **Domain-Aware Link View Policy** (`src/utils/linkDomainPolicy.js`, `src/utils/linkTextPreference.js`, `src/components/ItemModal.jsx`):
+  - Added hostname policy map for link defaults:
+    - text-first: `medium`, `substack`, `dev.to`, `hashnode`, `linkedin`, `notion.site`
+    - preview-first: `x/twitter`, `reddit`
+  - Added per-domain persisted preference key: `dreamlab_link_view_prefs`.
+
+#### Changed
+- **Item Details Link Presentation** (`src/components/ItemModal.jsx`):
+  - Added bottom-left segmented mode switch for links: `Preview | Text`.
+  - Mode resolver now uses:
+    1. item-level `linkViewMode`
+    2. stored per-domain preference
+    3. domain default policy
+    4. fallback preview.
+  - Text mode enables only when extracted text is available (`textExtract.status === "ready"`).
+  - Added safe fallback messaging when text-first domains have no extracted payload.
+  - Added defensive clamping for rendered extracted text payload.
+
+- **Link Item Persistence Defaults** (`src/lib/storage.js`, `src/App.jsx`):
+  - New link items default to `linkViewMode: "preview"` when not provided.
+
+#### Extension
+- **Text Extraction in Capture Pipeline (Extension-first)** (`background.js`):
+  - Added domain-aware link extraction attempt during extension link capture.
+  - For text-first domains, background now fetches page HTML and attaches `textExtract` payload:
+    - status/source/timestamp
+    - title/byline/site/excerpt/content/wordCount (when available)
+  - Extraction failures never block saves and return `failed`/`unavailable` states safely.
+  - For preview-first domains, capture defaults to preview mode and marks text as unavailable.
+
+#### Problems & Fixes
+- **Problem**: Text cards lacked hierarchy and link details could not switch predictably between media preview and long-form reading for article domains.
+- **Fix**: Introduced shared hero-text rendering logic plus domain-aware link mode resolution with persistent per-domain user preference and extension-side extraction fallback handling.
+
 ### [0.19.40] - 2026-02-12
 #### Changed
 - **Collection-first Canvas + Sidebar UX Polish** (`src/App.jsx`, `src/components/Sidebar.jsx`, `src/components/CanvasView.jsx`, `src/components/CanvasItem.jsx`, `src/components/WorkspaceStrip.jsx`, `src/index.css`):
