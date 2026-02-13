@@ -54,6 +54,13 @@
             },
             "description": "Open image capture review"
         },
+        "capture-full-page": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+P",
+                "mac": "Command+Shift+P"
+            },
+            "description": "Capture full page screenshot"
+        },
         "smart-picker": {
             "suggested_key": {
                 "default": "Ctrl+Shift+I",

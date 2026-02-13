@@ -21,6 +21,7 @@ import { Toast } from './components/Toast';
 import { SelectionToolbar } from './components/SelectionToolbar';
 import { exportItemsAsZip } from './utils/zipExport';
 import saveAs from 'file-saver';
+import { fetchImageViaProxy } from './utils/imageProxy';
 import { saveItemWithTags, setToastCallback, processItemTags } from './utils/saveItemWithTags';
 import { compactImageStorage } from './utils/storageCompaction';
 import { getPrimitiveAnalysisStore } from './lib/storage';
@@ -812,7 +813,7 @@ function App() {
     );
 
     const hasDownloadableSelection = useMemo(
-        () => selectedItemsData.some((item) => item.type === 'image'),
+        () => selectedItemsData.some((item) => item.type === 'image' || (item.type === 'link' && Boolean(item.thumbnail))),
         [selectedItemsData]
     );
 
@@ -883,28 +884,39 @@ function App() {
         }
 
         const selectedItemsList = items.filter(item => selectedItems.has(item.id));
-        const exportableItems = selectedItemsList.filter(item => item.type === 'image');
+        const exportableItems = selectedItemsList.filter(
+            item => item.type === 'image' || (item.type === 'link' && Boolean(item.thumbnail))
+        );
 
         if (exportableItems.length === 0) {
-            setToast({ message: 'No images to download', type: 'error' });
+            setToast({ message: 'No images or thumbnails to download', type: 'error' });
             return;
         }
 
         // Single item: direct download
         if (exportableItems.length === 1) {
             const item = exportableItems[0];
-            const ext = item.content.startsWith('data:image/png') ? 'png'
-                : item.content.startsWith('data:image/gif') ? 'gif'
-                    : item.content.startsWith('data:image/webp') ? 'webp'
-                        : 'jpg';
-            const filename = `${safeExportFilename(getExportTitleForItem(item))}-${item.id.slice(0, 8)}.${ext}`;
+            const source = item.type === 'image' ? item.content : item.thumbnail;
 
-            // Convert data URL to blob URL so Chrome downloads instead of opening a tab
-            const response = await fetch(item.content);
-            const blob = await response.blob();
+            if (!source) {
+                setToast({ message: 'No image source found', type: 'error' });
+                return;
+            }
+
+            const blob = await fetchImageViaProxy(source);
+            const inferredType = blob.type || '';
+            const ext = inferredType.includes('png') ? 'png'
+                : inferredType.includes('gif') ? 'gif'
+                    : inferredType.includes('webp') ? 'webp'
+                        : inferredType.includes('jpeg') ? 'jpg'
+                            : (source.includes('.png') ? 'png'
+                                : source.includes('.gif') ? 'gif'
+                                    : source.includes('.webp') ? 'webp'
+                                        : 'jpg');
+            const filename = `${safeExportFilename(getExportTitleForItem(item))}-${item.id.slice(0, 8)}.${ext}`;
             saveAs(blob, filename);
 
-            setToast({ message: 'Image downloaded', type: 'success' });
+            setToast({ message: 'Downloaded image', type: 'success' });
             clearSelection();
             return;
         }

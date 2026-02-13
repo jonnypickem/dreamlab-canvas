@@ -12,10 +12,41 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Repository**: [github.com/jonnypickem/dreamlab-canvas](https://github.com/jonnypickem/dreamlab-canvas)
 
 ## Current Status
--   **Status**: Stage A Remote Queue + Rate-Limit Hardening Integrated
--   **Last Fix**: Migrated Stage A analysis to `/api/stagea` queue runtime with adaptive cooldowns, retry windows, and remote polling fallback logic.
+-   **Status**: Extension Full-Page Capture Save + Toast Feedback Integrated
+-   **Last Fix**: Added reliable `Cmd/Ctrl+Shift+P` full-page screenshot flow with auto-open Dreamlab save target, quota-aware compression retry, and in-page lifecycle toasts.
 
 ## Changelog
+### [0.19.43] - 2026-02-13
+#### Added
+- **Full-Page Capture Command + Visibility** (`manifest.json`, `src/components/SettingsModal.jsx`):
+  - Registered `capture-full-page` shortcut:
+    - `Cmd+Shift+P` (mac)
+    - `Ctrl+Shift+P` (default)
+  - Added shortcut entry in Settings modal shortcut list.
+
+#### Changed
+- **Reliable Full-Page Save Pipeline** (`background.js`):
+  - Added explicit save result contract in extension save queue:
+    - `queuePendingAndTrySave` now returns `{ success, targetTabId?, error? }` instead of swallowing failures.
+  - Added Dreamlab auto-open resolution for keyboard capture flows:
+    - if no Dreamlab tab is open, extension opens local app URL and retries save path.
+  - Added in-page toast lifecycle for `capture-full-page`:
+    - `Capturing full page...`
+    - `Saving to Dreamlab...`
+    - success destination summary
+    - actionable error/pending fallback message.
+  - Added unsupported-page guard (`chrome://`, web store, extension pages) with graceful user-facing error toast.
+  - Full-page stitch output now defaults to balanced JPEG for storage safety.
+
+#### Added
+- **Storage-Safe Compression Fallbacks** (`background.js`):
+  - Added data-url size estimation and multi-pass aggressive recompression helpers.
+  - On storage/quota failure, full-page command now retries save with stronger compression before falling back to pending capture storage.
+
+#### Problems & Fixes
+- **Problem**: `Cmd+Shift+P` full-page capture could fail silently (no UI feedback), and large PNG payloads could exceed local storage quotas, resulting in missing saves.
+- **Fix**: Implemented explicit save outcomes, in-page status toasts, Dreamlab auto-open save targeting, JPEG-by-default stitch output, and compression retry before pending-capture fallback.
+
 ### [0.19.42] - 2026-02-13
 #### Changed
 - **Download UX Rollback to Image-Only** (`src/App.jsx`, `src/components/SelectionToolbar.jsx`, `src/components/ItemModal.jsx`):

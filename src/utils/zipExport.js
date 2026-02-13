@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import saveAs from 'file-saver';
-import { fetchImageViaProxy, isExternalUrl } from './imageProxy';
+import { fetchImageViaProxy } from './imageProxy';
 
 /**
  * Sanitize filename for safe filesystem use
@@ -67,6 +67,13 @@ export function generateZipFilename(projectName, itemCount) {
  * @param {Function} onProgress - Callback for progress updates (current, total)
  * @returns {Promise<{success: number, failed: number}>}
  */
+function getExportSource(item) {
+    if (!item || typeof item !== 'object') return '';
+    if (item.type === 'image') return item.content || '';
+    if (item.type === 'link') return item.thumbnail || '';
+    return '';
+}
+
 export async function exportItemsAsZip(items, projectName, onProgress) {
     const zip = new JSZip();
     const imgFolder = zip.folder('images');
@@ -76,10 +83,7 @@ export async function exportItemsAsZip(items, projectName, onProgress) {
     const usedNames = new Set();
 
     // Filter to only exportable items (images and links with thumbnails)
-    const exportableItems = items.filter(item =>
-        item.type === 'image' ||
-        (item.type === 'link' && item.content?.startsWith('data:'))
-    );
+    const exportableItems = items.filter((item) => Boolean(getExportSource(item)));
 
     if (exportableItems.length === 0) {
         throw new Error('No images to export');
@@ -89,9 +93,10 @@ export async function exportItemsAsZip(items, projectName, onProgress) {
 
     for (let i = 0; i < exportableItems.length; i++) {
         const item = exportableItems[i];
+        const source = getExportSource(item);
 
         try {
-            const blob = await fetchImageAsBlob(item.content);
+            const blob = await fetchImageAsBlob(source);
 
             if (!blob) {
                 failed++;
@@ -102,7 +107,7 @@ export async function exportItemsAsZip(items, projectName, onProgress) {
             let baseName = sanitizeFilename(
                 item.title || item.sourceUrl?.split('/').pop() || `image-${i + 1}`
             );
-            const ext = getExtension(blob.type, item.sourceUrl);
+            const ext = getExtension(blob.type, source);
 
             // Ensure unique filename
             let filename = `${baseName}${ext}`;

@@ -119,6 +119,22 @@ function parseTags(raw) {
     .filter(Boolean);
 }
 
+function getSourceLabel(url) {
+  if (!url) return 'Source page unavailable';
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, '');
+    const path = parsed.pathname === '/' ? '' : parsed.pathname;
+    const value = `${host}${path}`;
+    if (value.length <= 110) return value;
+    return `${value.slice(0, 107)}...`;
+  } catch {
+    const value = String(url);
+    if (value.length <= 110) return value;
+    return `${value.slice(0, 107)}...`;
+  }
+}
+
 function setStatus(message, type = '') {
   ui.status.textContent = message || '';
   ui.status.className = 'status';
@@ -220,6 +236,13 @@ function updateSelectedUi() {
   ui.saveButton.disabled = state.selected.size === 0 || state.isSaving;
 }
 
+function getImageSizeLabel(image) {
+  const width = Number(image?.width || image?.displayWidth || 0);
+  const height = Number(image?.height || image?.displayHeight || 0);
+  if (!width || !height) return '';
+  return `${Math.round(width)}×${Math.round(height)}`;
+}
+
 function createImageCard(image) {
   const card = document.createElement('div');
   card.className = `image-card${state.selected.has(image.src) ? ' selected' : ''}`;
@@ -254,6 +277,14 @@ function createImageCard(image) {
   checkWrap.appendChild(checkbox);
   card.appendChild(imageElement);
   card.appendChild(checkWrap);
+
+  const sizeLabel = getImageSizeLabel(image);
+  if (sizeLabel) {
+    const meta = document.createElement('div');
+    meta.className = 'image-meta';
+    meta.textContent = sizeLabel;
+    card.appendChild(meta);
+  }
 
   card.addEventListener('click', () => {
     toggleSelected(image.src);
@@ -310,7 +341,7 @@ async function initialize() {
       state.totalCount = Number(session.totalImagesCount || state.visibleImages.length);
     }
 
-    ui.sourceLabel.textContent = state.sourceUrl || 'Source page unavailable';
+    ui.sourceLabel.textContent = getSourceLabel(state.sourceUrl);
     renderImages();
 
     const orgResponse = await runtimeMessage({ action: ACTIONS.getDreamlabOrgData });
@@ -356,7 +387,7 @@ async function toggleImageScope() {
       state.allImages = Array.isArray(response.images) ? response.images : [];
       if (!state.sourceUrl) {
         state.sourceUrl = response.sourceUrl || '';
-        ui.sourceLabel.textContent = state.sourceUrl || 'Source page unavailable';
+        ui.sourceLabel.textContent = getSourceLabel(state.sourceUrl);
       }
       setStatus('');
     } catch (error) {

@@ -479,13 +479,12 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     };
 
     const handleDownload = async () => {
-        if (item.type !== 'image') {
-            emitToast('Download is only available for images', 'info');
-            return;
-        }
-        const source = item.content;
+        const source = item.type === 'image'
+            ? item.content
+            : (item.type === 'link' ? item.thumbnail : null);
+
         if (!source) {
-            emitToast('No image available for download', 'error');
+            emitToast(item.type === 'link' ? 'No thumbnail available for download' : 'Download is only available for images', 'info');
             return;
         }
 
@@ -505,7 +504,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
             saveAs(blob, filename);
             emitToast(`Downloaded ${filename}`, 'success');
         } catch {
-            emitToast('Failed to download image', 'error');
+            emitToast(item.type === 'link' ? 'Failed to download thumbnail' : 'Failed to download image', 'error');
         }
     };
 
@@ -890,7 +889,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             >
                                 Copy
                             </Button>
-                            {item.type === 'image' ? (
+                            {(item.type === 'image' || (item.type === 'link' && item.thumbnail)) ? (
                                 <Button
                                     variant="neutral-secondary"
                                     className="flex-1"

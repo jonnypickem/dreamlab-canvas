@@ -4,6 +4,12 @@ const DREAMLAB_ORIGINS = new Set([
   'http://localhost:4173',
   'http://127.0.0.1:4173',
 ]);
+const DREAMLAB_APP_URLS = [
+  'http://127.0.0.1:5173',
+  'http://localhost:5173',
+  'http://127.0.0.1:4173',
+  'http://localhost:4173',
+];
 
 const STORAGE_KEYS = {
   pendingCapture: 'pendingCapture',
@@ -167,6 +173,30 @@ function queryTabs(queryInfo) {
   });
 }
 
+function getTab(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(tab || null);
+    });
+  });
+}
+
+function createTab(createProperties) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.create(createProperties, (tab) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(tab || null);
+    });
+  });
+}
+
 function sendTabMessage(tabId, message) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, message, (response) => {
@@ -197,8 +227,413 @@ function executeScript(tabId, files) {
   });
 }
 
+function executeScriptFn(tabId, func, args = []) {
+  return new Promise((resolve, reject) => {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        func,
+        args,
+      },
+      (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(result?.[0]?.result);
+      }
+    );
+  });
+}
+
+function captureVisibleTab(windowId, options = { format: 'png' }) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.captureVisibleTab(windowId, options, (dataUrl) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      if (!dataUrl) {
+        reject(new Error('Capture returned empty data.'));
+        return;
+      }
+      resolve(dataUrl);
+    });
+  });
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForTabComplete(tabId, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    let resolved = false;
+
+    const finalize = async () => {
+      if (resolved) return;
+      resolved = true;
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      clearTimeout(timeout);
+      try {
+        resolve(await getTab(tabId));
+      } catch {
+        resolve(null);
+      }
+    };
+
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId) return;
+      if (changeInfo.status === 'complete') {
+        void finalize();
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      void finalize();
+    }, timeoutMs);
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    getTab(tabId)
+      .then((tab) => {
+        if (tab?.status === 'complete') {
+          void finalize();
+        }
+      })
+      .catch(() => {
+        // Ignore eager check failures and rely on timeout.
+      });
+  });
+}
+
+function isUnsupportedCaptureUrl(url) {
+  if (!url) return true;
+  const value = String(url).toLowerCase();
+  if (value.startsWith('chrome://')) return true;
+  if (value.startsWith('chrome-extension://')) return true;
+  if (value.startsWith('edge://')) return true;
+  if (value.startsWith('about:')) return true;
+  if (value.startsWith('devtools://')) return true;
+  if (value.startsWith('view-source:')) return true;
+  if (/^https:\/\/chromewebstore\.google\.com\//i.test(value)) return true;
+  return false;
+}
+
+function isStorageQuotaErrorMessage(message) {
+  const normalized = String(message || '').toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('quota')
+    || normalized.includes('exceeded')
+    || normalized.includes('storage')
+    || normalized.includes('setitem')
+  );
+}
+
+function estimateDataUrlBytes(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return 0;
+  const base64Part = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+  return Math.ceil((base64Part.length * 3) / 4);
+}
+
+function buildVerticalCaptureOffsets(totalHeight, viewportHeight) {
+  const safeTotalHeight = Math.max(0, Math.floor(Number(totalHeight) || 0));
+  const safeViewportHeight = Math.max(1, Math.floor(Number(viewportHeight) || 1));
+  const maxStart = Math.max(0, safeTotalHeight - safeViewportHeight);
+  const offsets = [];
+
+  for (let y = 0; y <= maxStart; y += safeViewportHeight) {
+    offsets.push(y);
+  }
+
+  if (offsets.length === 0 || offsets[offsets.length - 1] !== maxStart) {
+    offsets.push(maxStart);
+  }
+
+  return [...new Set(offsets)];
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+async function blobToDataUrl(blob) {
+  const mimeType = blob?.type || 'image/png';
+  const arrayBuffer = await blob.arrayBuffer();
+  const base64 = arrayBufferToBase64(arrayBuffer);
+  return `data:${mimeType};base64,${base64}`;
+}
+
+async function compressImageDataUrl(dataUrl, options = {}) {
+  const {
+    maxDimension = 2400,
+    quality = 0.78,
+    mimeType = 'image/jpeg',
+  } = options;
+
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+    return dataUrl;
+  }
+
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  const bitmap = await createImageBitmap(blob);
+
+  try {
+    const longestSide = Math.max(bitmap.width, bitmap.height);
+    const scale = longestSide > maxDimension ? (maxDimension / longestSide) : 1;
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext('2d');
+    if (!context) return dataUrl;
+    context.drawImage(bitmap, 0, 0, width, height);
+
+    const compressedBlob = await canvas.convertToBlob({
+      type: mimeType,
+      quality,
+    });
+
+    return await blobToDataUrl(compressedBlob);
+  } finally {
+    if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+  }
+}
+
+async function aggressiveStorageCompression(dataUrl) {
+  const passes = [
+    { maxDimension: 2200, quality: 0.72, mimeType: 'image/jpeg' },
+    { maxDimension: 1800, quality: 0.64, mimeType: 'image/jpeg' },
+    { maxDimension: 1500, quality: 0.56, mimeType: 'image/jpeg' },
+  ];
+
+  let current = dataUrl;
+  let currentSize = estimateDataUrlBytes(current);
+
+  for (const pass of passes) {
+    try {
+      const next = await compressImageDataUrl(current, pass);
+      const nextSize = estimateDataUrlBytes(next);
+      if (nextSize > 0 && nextSize < currentSize) {
+        current = next;
+        currentSize = nextSize;
+      }
+    } catch {
+      // Ignore per-pass compression failures.
+    }
+  }
+
+  return current;
+}
+
+async function showInPageToast(tabId, { message, type = 'info', durationMs = 2600 }) {
+  if (!tabId || !message) return;
+
+  try {
+    await executeScriptFn(
+      tabId,
+      (toastMessage, toastType, toastDuration) => {
+        const rootId = '__dreamlab_extension_toast_root__';
+        const toastId = '__dreamlab_extension_toast__';
+
+        const removeTimer = window.__dreamlabToastTimer__;
+        if (removeTimer) {
+          clearTimeout(removeTimer);
+        }
+
+        let root = document.getElementById(rootId);
+        if (!root) {
+          root = document.createElement('div');
+          root.id = rootId;
+          root.style.position = 'fixed';
+          root.style.zIndex = '2147483647';
+          root.style.right = '24px';
+          root.style.bottom = '24px';
+          root.style.pointerEvents = 'none';
+          document.documentElement.appendChild(root);
+        }
+
+        let toast = document.getElementById(toastId);
+        if (!toast) {
+          toast = document.createElement('div');
+          toast.id = toastId;
+          toast.style.minWidth = '240px';
+          toast.style.maxWidth = '420px';
+          toast.style.borderRadius = '12px';
+          toast.style.padding = '10px 14px';
+          toast.style.fontFamily = '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+          toast.style.fontSize = '13px';
+          toast.style.lineHeight = '1.35';
+          toast.style.boxShadow = '0 10px 24px rgba(0, 0, 0, 0.18)';
+          toast.style.border = '1px solid #ebebeb';
+          toast.style.background = '#ffffff';
+          toast.style.color = '#171717';
+          toast.style.transition = 'opacity 140ms ease, transform 140ms ease';
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(8px)';
+          root.appendChild(toast);
+        }
+
+        toast.textContent = String(toastMessage || '');
+        toast.style.background = '#ffffff';
+        toast.style.color = '#171717';
+        toast.style.borderColor = '#ebebeb';
+
+        if (toastType === 'success') {
+          toast.style.background = '#f0fdf4';
+          toast.style.color = '#166534';
+          toast.style.borderColor = '#bbf7d0';
+        } else if (toastType === 'error') {
+          toast.style.background = '#fef2f2';
+          toast.style.color = '#b91c1c';
+          toast.style.borderColor = '#fecaca';
+        }
+
+        requestAnimationFrame(() => {
+          toast.style.opacity = '1';
+          toast.style.transform = 'translateY(0px)';
+        });
+
+        window.__dreamlabToastTimer__ = setTimeout(() => {
+          const nextToast = document.getElementById(toastId);
+          if (!nextToast) return;
+          nextToast.style.opacity = '0';
+          nextToast.style.transform = 'translateY(8px)';
+        }, Math.max(900, Number(toastDuration) || 2600));
+      },
+      [message, type, durationMs]
+    );
+  } catch {
+    // Ignore toast failures (e.g. unsupported tabs) and avoid blocking main flow.
+  }
+}
+
+async function captureFullPageScreenshot(tab) {
+  if (!tab?.id || !tab?.windowId) {
+    throw new Error('Active tab is unavailable for capture.');
+  }
+
+  const metrics = await executeScriptFn(
+    tab.id,
+    () => {
+      const doc = document.documentElement;
+      const body = document.body;
+      return {
+        scrollX: window.scrollX || window.pageXOffset || 0,
+        scrollY: window.scrollY || window.pageYOffset || 0,
+        viewportWidth: window.innerWidth || doc.clientWidth || 0,
+        viewportHeight: window.innerHeight || doc.clientHeight || 0,
+        totalHeight: Math.max(
+          doc.scrollHeight || 0,
+          doc.offsetHeight || 0,
+          doc.clientHeight || 0,
+          body?.scrollHeight || 0,
+          body?.offsetHeight || 0
+        ),
+      };
+    }
+  );
+
+  const viewportHeight = Math.max(1, Math.floor(Number(metrics?.viewportHeight) || 1));
+  const totalHeight = Math.max(viewportHeight, Math.floor(Number(metrics?.totalHeight) || viewportHeight));
+  const scrollX = Math.floor(Number(metrics?.scrollX) || 0);
+  const scrollY = Math.floor(Number(metrics?.scrollY) || 0);
+  const offsets = buildVerticalCaptureOffsets(totalHeight, viewportHeight);
+
+  const captures = [];
+  try {
+    for (const offsetY of offsets) {
+      await executeScriptFn(
+        tab.id,
+        async (x, y) => {
+          window.scrollTo(x, y);
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        },
+        [scrollX, offsetY]
+      );
+      await wait(120);
+      const dataUrl = await captureVisibleTab(tab.windowId, { format: 'png' });
+      captures.push({ offsetY, dataUrl });
+    }
+  } finally {
+    try {
+      await executeScriptFn(tab.id, (x, y) => window.scrollTo(x, y), [scrollX, scrollY]);
+    } catch {
+      // Ignore restore-scroll failures.
+    }
+  }
+
+  if (!captures.length) {
+    throw new Error('No capture frames were generated.');
+  }
+
+  const bitmaps = [];
+  for (const frame of captures) {
+    const response = await fetch(frame.dataUrl);
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
+    bitmaps.push({ offsetY: frame.offsetY, bitmap });
+  }
+
+  try {
+    const firstBitmap = bitmaps[0].bitmap;
+    const dpr = firstBitmap.width / Math.max(1, Number(metrics?.viewportWidth) || 1);
+    const maxCanvasArea = 120_000_000; // Keep memory bounded on very long pages.
+    const targetHeightPx = Math.max(firstBitmap.height, Math.round(totalHeight * dpr));
+    const targetWidthPx = firstBitmap.width;
+    const area = targetWidthPx * targetHeightPx;
+    const scale = area > maxCanvasArea ? Math.sqrt(maxCanvasArea / area) : 1;
+
+    const canvasWidth = Math.max(1, Math.round(targetWidthPx * scale));
+    const canvasHeight = Math.max(1, Math.round(targetHeightPx * scale));
+    const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      throw new Error('Could not initialize capture canvas.');
+    }
+
+    for (const frame of bitmaps) {
+      const destinationY = Math.round(frame.offsetY * dpr * scale);
+      if (destinationY >= canvasHeight) continue;
+      const remainingHeight = canvasHeight - destinationY;
+      const sourceHeight = Math.min(frame.bitmap.height, Math.max(1, Math.round(remainingHeight / scale)));
+      const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
+      context.drawImage(
+        frame.bitmap,
+        0,
+        0,
+        frame.bitmap.width,
+        sourceHeight,
+        0,
+        destinationY,
+        canvasWidth,
+        drawHeight
+      );
+    }
+
+    const stitchedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.78 });
+    const stitchedDataUrl = await blobToDataUrl(stitchedBlob);
+
+    return {
+      dataUrl: stitchedDataUrl,
+      width: canvasWidth,
+      height: canvasHeight,
+      mimeType: 'image/jpeg',
+    };
+  } finally {
+    bitmaps.forEach(({ bitmap }) => {
+      if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+    });
+  }
 }
 
 function isMissingReceiverError(error) {
@@ -285,6 +720,61 @@ async function getPreferredDreamlabTab() {
   }
 
   return [...dreamlabTabs].sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+}
+
+async function ensureDreamlabTab() {
+  try {
+    return await getPreferredDreamlabTab();
+  } catch {
+    let lastError = null;
+
+    for (const appUrl of DREAMLAB_APP_URLS) {
+      try {
+        const created = await createTab({ url: appUrl, active: false });
+        if (!created?.id) continue;
+        const readyTab = await waitForTabComplete(created.id, 7000);
+        if (readyTab && isDreamlabUrl(readyTab.url || appUrl)) {
+          await wait(350);
+          return readyTab;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw new Error(lastError?.message || 'Dreamlab web app is not open and could not be started.');
+  }
+}
+
+async function getDreamlabDestinationSummary(targetTabId = null) {
+  try {
+    const destinationTab = targetTabId
+      ? await getTab(targetTabId)
+      : await getPreferredDreamlabTab();
+    if (!destinationTab?.id) return 'active context';
+
+    const response = await sendTabMessageWithBridge(destinationTab.id, {
+      action: CONTENT_ACTIONS.getOrgData,
+    });
+
+    if (!response || response.success !== true) return 'active context';
+
+    const activeContext = response.activeContext || {};
+    const workspaces = Array.isArray(response.workspaces) ? response.workspaces : [];
+    const collections = Array.isArray(response.collections) ? response.collections : [];
+
+    const workspaceName = workspaces.find((workspace) => workspace.id === activeContext.workspaceId)?.name || '';
+    const collectionName = collections.find((collection) => collection.id === activeContext.collectionId)?.name || '';
+
+    if (workspaceName && collectionName) {
+      return `${workspaceName} / ${collectionName}`;
+    }
+    if (collectionName) return collectionName;
+    if (workspaceName) return workspaceName;
+    return 'active context';
+  } catch {
+    return 'active context';
+  }
 }
 
 function isUsefulDescription(description) {
@@ -523,6 +1013,397 @@ async function enrichLinkCapture(item) {
   return await maybeAttachTextExtract(withEmbed);
 }
 
+function isPinterestHost(hostname) {
+  return /(^|\.)pinterest\./i.test(String(hostname || ''));
+}
+
+function isPinterestPinUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return isPinterestHost(parsed.hostname) && /\/pin\//i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function getPinterestPinId(url) {
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/\/pin\/(\d+)/i);
+    return match?.[1] || '';
+  } catch {
+    return '';
+  }
+}
+
+function isLikelyGenericPinterestAsset(candidateUrl) {
+  const url = String(candidateUrl || '').toLowerCase();
+  if (!url) return true;
+
+  return (
+    url.includes('s.pinimg.com')
+    || url.includes('/webapp/')
+    || url.includes('/passets/')
+    || url.includes('/images/homepage/')
+    || url.includes('pinterest-logo')
+    || url.includes('social-default')
+    || url.includes('default_')
+  );
+}
+
+function normalizePinterestCandidate(candidate) {
+  if (!candidate) return null;
+
+  if (typeof candidate === 'string') {
+    return {
+      src: candidate,
+      width: 0,
+      height: 0,
+      pinId: '',
+      fromPinCloseup: false,
+      fromStructuredPinData: false,
+      fromScan: false,
+    };
+  }
+
+  if (typeof candidate !== 'object') return null;
+
+  return {
+    src: String(candidate.src || candidate.url || '').trim(),
+    width: Number(candidate.width || candidate.displayWidth || 0),
+    height: Number(candidate.height || candidate.displayHeight || 0),
+    pinId: String(candidate.pinId || ''),
+    fromPinCloseup: Boolean(candidate.fromPinCloseup),
+    fromStructuredPinData: Boolean(candidate.fromStructuredPinData),
+    fromScan: Boolean(candidate.fromScan),
+  };
+}
+
+function scorePinterestImageCandidate(candidateUrl, width = 0, height = 0, options = {}) {
+  const url = String(candidateUrl || '').trim();
+  if (!url) return -1;
+
+  const normalized = url.toLowerCase();
+  let score = 0;
+
+  if (isLikelyGenericPinterestAsset(normalized)) score -= 2600;
+  if (normalized.includes('i.pinimg.com')) score += 2100;
+  if (normalized.includes('/originals/')) score += 600;
+  if (normalized.includes('/1200x/')) score += 320;
+  if (normalized.includes('/736x/')) score += 250;
+  if (normalized.includes('/474x/')) score += 120;
+  if (normalized.includes('/236x/')) score -= 120;
+
+  if (options?.pinId && normalized.includes(String(options.pinId).toLowerCase())) score += 700;
+  if (options?.fromPinCloseup) score += 650;
+  if (options?.fromStructuredPinData) score += 520;
+  if (options?.fromScan) score += 80;
+
+  const numericWidth = Math.max(0, Number(width || 0));
+  const numericHeight = Math.max(0, Number(height || 0));
+  const area = numericWidth * numericHeight;
+
+  if (numericWidth > 0 && numericHeight > 0) {
+    const ratio = numericWidth / numericHeight;
+    if (ratio >= 0.45 && ratio <= 0.95) score += 160; // Most pins are portrait-ish.
+    if (ratio > 1.8) score -= 120;
+    if (area < 50_000) score -= 420;
+  }
+
+  score += Math.min(900, Math.floor(area / 1000));
+  return score;
+}
+
+function pickBestPinterestImageCandidate(...candidates) {
+  let best = null;
+  let bestScore = -1;
+
+  candidates.flat().forEach((candidate) => {
+    const normalizedCandidate = normalizePinterestCandidate(candidate);
+    if (!normalizedCandidate) return;
+
+    const value = String(normalizedCandidate.src || '').trim();
+    if (!value) return;
+
+    const score = scorePinterestImageCandidate(
+      value,
+      normalizedCandidate.width,
+      normalizedCandidate.height,
+      {
+        pinId: normalizedCandidate.pinId,
+        fromPinCloseup: normalizedCandidate.fromPinCloseup,
+        fromStructuredPinData: normalizedCandidate.fromStructuredPinData,
+        fromScan: normalizedCandidate.fromScan,
+      }
+    );
+
+    if (score > bestScore) {
+      best = value;
+      bestScore = score;
+    }
+  });
+
+  return best;
+}
+
+function pickBestPinterestScanImage(images = [], pinId = '') {
+  let best = null;
+  let bestScore = -1;
+
+  for (const image of images) {
+    const src = String(image?.src || '').trim();
+    if (!src) continue;
+    const score = scorePinterestImageCandidate(
+      src,
+      image?.displayWidth || image?.width || 0,
+      image?.displayHeight || image?.height || 0,
+      {
+        pinId,
+        fromScan: true,
+      }
+    );
+    if (score > bestScore) {
+      best = src;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+async function getPinterestPinMetadataFromDom(tabId) {
+  try {
+    const result = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const makeAbsolute = (value) => {
+          if (!value) return '';
+          try {
+            return new URL(value, window.location.href).href;
+          } catch {
+            return value;
+          }
+        };
+
+        const getMeta = (name) => {
+          const selector = `meta[property="${name}"], meta[name="${name}"], meta[itemprop="${name}"]`;
+          const element = document.querySelector(selector);
+          return element ? element.getAttribute('content') : '';
+        };
+
+        const getBestUrlFromSrcset = (srcset) => {
+          if (!srcset) return '';
+          try {
+            const entries = srcset
+              .split(',')
+              .map((entry) => entry.trim())
+              .filter(Boolean)
+              .map((entry) => {
+                const [entryUrl, descriptor] = entry.split(/\s+/);
+                let size = 0;
+                if (descriptor?.endsWith('w')) size = Number.parseInt(descriptor, 10) || 0;
+                if (descriptor?.endsWith('x')) size = Math.round((Number.parseFloat(descriptor) || 0) * 1000);
+                return { entryUrl, size };
+              })
+              .filter((entry) => entry.entryUrl);
+
+            entries.sort((left, right) => right.size - left.size);
+            return entries[0]?.entryUrl || '';
+          } catch {
+            return '';
+          }
+        };
+
+        const pinIdMatch = window.location.pathname.match(/\/pin\/(\d+)/i);
+        const pinId = pinIdMatch?.[1] || '';
+
+        const addCandidate = (pool, src, width = 0, height = 0, base = 0, options = {}) => {
+          const absolute = makeAbsolute(src);
+          if (!absolute) return;
+
+          const normalized = absolute.toLowerCase();
+          if (
+            normalized.includes('s.pinimg.com')
+            || normalized.includes('/webapp/')
+            || normalized.includes('/images/homepage/')
+            || normalized.includes('social-default')
+          ) {
+            base -= 2600;
+          }
+
+          let score = base;
+          if (normalized.includes('i.pinimg.com')) score += 2100;
+          if (normalized.includes('/originals/')) score += 600;
+          if (normalized.includes('/1200x/')) score += 320;
+          if (normalized.includes('/736x/')) score += 250;
+          if (normalized.includes('/474x/')) score += 120;
+          if (normalized.includes('/236x/')) score -= 120;
+          if (pinId && normalized.includes(pinId)) score += 700;
+          if (options.fromPinCloseup) score += 650;
+          if (options.fromStructuredPinData) score += 520;
+
+          const numericWidth = Math.max(0, Number(width || 0));
+          const numericHeight = Math.max(0, Number(height || 0));
+          if (numericWidth > 0 && numericHeight > 0) {
+            const ratio = numericWidth / numericHeight;
+            const area = numericWidth * numericHeight;
+            if (ratio >= 0.45 && ratio <= 0.95) score += 160;
+            if (ratio > 1.8) score -= 120;
+            if (area < 50_000) score -= 420;
+          }
+
+          const area = Math.max(0, Number(width || 0)) * Math.max(0, Number(height || 0));
+          score += Math.min(900, Math.floor(area / 1000));
+          pool.push({ src: absolute, score });
+        };
+
+        const candidates = [];
+        addCandidate(candidates, getMeta('og:image:secure_url'), 0, 0, 1800);
+        addCandidate(candidates, getMeta('og:image:url'), 0, 0, 1700);
+        addCandidate(candidates, getMeta('og:image'), 0, 0, 1600);
+        addCandidate(candidates, getMeta('twitter:image:src'), 0, 0, 1500);
+        addCandidate(candidates, getMeta('twitter:image'), 0, 0, 1400);
+        addCandidate(candidates, getMeta('pin:media'), 0, 0, 1600);
+
+        const pinCloseupSelectors = [
+          '[data-test-id*="closeup"] img',
+          '[data-test-id*="pin-closeup"] img',
+          '[data-test-id*="closeup-image"] img',
+          '[data-test-id*="pinImage"] img',
+          '[data-test-id*="Pin"] img',
+          pinId ? `a[href*="/pin/${pinId}/"] img` : '',
+        ].filter(Boolean);
+
+        pinCloseupSelectors.forEach((selector) => {
+          const images = Array.from(document.querySelectorAll(selector));
+          images.forEach((img) => {
+            const rect = img.getBoundingClientRect();
+            const srcset = getBestUrlFromSrcset(img.getAttribute('srcset') || img.getAttribute('data-srcset'));
+            const src = srcset
+              || img.currentSrc
+              || img.getAttribute('src')
+              || img.getAttribute('data-src')
+              || img.getAttribute('data-full-url');
+
+            addCandidate(
+              candidates,
+              src,
+              img.naturalWidth || rect.width || 0,
+              img.naturalHeight || rect.height || 0,
+              3200,
+              { fromPinCloseup: true }
+            );
+          });
+        });
+
+        const visibleImages = Array.from(document.querySelectorAll('img'))
+          .filter((img) => {
+            const rect = img.getBoundingClientRect();
+            return rect.width >= 120 && rect.height >= 120;
+          });
+
+        visibleImages.forEach((img) => {
+          const rect = img.getBoundingClientRect();
+          const srcset = getBestUrlFromSrcset(img.getAttribute('srcset') || img.getAttribute('data-srcset'));
+          const src = srcset
+            || img.currentSrc
+            || img.getAttribute('src')
+            || img.getAttribute('data-src')
+            || img.getAttribute('data-full-url');
+          addCandidate(candidates, src, rect.width, rect.height, 800);
+        });
+
+        const jsonLdScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+        jsonLdScripts.forEach((script) => {
+          try {
+            const parsed = JSON.parse(script.textContent || '{}');
+            const queue = Array.isArray(parsed) ? parsed : [parsed];
+            while (queue.length > 0) {
+              const node = queue.shift();
+              if (!node || typeof node !== 'object') continue;
+
+              const imageValue = node.image;
+              if (typeof imageValue === 'string') {
+                addCandidate(candidates, imageValue, 0, 0, 1300);
+              } else if (Array.isArray(imageValue)) {
+                imageValue.forEach((entry) => {
+                  if (typeof entry === 'string') addCandidate(candidates, entry, 0, 0, 1250);
+                  if (entry && typeof entry === 'object' && typeof entry.url === 'string') {
+                    addCandidate(candidates, entry.url, 0, 0, 1250);
+                  }
+                });
+              } else if (imageValue && typeof imageValue === 'object' && typeof imageValue.url === 'string') {
+                addCandidate(candidates, imageValue.url, 0, 0, 1300);
+              }
+
+              Object.values(node).forEach((value) => {
+                if (value && typeof value === 'object') queue.push(value);
+              });
+            }
+          } catch {
+            // Ignore malformed json-ld.
+          }
+        });
+
+        const rawJsonScripts = Array.from(document.querySelectorAll('script[id*="__PWS_DATA__"], script[type="application/json"]')).slice(0, 8);
+        rawJsonScripts.forEach((script) => {
+          const content = String(script.textContent || '');
+          if (!content) return;
+          const normalized = content.replace(/\\\//g, '/');
+          if (pinId && !normalized.includes(pinId)) return;
+
+          const matches = normalized.match(/https:\/\/i\.pinimg\.com\/[^\s"'\\]+/g) || [];
+          const uniqueMatches = Array.from(new Set(matches)).slice(0, 40);
+          uniqueMatches.forEach((candidateUrl) => {
+            addCandidate(
+              candidates,
+              candidateUrl,
+              0,
+              0,
+              pinId && candidateUrl.includes(pinId) ? 3000 : 2300,
+              { fromStructuredPinData: true }
+            );
+          });
+        });
+
+        candidates.sort((a, b) => b.score - a.score);
+        const best = candidates[0]?.src || '';
+        const title = getMeta('og:title') || getMeta('twitter:title') || document.title || '';
+        const description = getMeta('og:description') || getMeta('description') || '';
+        return {
+          image: best || null,
+          title: title || null,
+          description: description || null,
+        };
+      },
+    });
+    return result?.[0]?.result || {};
+  } catch {
+    return {};
+  }
+}
+
+async function fetchPinterestOEmbedMetadata(url) {
+  try {
+    const endpoint = `https://www.pinterest.com/oembed.json?url=${encodeURIComponent(url)}&maxwidth=1200`;
+    const response = await fetch(endpoint, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
+    if (!response.ok) return {};
+
+    const payload = await response.json();
+    return {
+      title: payload?.title || null,
+      image: payload?.thumbnail_url || payload?.thumbnailUrl || null,
+      description: payload?.author_name ? `By ${payload.author_name}` : null,
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function getPageMetadata(tabId, targetUrl) {
   const normalize = (candidate) => {
     try {
@@ -536,6 +1417,9 @@ async function getPageMetadata(tabId, targetUrl) {
   try {
     const [activeTab] = await queryTabs({ active: true, currentWindow: true });
     const isCurrentPage = activeTab && normalize(activeTab.url) === normalize(targetUrl);
+    const pinterestPinPage = isPinterestPinUrl(targetUrl);
+    const pinterestPinId = pinterestPinPage ? getPinterestPinId(targetUrl) : '';
+    let pinDomMetadata = {};
 
     if (isCurrentPage) {
       let domResult = {};
@@ -577,21 +1461,86 @@ async function getPageMetadata(tabId, targetUrl) {
         // Keep fallback path.
       }
 
-      if (domResult.image) return domResult;
+      if (pinterestPinPage) {
+        pinDomMetadata = await getPinterestPinMetadataFromDom(tabId);
+        domResult = {
+          title: pinDomMetadata.title || domResult.title || null,
+          image: pickBestPinterestImageCandidate(
+            { src: pinDomMetadata.image, pinId: pinterestPinId, fromPinCloseup: true },
+            { src: domResult.image, pinId: pinterestPinId }
+          ) || null,
+          description: pinDomMetadata.description || domResult.description || null,
+        };
+      }
+
+      if (domResult.image && !pinterestPinPage) return domResult;
 
       try {
         const fallback = await fetchMetadataWithFallback(targetUrl);
-        return {
-          title: domResult.title || fallback.title,
-          image: fallback.image,
-          description: domResult.description || fallback.description,
+        const oembed = pinterestPinPage ? await fetchPinterestOEmbedMetadata(targetUrl) : {};
+        const merged = {
+          title: domResult.title || oembed.title || fallback.title,
+          image: pinterestPinPage
+            ? pickBestPinterestImageCandidate(
+              { src: domResult.image, pinId: pinterestPinId, fromPinCloseup: true },
+              { src: pinDomMetadata.image, pinId: pinterestPinId, fromPinCloseup: true },
+              { src: oembed.image, pinId: pinterestPinId, fromStructuredPinData: true },
+              { src: fallback.image, pinId: pinterestPinId }
+            )
+            : fallback.image,
+          description: domResult.description || oembed.description || fallback.description,
         };
+        if (pinterestPinPage) {
+          try {
+            const scan = await requestImageScan(tabId, 'all');
+            const bestPinterestImage = pickBestPinterestScanImage(scan?.images || scan?.visibleImages || [], pinterestPinId);
+            if (bestPinterestImage) {
+              merged.image = pickBestPinterestImageCandidate(
+                { src: merged.image, pinId: pinterestPinId },
+                { src: bestPinterestImage, pinId: pinterestPinId, fromScan: true }
+              );
+            }
+          } catch {
+            // Keep merged metadata without scan image.
+          }
+        }
+        return merged;
       } catch {
+        if (pinterestPinPage) {
+          try {
+            const scan = await requestImageScan(tabId, 'all');
+            const bestPinterestImage = pickBestPinterestScanImage(scan?.images || scan?.visibleImages || [], pinterestPinId);
+            if (bestPinterestImage) {
+              return {
+                title: domResult.title || null,
+                image: pickBestPinterestImageCandidate(
+                  { src: domResult.image, pinId: pinterestPinId, fromPinCloseup: true },
+                  { src: pinDomMetadata.image, pinId: pinterestPinId, fromPinCloseup: true },
+                  { src: bestPinterestImage, pinId: pinterestPinId, fromScan: true }
+                ),
+                description: domResult.description || null,
+              };
+            }
+          } catch {
+            // Keep default dom result.
+          }
+        }
         return domResult;
       }
     }
 
-    return await fetchMetadataWithFallback(targetUrl);
+    const fallback = await fetchMetadataWithFallback(targetUrl);
+    if (!pinterestPinPage) return fallback;
+
+    const oembed = await fetchPinterestOEmbedMetadata(targetUrl);
+    return {
+      title: oembed.title || fallback.title || null,
+      image: pickBestPinterestImageCandidate(
+        { src: oembed.image, pinId: pinterestPinId, fromStructuredPinData: true },
+        { src: fallback.image, pinId: pinterestPinId }
+      ) || null,
+      description: oembed.description || fallback.description || null,
+    };
   } catch {
     return {};
   }
@@ -630,8 +1579,25 @@ async function openMultiSelectWindow({ sourceTabId, sourceUrl, visibleImages, to
   });
 }
 
-async function saveItemToWebApp(item) {
-  const targetTab = await getPreferredDreamlabTab();
+async function saveItemToWebApp(item, options = {}) {
+  const explicitTabId = Number(options?.targetTabId) || null;
+  let targetTab = null;
+
+  if (explicitTabId) {
+    try {
+      const maybeTab = await getTab(explicitTabId);
+      if (maybeTab?.id && isDreamlabUrl(maybeTab.url)) {
+        targetTab = maybeTab;
+      }
+    } catch {
+      // Fall back to preferred Dreamlab tab.
+    }
+  }
+
+  if (!targetTab) {
+    targetTab = await getPreferredDreamlabTab();
+  }
+
   const response = await sendTabMessageWithBridge(targetTab.id, {
     action: CONTENT_ACTIONS.saveItem,
     item,
@@ -640,16 +1606,25 @@ async function saveItemToWebApp(item) {
   if (!response || response.success !== true) {
     throw new Error(response?.error || 'Failed to save to Dreamlab web app.');
   }
+
+  return { targetTabId: targetTab.id };
 }
 
-async function queuePendingAndTrySave(item) {
-  await setStorage({ [STORAGE_KEYS.pendingCapture]: item });
-
+async function queuePendingAndTrySave(item, options = {}) {
   try {
-    await saveItemToWebApp(item);
+    await setStorage({ [STORAGE_KEYS.pendingCapture]: item });
+    const saveResult = await saveItemToWebApp(item, options);
     await removeStorage(STORAGE_KEYS.pendingCapture);
-  } catch {
+    return {
+      success: true,
+      targetTabId: saveResult?.targetTabId || null,
+    };
+  } catch (error) {
     // Keep pending capture for popup review.
+    return {
+      success: false,
+      error: error?.message || 'Failed to save capture; kept as pending.',
+    };
   }
 }
 
@@ -754,6 +1729,116 @@ chrome.commands.onCommand.addListener(async (command) => {
         visibleImages: scan.visibleImages || [],
         totalImagesCount: scan.totalCount || 0,
       });
+      return;
+    }
+
+    if (command === 'capture-full-page') {
+      const [tab] = await queryTabs({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+
+      if (isUnsupportedCaptureUrl(tab.url)) {
+        await showInPageToast(tab.id, {
+          message: 'Full-page capture is not available on this page.',
+          type: 'error',
+          durationMs: 4200,
+        });
+        return;
+      }
+
+      try {
+        await showInPageToast(tab.id, {
+          message: 'Capturing full page...',
+          type: 'info',
+          durationMs: 2400,
+        });
+
+        const destinationTab = await ensureDreamlabTab();
+        const screenshot = await captureFullPageScreenshot(tab);
+        const originalByteEstimate = estimateDataUrlBytes(screenshot.dataUrl);
+
+        let captureItem = {
+          type: 'image',
+          content: screenshot.dataUrl,
+          title: tab.title || 'Full Page Screenshot',
+          description: 'Full-page screenshot captured via Dreamlab extension',
+          sourceUrl: tab.url || '',
+          metadata: {
+            captureType: 'full-page',
+            width: screenshot.width,
+            height: screenshot.height,
+            mimeType: screenshot.mimeType || 'image/jpeg',
+            estimatedBytes: originalByteEstimate,
+            originalWidth: screenshot.width,
+            originalHeight: screenshot.height,
+            originalMimeType: screenshot.mimeType || 'image/jpeg',
+          },
+          timestamp: Date.now(),
+        };
+
+        await showInPageToast(tab.id, {
+          message: 'Saving to Dreamlab...',
+          type: 'info',
+          durationMs: 2600,
+        });
+
+        let saveResult = await queuePendingAndTrySave(captureItem, {
+          targetTabId: destinationTab?.id || null,
+        });
+
+        if (!saveResult.success && isStorageQuotaErrorMessage(saveResult.error)) {
+          await showInPageToast(tab.id, {
+            message: 'Storage is full. Retrying with stronger compression...',
+            type: 'info',
+            durationMs: 3200,
+          });
+
+          try {
+            const compressedDataUrl = await aggressiveStorageCompression(captureItem.content);
+            if (compressedDataUrl && compressedDataUrl !== captureItem.content) {
+              captureItem = {
+                ...captureItem,
+                content: compressedDataUrl,
+                metadata: {
+                  ...captureItem.metadata,
+                  compressionRetry: true,
+                  compressedEstimatedBytes: estimateDataUrlBytes(compressedDataUrl),
+                },
+              };
+            }
+          } catch {
+            // Keep original capture payload if compression fails.
+          }
+
+          saveResult = await queuePendingAndTrySave(captureItem, {
+            targetTabId: destinationTab?.id || null,
+          });
+        }
+
+        if (saveResult.success) {
+          const destinationSummary = await getDreamlabDestinationSummary(
+            saveResult.targetTabId || destinationTab?.id || null
+          );
+          await showInPageToast(tab.id, {
+            message: `Saved to ${destinationSummary}.`,
+            type: 'success',
+            durationMs: 3400,
+          });
+        } else {
+          const errorDetail = String(saveResult.error || '').trim();
+          const suffix = errorDetail ? ` (${errorDetail})` : '';
+          await showInPageToast(tab.id, {
+            message: `Saved as pending capture; open the Dreamlab Capture popup to retry.${suffix}`,
+            type: 'error',
+            durationMs: 5000,
+          });
+        }
+      } catch (error) {
+        await showInPageToast(tab.id, {
+          message: error?.message || 'Full-page capture failed.',
+          type: 'error',
+          durationMs: 5000,
+        });
+      }
       return;
     }
 
