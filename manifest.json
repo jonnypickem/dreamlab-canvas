@@ -38,35 +38,36 @@
             "js": [
                 "content.js"
             ],
-            "run_at": "document_end"
+            "run_at": "document_end",
+            "all_frames": true
         }
     ],
     "commands": {
         "save-page": {
             "suggested_key": {
-                "default": "Ctrl+Shift+S",
-                "mac": "Command+Shift+S"
+                "default": "Ctrl+Alt+S",
+                "mac": "Command+Alt+S"
             },
             "description": "Save current page to Dreamlab"
         },
         "capture-visible": {
             "suggested_key": {
-                "default": "Ctrl+Shift+Y",
-                "mac": "Command+Shift+Y"
+                "default": "Ctrl+Alt+Y",
+                "mac": "Command+Alt+Y"
             },
             "description": "Open image capture review"
         },
         "capture-full-page": {
             "suggested_key": {
-                "default": "Ctrl+Shift+P",
-                "mac": "Command+Shift+P"
+                "default": "Ctrl+Alt+P",
+                "mac": "Command+Alt+P"
             },
             "description": "Capture full page screenshot"
         },
         "smart-picker": {
             "suggested_key": {
-                "default": "Ctrl+Shift+I",
-                "mac": "Command+Shift+I"
+                "default": "Ctrl+Alt+I",
+                "mac": "Command+Alt+I"
             },
             "description": "Pick an image or background from page"
         }

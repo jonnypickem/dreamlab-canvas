@@ -65,9 +65,10 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
         { label: 'Close Modal', keys: ['Esc'] },
         { label: 'Delete Item', keys: ['Backspace'] },
         { label: 'Deselect Items', keys: ['Esc'] },
-        { label: 'Smart Picker (Ext)', keys: ['Cmd', 'Shift', 'I'] },
-        { label: 'Area Selector (Ext)', keys: ['Cmd', 'Shift', 'Y'] },
-        { label: 'Full Page Screenshot (Ext)', keys: ['Cmd', 'Shift', 'P'] },
+        { label: 'Save Page (Ext)', keys: ['Cmd', 'Alt', 'S'] },
+        { label: 'Smart Picker (Ext)', keys: ['Cmd', 'Alt', 'I'] },
+        { label: 'Area Selector (Ext)', keys: ['Cmd', 'Alt', 'Y'] },
+        { label: 'Full Page Screenshot (Ext)', keys: ['Cmd', 'Alt', 'P'] },
     ];
 
     return (
@@ -263,6 +264,9 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
                                         </div>
                                     ))}
                                 </div>
+                                <p className="text-xs text-zinc-400 mt-2">
+                                    Some browsers (Arc, Dia) may reserve certain shortcuts. Use the toolbar icon or right-click menu as a fallback.
+                                </p>
                             </div>
                         )}
 

@@ -575,24 +575,41 @@ function getAllImages() {
 // In-page keyboard shortcut fallbacks.
 // Arc and some Chromium-based browsers do not fire chrome.commands,
 // so we listen for keydown events directly and forward to the background.
+// Uses event.code (layout-independent) because macOS Alt produces special
+// characters in event.key (e.g. Cmd+Alt+S → key:"ß", code:"KeyS").
 const SHORTCUT_MAP = [
-  { key: 'S', command: 'save-page' },
-  { key: 'Y', command: 'capture-visible' },
-  { key: 'P', command: 'capture-full-page' },
-  { key: 'I', command: 'smart-picker' },
+  { code: 'KeyS', command: 'save-page' },
+  { code: 'KeyY', command: 'capture-visible' },
+  { code: 'KeyP', command: 'capture-full-page' },
+  { code: 'KeyI', command: 'smart-picker' },
 ];
 
-document.addEventListener('keydown', (event) => {
-  if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
+const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
-  const upper = event.key.toUpperCase();
-  const match = SHORTCUT_MAP.find((s) => s.key === upper);
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) return;
+
+  const mod = event.metaKey || event.ctrlKey;
+  if (!mod) return;
+
+  // Accept both Cmd/Ctrl+Alt (new default) and Cmd/Ctrl+Shift (legacy)
+  const isAltCombo = mod && event.altKey && !event.shiftKey;
+  const isShiftCombo = mod && event.shiftKey && !event.altKey;
+  if (!isAltCombo && !isShiftCombo) return;
+
+  const match = SHORTCUT_MAP.find((s) => s.code === event.code);
   if (!match) return;
+
+  // Skip when focus is in an editable field to avoid hijacking typing
+  const tag = document.activeElement?.tagName;
+  if (EDITABLE_TAGS.has(tag) || document.activeElement?.isContentEditable) return;
 
   event.preventDefault();
   event.stopPropagation();
 
-  // capture-visible can also use the local triggerMultiSelect for speed
+  const keySignature = `${match.command}:${Date.now()}`;
+
+  // capture-visible can use the local triggerMultiSelect for speed
   if (match.command === 'capture-visible') {
     triggerMultiSelect();
     return;
@@ -601,5 +618,7 @@ document.addEventListener('keydown', (event) => {
   chrome.runtime.sendMessage({
     action: 'executeCommand',
     command: match.command,
+    origin: 'content-fallback',
+    keySignature,
   });
 }, true);

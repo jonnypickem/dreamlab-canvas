@@ -2025,12 +2025,27 @@ async function executeCommandFromTab(command, tabId) {
   }
 }
 
-chrome.commands.onCommand.addListener(async (command) => {
+// Debounce map to prevent duplicate execution when both chrome.commands
+// and content-script fallback fire for the same keystroke.
+const _commandDebounce = new Map();
+const COMMAND_DEBOUNCE_MS = 300;
+
+async function dispatchCommand({ command, tabId, origin }) {
+  const key = `${tabId || 'active'}:${command}`;
+  const now = Date.now();
+  const last = _commandDebounce.get(key) || 0;
+  if (now - last < COMMAND_DEBOUNCE_MS) return;
+  _commandDebounce.set(key, now);
+
   try {
-    await executeCommandFromTab(command);
+    await executeCommandFromTab(command, tabId);
   } catch (error) {
-    console.error('Command handling failed:', error?.message || error);
+    console.error(`Command "${command}" failed (${origin}):`, error?.message || error);
   }
+}
+
+chrome.commands.onCommand.addListener(async (command) => {
+  await dispatchCommand({ command, origin: 'commands-api' });
 });
 
 async function handleRuntimeMessage(request, sender) {
@@ -2083,7 +2098,11 @@ async function handleRuntimeMessage(request, sender) {
       if (!validCommands.includes(request.command)) {
         return { success: false, error: 'Unknown command.' };
       }
-      await executeCommandFromTab(request.command, sender?.tab?.id || null);
+      await dispatchCommand({
+        command: request.command,
+        tabId: sender?.tab?.id || null,
+        origin: request.origin || 'content-fallback',
+      });
       return { success: true };
     }
 
