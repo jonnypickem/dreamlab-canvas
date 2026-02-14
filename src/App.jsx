@@ -386,6 +386,84 @@ function App() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [editingItem, filteredItems, selectedItems]);
 
+    // Shared image save helper — used by both paste and drag-and-drop
+    const saveImageFromBlob = useCallback(async (blob) => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+
+        if (!blob) {
+            setToast({ message: 'Could not read image data', type: 'error' });
+            return;
+        }
+
+        const tempId = crypto.randomUUID();
+        const blobUrl = URL.createObjectURL(blob);
+        const placeholderItem = {
+            id: tempId,
+            type: 'image',
+            content: blobUrl,
+            sourceUrl: blob.name || 'clipboard',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            tags: [],
+            createdAt: Date.now(),
+            isLoading: true,
+        };
+        setItems((prev) => [placeholderItem, ...prev]);
+
+        try {
+            const compressedBlob = blob.size > 2 * 1024 * 1024
+                ? await compressImage(blob, { maxDimension: 1600, quality: 0.78, mimeType: 'image/jpeg' })
+                : blob;
+
+            const base64 = await blobToDataUrl(compressedBlob);
+            if (!base64 || typeof base64 !== 'string') {
+                throw new Error('Failed to parse image');
+            }
+
+            const newItem = {
+                id: tempId,
+                type: 'image',
+                content: base64,
+                sourceUrl: blob.name || 'clipboard',
+                workspaceId: activeWorkspaceId,
+                projectId: null,
+                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+                tags: [],
+                createdAt: Date.now()
+            };
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) {
+                setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
+            } else {
+                setItems((prev) => prev.filter((item) => item.id !== tempId));
+            }
+            setToast({ message: 'Image saved', type: 'success' });
+        } catch (error) {
+            setItems((prev) => prev.filter((item) => item.id !== tempId));
+            setToast({ message: error?.message || 'Failed to save image', type: 'error' });
+        } finally {
+            URL.revokeObjectURL(blobUrl);
+        }
+    }, [activeWorkspaceId, selectedCollectionId]);
+
+    // Drag-and-drop file handler
+    const [isDragging, setIsDragging] = useState(false);
+
+    const handleFileDrop = useCallback(async (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const files = Array.from(e.dataTransfer.files);
+        for (const file of files) {
+            if (file.type.startsWith('image/')) {
+                await saveImageFromBlob(file);
+            }
+        }
+    }, [saveImageFromBlob]);
+
     // Clipboard Paste Listener
     useEffect(() => {
         const handlePaste = async (e) => {
@@ -473,70 +551,6 @@ function App() {
             }
         };
 
-        const saveImageFromBlob = async (blob) => {
-            if (!activeWorkspaceId) {
-                setToast({ message: 'Select a workspace first', type: 'error' });
-                return;
-            }
-
-            if (!blob) {
-                setToast({ message: 'Could not read pasted image data', type: 'error' });
-                return;
-            }
-
-            // Show loading placeholder with instant blob preview
-            const tempId = crypto.randomUUID();
-            const blobUrl = URL.createObjectURL(blob);
-            const placeholderItem = {
-                id: tempId,
-                type: 'image',
-                content: blobUrl,
-                sourceUrl: 'clipboard',
-                workspaceId: activeWorkspaceId,
-                projectId: null,
-                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                tags: [],
-                createdAt: Date.now(),
-                isLoading: true,
-            };
-            setItems((prev) => [placeholderItem, ...prev]);
-
-            try {
-                // Compress large images before upload
-                const compressedBlob = blob.size > 2 * 1024 * 1024
-                    ? await compressImage(blob, { maxDimension: 1600, quality: 0.78, mimeType: 'image/jpeg' })
-                    : blob;
-
-                const base64 = await blobToDataUrl(compressedBlob);
-                if (!base64 || typeof base64 !== 'string') {
-                    throw new Error('Failed to parse pasted image');
-                }
-
-                const newItem = {
-                    id: tempId,
-                    type: 'image',
-                    content: base64,
-                    sourceUrl: 'clipboard',
-                    workspaceId: activeWorkspaceId,
-                    projectId: null,
-                    collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                    tags: [],
-                    createdAt: Date.now()
-                };
-                const saved = await saveItemWithTags(newItem, null);
-                if (saved) {
-                    setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
-                } else {
-                    setItems((prev) => prev.filter((item) => item.id !== tempId));
-                }
-                setToast({ message: 'Image pasted', type: 'success' });
-            } catch (error) {
-                setItems((prev) => prev.filter((item) => item.id !== tempId));
-                setToast({ message: error?.message || 'Failed to paste image', type: 'error' });
-            } finally {
-                URL.revokeObjectURL(blobUrl);
-            }
-        };
 
         const saveImageFromBase64 = async (base64Data) => {
             if (!activeWorkspaceId) {
@@ -700,7 +714,7 @@ function App() {
 
         document.addEventListener('paste', handlePaste);
         return () => document.removeEventListener('paste', handlePaste);
-    }, [activeWorkspaceId, selectedCollectionId]);
+    }, [activeWorkspaceId, selectedCollectionId, saveImageFromBlob]);
 
     const handleClear = async () => {
         try {
@@ -1198,7 +1212,17 @@ function App() {
                 lockScroll={viewMode === 'canvas'}
             />
 
-            <main className="flex grow shrink basis-0 min-w-0 flex-col items-start self-stretch overflow-hidden relative bg-white">
+            <main
+                className="flex grow shrink basis-0 min-w-0 flex-col items-start self-stretch overflow-hidden relative bg-white"
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragging(false); }}
+                onDrop={handleFileDrop}
+            >
+                {isDragging && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-blue-50/80 border-2 border-dashed border-blue-400 rounded-lg pointer-events-none">
+                        <p className="text-blue-600 text-lg font-medium">Drop image to add to collection</p>
+                    </div>
+                )}
                 {viewMode !== 'canvas' && (
                     <div className="flex w-full flex-col items-start gap-4 px-8 pt-8 pb-4">
                         {selectedCollectionId ? (
