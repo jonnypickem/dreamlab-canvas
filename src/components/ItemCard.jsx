@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Link as LinkIcon, FileText, Check } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
+import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
 const getLinkTextPayload = (item) => {
     if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
@@ -50,6 +51,9 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
     const supportingText = getSupportingTextForItem(item);
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
+    const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
+    const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
 
     const domainName = (url) => {
         try {
@@ -106,7 +110,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                     {/* Image Type */}
                     {item.type === 'image' && (
                         <img
-                            src={item.content}
+                            src={resolvedImageSource || item.content}
                             alt={item.title || 'Captured Image'}
                             className="w-full h-auto block"
                         />
@@ -146,9 +150,9 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                                     {domainName(item.sourceUrl)}
                                 </span>
                             </div>
-                        ) : item.thumbnail ? (
+                        ) : linkThumbnailSource ? (
                             <img
-                                src={item.thumbnail}
+                                src={linkThumbnailSource}
                                 alt={item.title || 'Link Thumbnail'}
                                 className="w-full h-auto block"
                                 onError={(e) => {
@@ -159,9 +163,9 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                         ) : null
                     )}
                     {/* Fallback for Link if no thumbnail or error load */}
-                    {item.type === 'link' && (!item.thumbnail || !isVisible) && (
+                    {item.type === 'link' && (!linkThumbnailSource || !isVisible) && (
                         <div
-                            className={`w-full aspect-video bg-zinc-50 flex flex-col items-center justify-center p-4 ${item.thumbnail ? 'hidden' : 'flex'}`}
+                            className={`w-full aspect-video bg-zinc-50 flex flex-col items-center justify-center p-4 ${linkThumbnailSource ? 'hidden' : 'flex'}`}
                         >
                             <LinkIcon size={48} className="text-zinc-200 mb-2" />
                             <span className="text-xs text-zinc-400 font-mono truncate max-w-full">

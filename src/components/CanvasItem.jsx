@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Rnd } from 'react-rnd';
 import { Camera, Link as LinkIcon, FileText, Info } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
+import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
 // Helper to ensure size is always a number
 const parseSize = (val, fallback) => {
@@ -64,9 +65,14 @@ const CanvasItem = ({
     const supportingText = getSupportingTextForItem(item);
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
+    const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
+    const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
     const hasSavedSize = hasFiniteNumber(item.canvas?.w) && hasFiniteNumber(item.canvas?.h);
-    const mediaSource = item.type === 'image' ? item.content : (showLinkAsText ? null : item.thumbnail);
-    const hasMediaCard = item.type === 'image' || (item.type === 'link' && !showLinkAsText && Boolean(item.thumbnail));
+    const mediaSource = item.type === 'image'
+        ? (resolvedImageSource || item.content)
+        : (showLinkAsText ? null : linkThumbnailSource);
+    const hasMediaCard = item.type === 'image' || (item.type === 'link' && !showLinkAsText && Boolean(linkThumbnailSource));
     const isResizableCard = hasMediaCard || item.type === 'text';
     const hasAutoSizedFromMediaRef = useRef(false);
     const suppressClickRef = useRef(false);
@@ -264,7 +270,7 @@ const CanvasItem = ({
                 <div className="flex-grow overflow-hidden relative bg-white">
                     {item.type === 'image' && (
                         <img
-                            src={item.content}
+                            src={resolvedImageSource || item.content}
                             alt={item.title || 'Captured Image'}
                             className="w-full h-full object-contain pointer-events-none bg-white"
                         />
@@ -303,9 +309,9 @@ const CanvasItem = ({
                                     {domainName(item.sourceUrl)}
                                 </span>
                             </div>
-                        ) : item.thumbnail ? (
+                        ) : linkThumbnailSource ? (
                             <img
-                                src={item.thumbnail}
+                                src={linkThumbnailSource}
                                 alt={item.title || 'Link Thumbnail'}
                                 className="w-full h-full object-contain pointer-events-none bg-white"
                                 onError={(e) => {
@@ -318,7 +324,7 @@ const CanvasItem = ({
                     )}
 
                     {item.type === 'link' && (
-                        <div className={`canvas-link-fallback w-full h-full bg-zinc-50 flex flex-col items-center justify-center p-4 ${item.thumbnail ? 'hidden' : 'flex'}`}>
+                        <div className={`canvas-link-fallback w-full h-full bg-zinc-50 flex flex-col items-center justify-center p-4 ${linkThumbnailSource ? 'hidden' : 'flex'}`}>
                             <LinkIcon size={42} className="text-zinc-200 mb-2" />
                             <span className="text-xs text-zinc-400 font-mono truncate max-w-full">
                                 {domainName(item.sourceUrl)}

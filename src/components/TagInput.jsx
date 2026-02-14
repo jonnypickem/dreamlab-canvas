@@ -9,12 +9,16 @@ export default function TagInput({ tags = [], onChange }) {
     const wrapperRef = useRef(null);
 
     useEffect(() => {
-        const allTags = getAllTags();
-        const filtered = allTags.filter(t =>
-            t.toLowerCase().includes(inputValue.toLowerCase()) &&
-            !tags.includes(t)
-        );
-        setSuggestions(filtered);
+        let cancelled = false;
+        getAllTags().then((allTags) => {
+            if (cancelled) return;
+            const filtered = allTags.filter(t =>
+                t.toLowerCase().includes(inputValue.toLowerCase()) &&
+                !tags.includes(t)
+            );
+            setSuggestions(filtered);
+        });
+        return () => { cancelled = true; };
     }, [inputValue, tags]);
 
     useEffect(() => {

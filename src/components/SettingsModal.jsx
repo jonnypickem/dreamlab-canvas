@@ -28,7 +28,7 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
         }
     }, [activeWorkspace]);
 
-    const handleSaveWorkspace = () => {
+    const handleSaveWorkspace = async () => {
         if (!activeWorkspace) return;
 
         const updates = {
@@ -40,7 +40,7 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
             intelligenceLevel
         };
 
-        updateWorkspace(activeWorkspace.id, updates);
+        await updateWorkspace(activeWorkspace.id, updates);
         onUpdateWorkspace(); // Trigger reload in parent
         onClose();
     };

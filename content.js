@@ -25,6 +25,13 @@ const BACKGROUND_ACTIONS = {
   openMultiSelect: 'openMultiSelect',
 };
 
+const MEDIA_DB_NAME = 'dreamlab_media_db';
+const MEDIA_DB_VERSION = 1;
+const MEDIA_STORE = 'media_blobs';
+const MEDIA_REF_PREFIX = 'idb://media/';
+
+let mediaDbPromise = null;
+
 function isDreamlabApp() {
   return DREAMLAB_ORIGINS.has(window.location.origin);
 }
@@ -51,45 +58,237 @@ function getCollectionWorkspaceId(collection, projects) {
   return project?.workspaceId || null;
 }
 
-function saveItemToDreamlab(item) {
+function isMediaStoreRef(value) {
+  return typeof value === 'string' && value.startsWith(MEDIA_REF_PREFIX);
+}
+
+function makeMediaRef(key) {
+  return `${MEDIA_REF_PREFIX}${String(key || '').trim()}`;
+}
+
+function buildImageMediaKey(itemId) {
+  return `img:${String(itemId || '').trim()}`;
+}
+
+function buildThumbnailMediaKey(itemId) {
+  return `thumb:${String(itemId || '').trim()}`;
+}
+
+function estimateDataUrlBytes(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return 0;
+  const base64Part = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+  return Math.ceil((base64Part.length * 3) / 4);
+}
+
+function canFetchRemoteMedia(source) {
+  return typeof source === 'string'
+    && (source.startsWith('http://') || source.startsWith('https://') || source.startsWith('blob:'));
+}
+
+function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+    throw new Error('Expected data URL');
+  }
+  const [header, payload = ''] = dataUrl.split(',', 2);
+  const mimeMatch = header.match(/^data:([^;]+);base64$/i);
+  const mimeType = mimeMatch?.[1] || 'application/octet-stream';
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
+async function mediaSourceToBlob(source) {
+  if (typeof source !== 'string' || !source) {
+    throw new Error('Missing media source');
+  }
+  if (source.startsWith('data:')) {
+    return dataUrlToBlob(source);
+  }
+  if (canFetchRemoteMedia(source)) {
+    const response = await fetch(source);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch media source (${response.status})`);
+    }
+    return response.blob();
+  }
+  throw new Error('Unsupported media source for IndexedDB storage');
+}
+
+function openMediaDb() {
+  if (typeof indexedDB === 'undefined') {
+    return Promise.reject(new Error('IndexedDB unavailable'));
+  }
+  if (mediaDbPromise) return mediaDbPromise;
+
+  mediaDbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(MEDIA_DB_NAME, MEDIA_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(MEDIA_STORE)) {
+        db.createObjectStore(MEDIA_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Failed to open media DB'));
+  });
+
+  return mediaDbPromise;
+}
+
+function putMediaBlob(key, blob) {
+  return openMediaDb().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(MEDIA_STORE, 'readwrite');
+    const store = tx.objectStore(MEDIA_STORE);
+    store.put(blob, key);
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error || new Error('Media write aborted'));
+    tx.onerror = () => reject(tx.error || new Error('Media write failed'));
+  }));
+}
+
+async function offloadImageContentForItem(item) {
+  if (!item || item.type !== 'image' || typeof item.content !== 'string') return item;
+  if (isMediaStoreRef(item.content)) return item;
+
+  const id = item.id || crypto.randomUUID();
+  const blob = await mediaSourceToBlob(item.content);
+  if (!blob?.type?.startsWith?.('image/')) {
+    throw new Error('Source is not an image');
+  }
+  await putMediaBlob(buildImageMediaKey(id), blob);
+  return {
+    ...item,
+    id,
+    content: makeMediaRef(buildImageMediaKey(id)),
+    contentStorage: 'indexeddb',
+  };
+}
+
+async function offloadLinkThumbnailForItem(item) {
+  if (!item || item.type !== 'link' || typeof item.thumbnail !== 'string') return item;
+  if (isMediaStoreRef(item.thumbnail)) return item;
+  if (!item.thumbnail.startsWith('data:image/')) return item;
+
+  const id = item.id || crypto.randomUUID();
+  const blob = await mediaSourceToBlob(item.thumbnail);
+  if (!blob?.type?.startsWith?.('image/')) {
+    throw new Error('Thumbnail source is not an image');
+  }
+  await putMediaBlob(buildThumbnailMediaKey(id), blob);
+  return {
+    ...item,
+    id,
+    thumbnail: makeMediaRef(buildThumbnailMediaKey(id)),
+    thumbnailStorage: 'indexeddb',
+  };
+}
+
+async function offloadItemMediaForItem(item) {
+  let current = item;
+  if (!current || typeof current !== 'object') return current;
+  if (!current.id) current = { ...current, id: crypto.randomUUID() };
+
+  if (current.type === 'image') {
+    current = await offloadImageContentForItem(current);
+  }
+  if (current.type === 'link') {
+    current = await offloadLinkThumbnailForItem(current);
+  }
+  return current;
+}
+
+async function offloadExistingInlineMedia(items, options = {}) {
+  const targetFreedBytes = Math.max(0, Number(options.targetFreedBytes || 0));
+  const maxItems = Math.max(1, Number(options.maxItems || 20));
+  const list = Array.isArray(items) ? items : [];
+
+  const candidates = list
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      bytes: estimateDataUrlBytes(candidate?.content) + estimateDataUrlBytes(candidate?.thumbnail),
+    }))
+    .filter(({ candidate, bytes }) => (
+      (
+        (candidate?.type === 'image'
+          && typeof candidate?.content === 'string'
+          && !isMediaStoreRef(candidate.content)
+          && candidate.content.startsWith('data:image/'))
+        || (candidate?.type === 'link'
+          && typeof candidate?.thumbnail === 'string'
+          && !isMediaStoreRef(candidate.thumbnail)
+          && candidate.thumbnail.startsWith('data:image/'))
+      )
+    ))
+    .sort((a, b) => b.bytes - a.bytes);
+
+  if (candidates.length === 0) {
+    return { items: list, migrated: 0, freedBytes: 0 };
+  }
+
+  const nextItems = [...list];
+  let migrated = 0;
+  let freedBytes = 0;
+
+  for (const entry of candidates) {
+    if (migrated >= maxItems) break;
+    const { candidate, index, bytes } = entry;
+    try {
+      const migratedItem = await offloadItemMediaForItem(candidate);
+      if (migratedItem.content !== candidate.content || migratedItem.thumbnail !== candidate.thumbnail) {
+        nextItems[index] = migratedItem;
+        migrated += 1;
+        freedBytes += Math.max(bytes, 150_000);
+      }
+      if (targetFreedBytes > 0 && freedBytes >= targetFreedBytes) break;
+    } catch {
+      // Skip failed offload and continue.
+    }
+  }
+
+  return { items: nextItems, migrated, freedBytes };
+}
+
+async function saveItemToDreamlab(item) {
   if (!isDreamlabApp()) {
     return { success: false, error: 'Not on Dreamlab web app.' };
   }
 
-  const items = readJsonStorage(STORAGE_KEYS.items, []);
-  const activeContext = readJsonStorage(STORAGE_KEYS.activeContext, {});
-  const collections = readJsonStorage(STORAGE_KEYS.collections, []);
-  const projects = readJsonStorage(STORAGE_KEYS.projects, []);
-
-  const resolvedWorkspaceId = resolveContextValue(item, 'workspaceId', activeContext.workspaceId || null);
-
-  let resolvedCollectionId = resolveContextValue(item, 'collectionId', activeContext.collectionId || null);
-  if (resolvedCollectionId) {
-    const collectionBelongsToWorkspace = collections.some(
-      (collection) => (
-        collection.id === resolvedCollectionId
-        && getCollectionWorkspaceId(collection, projects) === resolvedWorkspaceId
-      )
-    );
-    if (!collectionBelongsToWorkspace) {
-      resolvedCollectionId = null;
-    }
-  }
-
   const newItem = {
     ...item,
-    id: crypto.randomUUID(),
+    id: item.id || crypto.randomUUID(),
     timestamp: Date.now(),
-    workspaceId: resolvedWorkspaceId,
-    projectId: null,
-    collectionId: resolvedCollectionId,
     needsTagging: true,
   };
 
-  localStorage.setItem(STORAGE_KEYS.items, JSON.stringify([newItem, ...items]));
-  window.dispatchEvent(new Event('storage-update'));
+  // Post the item to the web app — the React app (authenticated with Supabase)
+  // will handle inserting into the database and uploading media.
+  return new Promise((resolve) => {
+    const responseChannel = `dreamlab-save-response-${newItem.id}`;
 
-  return { success: true, itemId: newItem.id };
+    const handleResponse = (event) => {
+      if (event.data?.type === responseChannel) {
+        window.removeEventListener('message', handleResponse);
+        clearTimeout(timeout);
+        resolve(event.data.payload || { success: true, itemId: newItem.id });
+      }
+    };
+
+    window.addEventListener('message', handleResponse);
+
+    // Timeout after 30s (large images may take a while to upload)
+    const timeout = setTimeout(() => {
+      window.removeEventListener('message', handleResponse);
+      resolve({ success: true, itemId: newItem.id }); // Optimistic — item may still be saving
+    }, 30000);
+
+    window.postMessage({
+      type: 'DREAMLAB_SAVE_ITEM',
+      item: newItem,
+      responseChannel,
+    }, '*');
+  });
 }
 
 function getOrgData() {
@@ -97,13 +296,30 @@ function getOrgData() {
     return { success: false, error: 'Not on Dreamlab web app.' };
   }
 
-  return {
-    success: true,
-    workspaces: readJsonStorage(STORAGE_KEYS.workspaces, []),
-    projects: readJsonStorage(STORAGE_KEYS.projects, []),
-    collections: readJsonStorage(STORAGE_KEYS.collections, []),
-    activeContext: readJsonStorage(STORAGE_KEYS.activeContext, {}),
-  };
+  // Request org data from the web app via postMessage
+  return new Promise((resolve) => {
+    const responseChannel = `dreamlab-org-data-response-${Date.now()}`;
+
+    const handleResponse = (event) => {
+      if (event.data?.type === responseChannel) {
+        window.removeEventListener('message', handleResponse);
+        clearTimeout(timeout);
+        resolve(event.data.payload || { success: false, error: 'No data received.' });
+      }
+    };
+
+    window.addEventListener('message', handleResponse);
+
+    const timeout = setTimeout(() => {
+      window.removeEventListener('message', handleResponse);
+      resolve({ success: false, error: 'Timed out waiting for org data.' });
+    }, 5000);
+
+    window.postMessage({
+      type: 'DREAMLAB_GET_ORG_DATA',
+      responseChannel,
+    }, '*');
+  });
 }
 
 function triggerMultiSelect() {
@@ -159,12 +375,20 @@ function scanPageImages(scope = 'visible') {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   try {
     if (request.action === ACTIONS.saveItem) {
-      sendResponse(saveItemToDreamlab(request.item || {}));
+      saveItemToDreamlab(request.item || {})
+        .then((payload) => sendResponse(payload))
+        .catch((error) => {
+          sendResponse({ success: false, error: error?.message || 'Content script error.' });
+        });
       return true;
     }
 
     if (request.action === ACTIONS.getOrgData) {
-      sendResponse(getOrgData());
+      getOrgData()
+        .then((payload) => sendResponse(payload))
+        .catch((error) => {
+          sendResponse({ success: false, error: error?.message || 'Failed to get org data.' });
+        });
       return true;
     }
 

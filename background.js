@@ -330,6 +330,26 @@ function isStorageQuotaErrorMessage(message) {
   );
 }
 
+function classifyStorageErrorMessage(message) {
+  const normalized = String(message || '').toLowerCase();
+  if (!normalized) return 'unknown';
+  if (normalized.includes('indexeddb') || normalized.includes('media db') || normalized.includes('media database')) {
+    return 'indexeddb';
+  }
+  if (normalized.includes('chrome.storage') || normalized.includes('storage.local') || normalized.includes('quota_bytes')) {
+    return 'extension-storage';
+  }
+  if (
+    normalized.includes('localstorage')
+    || normalized.includes('setitem')
+    || normalized.includes('quota')
+    || normalized.includes('exceeded')
+  ) {
+    return 'localstorage';
+  }
+  return 'unknown';
+}
+
 function estimateDataUrlBytes(dataUrl) {
   if (!dataUrl || typeof dataUrl !== 'string') return 0;
   const base64Part = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
@@ -373,7 +393,10 @@ async function blobToDataUrl(blob) {
 
 async function compressImageDataUrl(dataUrl, options = {}) {
   const {
-    maxDimension = 2400,
+    maxDimension = null,
+    maxWidth = null,
+    maxHeight = null,
+    maxPixels = null,
     quality = 0.78,
     mimeType = 'image/jpeg',
   } = options;
@@ -387,8 +410,27 @@ async function compressImageDataUrl(dataUrl, options = {}) {
   const bitmap = await createImageBitmap(blob);
 
   try {
-    const longestSide = Math.max(bitmap.width, bitmap.height);
-    const scale = longestSide > maxDimension ? (maxDimension / longestSide) : 1;
+    let scale = 1;
+    if (Number(maxDimension) > 0) {
+      const longestSide = Math.max(bitmap.width, bitmap.height);
+      if (longestSide > maxDimension) {
+        scale = Math.min(scale, maxDimension / longestSide);
+      }
+    }
+    if (Number(maxWidth) > 0 && bitmap.width > maxWidth) {
+      scale = Math.min(scale, maxWidth / bitmap.width);
+    }
+    if (Number(maxHeight) > 0 && bitmap.height > maxHeight) {
+      scale = Math.min(scale, maxHeight / bitmap.height);
+    }
+    if (Number(maxPixels) > 0) {
+      const area = bitmap.width * bitmap.height;
+      if (area > maxPixels) {
+        scale = Math.min(scale, Math.sqrt(maxPixels / area));
+      }
+    }
+
+    scale = Math.max(0.05, Math.min(1, scale));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
 
@@ -410,9 +452,11 @@ async function compressImageDataUrl(dataUrl, options = {}) {
 
 async function aggressiveStorageCompression(dataUrl) {
   const passes = [
-    { maxDimension: 2200, quality: 0.72, mimeType: 'image/jpeg' },
-    { maxDimension: 1800, quality: 0.64, mimeType: 'image/jpeg' },
-    { maxDimension: 1500, quality: 0.56, mimeType: 'image/jpeg' },
+    { quality: 0.68, mimeType: 'image/jpeg' },
+    { quality: 0.58, mimeType: 'image/jpeg' },
+    { maxPixels: 22_000_000, maxWidth: 2000, quality: 0.52, mimeType: 'image/jpeg' },
+    { maxPixels: 16_000_000, maxWidth: 1700, quality: 0.48, mimeType: 'image/jpeg' },
+    { maxPixels: 12_000_000, maxWidth: 1500, quality: 0.44, mimeType: 'image/jpeg' },
   ];
 
   let current = dataUrl;
@@ -516,6 +560,59 @@ async function showInPageToast(tabId, { message, type = 'info', durationMs = 260
   }
 }
 
+async function setInPageToastVisibility(tabId, isVisible) {
+  if (!tabId) return;
+  try {
+    await executeScriptFn(
+      tabId,
+      (visible) => {
+        const root = document.getElementById('__dreamlab_extension_toast_root__');
+        if (!root) return;
+        root.style.display = visible ? '' : 'none';
+      },
+      [Boolean(isVisible)]
+    );
+  } catch {
+    // Ignore visibility toggle failures.
+  }
+}
+
+async function hideFixedElements(tabId) {
+  try {
+    await executeScriptFn(tabId, () => {
+      const ATTR = 'data-dreamlab-hidden-fixed';
+      const all = document.querySelectorAll('*');
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i];
+        const style = window.getComputedStyle(el);
+        if (style.position === 'fixed' || style.position === 'sticky') {
+          el.setAttribute(ATTR, el.style.visibility || '');
+          el.style.visibility = 'hidden';
+        }
+      }
+    });
+  } catch {
+    // Non-critical — capture will still work, just with duplicated fixed elements.
+  }
+}
+
+async function restoreFixedElements(tabId) {
+  try {
+    await executeScriptFn(tabId, () => {
+      const ATTR = 'data-dreamlab-hidden-fixed';
+      const hidden = document.querySelectorAll(`[${ATTR}]`);
+      for (let i = 0; i < hidden.length; i++) {
+        const el = hidden[i];
+        const prev = el.getAttribute(ATTR);
+        el.style.visibility = prev || '';
+        el.removeAttribute(ATTR);
+      }
+    });
+  } catch {
+    // Best-effort restore.
+  }
+}
+
 async function captureFullPageScreenshot(tab) {
   if (!tab?.id || !tab?.windowId) {
     throw new Error('Active tab is unavailable for capture.');
@@ -548,22 +645,33 @@ async function captureFullPageScreenshot(tab) {
   const scrollY = Math.floor(Number(metrics?.scrollY) || 0);
   const offsets = buildVerticalCaptureOffsets(totalHeight, viewportHeight);
 
+  // Hide fixed/sticky elements (headers, navbars, cookie banners) so they
+  // don't repeat in every captured viewport frame.
+  await hideFixedElements(tab.id);
+
   const captures = [];
   try {
     for (const offsetY of offsets) {
-      await executeScriptFn(
+      // Scroll and verify we actually reached the target position.
+      const actualY = await executeScriptFn(
         tab.id,
-        async (x, y) => {
+        (x, y) => {
           window.scrollTo(x, y);
-          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          return window.scrollY || window.pageYOffset || 0;
         },
         [scrollX, offsetY]
       );
-      await wait(120);
+      // Wait for rendering to settle (lazy images, animations, repaints).
+      await wait(300);
+
       const dataUrl = await captureVisibleTab(tab.windowId, { format: 'png' });
-      captures.push({ offsetY, dataUrl });
+      captures.push({
+        offsetY: Math.floor(Number(actualY) || offsetY),
+        dataUrl,
+      });
     }
   } finally {
+    await restoreFixedElements(tab.id);
     try {
       await executeScriptFn(tab.id, (x, y) => window.scrollTo(x, y), [scrollX, scrollY]);
     } catch {
@@ -575,8 +683,16 @@ async function captureFullPageScreenshot(tab) {
     throw new Error('No capture frames were generated.');
   }
 
+  // Deduplicate frames that landed on the same scroll position.
+  const seen = new Set();
+  const uniqueCaptures = captures.filter((frame) => {
+    if (seen.has(frame.offsetY)) return false;
+    seen.add(frame.offsetY);
+    return true;
+  });
+
   const bitmaps = [];
-  for (const frame of captures) {
+  for (const frame of uniqueCaptures) {
     const response = await fetch(frame.dataUrl);
     const blob = await response.blob();
     const bitmap = await createImageBitmap(blob);
@@ -586,7 +702,7 @@ async function captureFullPageScreenshot(tab) {
   try {
     const firstBitmap = bitmaps[0].bitmap;
     const dpr = firstBitmap.width / Math.max(1, Number(metrics?.viewportWidth) || 1);
-    const maxCanvasArea = 120_000_000; // Keep memory bounded on very long pages.
+    const maxCanvasArea = 180_000_000;
     const targetHeightPx = Math.max(firstBitmap.height, Math.round(totalHeight * dpr));
     const targetWidthPx = firstBitmap.width;
     const area = targetWidthPx * targetHeightPx;
@@ -601,12 +717,21 @@ async function captureFullPageScreenshot(tab) {
       throw new Error('Could not initialize capture canvas.');
     }
 
-    for (const frame of bitmaps) {
+    for (let i = 0; i < bitmaps.length; i++) {
+      const frame = bitmaps[i];
       const destinationY = Math.round(frame.offsetY * dpr * scale);
       if (destinationY >= canvasHeight) continue;
-      const remainingHeight = canvasHeight - destinationY;
-      const sourceHeight = Math.min(frame.bitmap.height, Math.max(1, Math.round(remainingHeight / scale)));
-      const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+      // For the last frame, align it to the canvas bottom to avoid a gap.
+      const isLast = i === bitmaps.length - 1;
+      const finalDestY = isLast
+        ? Math.max(destinationY, canvasHeight - Math.round(frame.bitmap.height * scale))
+        : destinationY;
+
+      const remainingHeight = canvasHeight - finalDestY;
+      const drawHeight = Math.min(Math.round(frame.bitmap.height * scale), remainingHeight);
+      const sourceHeight = Math.max(1, Math.round(drawHeight / scale));
+
       context.drawImage(
         frame.bitmap,
         0,
@@ -614,13 +739,13 @@ async function captureFullPageScreenshot(tab) {
         frame.bitmap.width,
         sourceHeight,
         0,
-        destinationY,
+        finalDestY,
         canvasWidth,
         drawHeight
       );
     }
 
-    const stitchedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.78 });
+    const stitchedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.86 });
     const stitchedDataUrl = await blobToDataUrl(stitchedBlob);
 
     return {
@@ -1611,8 +1736,12 @@ async function saveItemToWebApp(item, options = {}) {
 }
 
 async function queuePendingAndTrySave(item, options = {}) {
+  const skipPendingStorage = Boolean(options?.skipPendingStorage);
+
   try {
-    await setStorage({ [STORAGE_KEYS.pendingCapture]: item });
+    if (!skipPendingStorage) {
+      await setStorage({ [STORAGE_KEYS.pendingCapture]: item });
+    }
     const saveResult = await saveItemToWebApp(item, options);
     await removeStorage(STORAGE_KEYS.pendingCapture);
     return {
@@ -1621,6 +1750,21 @@ async function queuePendingAndTrySave(item, options = {}) {
     };
   } catch (error) {
     // Keep pending capture for popup review.
+    if (skipPendingStorage) {
+      try {
+        await setStorage({
+          [STORAGE_KEYS.pendingCapture]: {
+            type: item?.type || 'image',
+            title: item?.title || 'Pending Capture',
+            sourceUrl: item?.sourceUrl || '',
+            timestamp: Date.now(),
+            error: error?.message || 'Save failed',
+          },
+        });
+      } catch {
+        // Ignore pending fallback write failures.
+      }
+    }
     return {
       success: false,
       error: error?.message || 'Failed to save capture; kept as pending.',
@@ -1753,7 +1897,14 @@ chrome.commands.onCommand.addListener(async (command) => {
         });
 
         const destinationTab = await ensureDreamlabTab();
-        const screenshot = await captureFullPageScreenshot(tab);
+        let screenshot = null;
+        await wait(160);
+        await setInPageToastVisibility(tab.id, false);
+        try {
+          screenshot = await captureFullPageScreenshot(tab);
+        } finally {
+          await setInPageToastVisibility(tab.id, true);
+        }
         const originalByteEstimate = estimateDataUrlBytes(screenshot.dataUrl);
 
         let captureItem = {
@@ -1783,11 +1934,17 @@ chrome.commands.onCommand.addListener(async (command) => {
 
         let saveResult = await queuePendingAndTrySave(captureItem, {
           targetTabId: destinationTab?.id || null,
+          skipPendingStorage: true,
         });
 
-        if (!saveResult.success && isStorageQuotaErrorMessage(saveResult.error)) {
+        let storageErrorType = classifyStorageErrorMessage(saveResult.error);
+        const shouldRetryWithCompression = !saveResult.success
+          && isStorageQuotaErrorMessage(saveResult.error)
+          && storageErrorType === 'localstorage';
+
+        if (shouldRetryWithCompression) {
           await showInPageToast(tab.id, {
-            message: 'Storage is full. Retrying with stronger compression...',
+            message: 'Browser localStorage is full. Retrying with stronger compression...',
             type: 'info',
             durationMs: 3200,
           });
@@ -1811,7 +1968,9 @@ chrome.commands.onCommand.addListener(async (command) => {
 
           saveResult = await queuePendingAndTrySave(captureItem, {
             targetTabId: destinationTab?.id || null,
+            skipPendingStorage: true,
           });
+          storageErrorType = classifyStorageErrorMessage(saveResult.error);
         }
 
         if (saveResult.success) {
@@ -1825,9 +1984,17 @@ chrome.commands.onCommand.addListener(async (command) => {
           });
         } else {
           const errorDetail = String(saveResult.error || '').trim();
+          let message = 'Saved as pending capture; open the Dreamlab Capture popup to retry.';
+          if (storageErrorType === 'indexeddb') {
+            message = 'Could not write screenshot to browser media storage (IndexedDB). Open the Dreamlab Capture popup to retry.';
+          } else if (storageErrorType === 'extension-storage') {
+            message = 'Extension storage (chrome.storage.local) is full. Open the Dreamlab Capture popup to retry.';
+          } else if (storageErrorType === 'localstorage') {
+            message = 'Dreamlab localStorage is full. Open the Dreamlab Capture popup to retry.';
+          }
           const suffix = errorDetail ? ` (${errorDetail})` : '';
           await showInPageToast(tab.id, {
-            message: `Saved as pending capture; open the Dreamlab Capture popup to retry.${suffix}`,
+            message: `${message}${suffix}`,
             type: 'error',
             durationMs: 5000,
           });

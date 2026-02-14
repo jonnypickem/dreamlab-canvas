@@ -2,7 +2,8 @@
  * Metadata Extractor
  * Extracts tags from URL, filename, and image colors (free, instant)
  */
-import { getProxyUrl, isExternalUrl } from './imageProxy';
+import { fetchImageViaProxy, getProxyUrl, isExternalUrl } from './imageProxy';
+import { isMediaStoreRef } from '../lib/mediaStore';
 
 // Common words to filter out from URL/filename extraction
 const STOP_WORDS = new Set([
@@ -130,6 +131,7 @@ export async function extractDominantColors(imageSource) {
         try {
             const img = new Image();
             img.crossOrigin = 'anonymous';
+            let objectUrl = null;
 
             img.onload = () => {
                 try {
@@ -164,20 +166,34 @@ export async function extractDominantColors(imageSource) {
                         .slice(0, 3)
                         .map(([name]) => name);
 
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
                     resolve(sortedColors);
 
                 } catch (e) {
                     console.warn('Color extraction failed:', e);
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
                     resolve([]);
                 }
             };
 
-            img.onerror = () => resolve([]);
+            img.onerror = () => {
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                resolve([]);
+            };
 
             // Handle both URL and base64
             if (typeof imageSource === 'string') {
-                // Use proxy for external URLs so canvas sampling is not blocked by CORS.
-                img.src = isExternalUrl(imageSource) ? getProxyUrl(imageSource) : imageSource;
+                if (isMediaStoreRef(imageSource)) {
+                    fetchImageViaProxy(imageSource)
+                        .then((blob) => {
+                            objectUrl = URL.createObjectURL(blob);
+                            img.src = objectUrl;
+                        })
+                        .catch(() => resolve([]));
+                } else {
+                    // Use proxy for external URLs so canvas sampling is not blocked by CORS.
+                    img.src = isExternalUrl(imageSource) ? getProxyUrl(imageSource) : imageSource;
+                }
             } else {
                 resolve([]);
             }

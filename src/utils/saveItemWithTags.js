@@ -3,7 +3,8 @@
  * Routes tagging based on workspace intelligence tier setting
  */
 
-import { saveItem, getProject, getWorkspaces, updateItem } from '../lib/storage';
+import { saveItem, getWorkspaces, updateItem } from '../lib/storage';
+import { uploadMedia } from '../lib/supabaseStorage';
 import { extractAllMetadataTags } from './metadataExtractor';
 import { interpretMetadata } from '../services/geminiText';
 import { analyzeImageObjective, analyzeImageWithContext } from '../services/geminiVision';
@@ -29,90 +30,142 @@ function showToast(message, type = 'info') {
 /**
  * Get workspace by ID
  */
-function getWorkspace(workspaceId) {
-    const workspaces = getWorkspaces();
+async function getWorkspace(workspaceId) {
+    const workspaces = await getWorkspaces();
     return workspaces.find(w => w.id === workspaceId);
 }
 
 /**
  * Get intelligence level for workspace
  */
-function getIntelligenceLevel(workspaceId) {
-    const workspace = getWorkspace(workspaceId);
+async function getIntelligenceLevel(workspaceId) {
+    const workspace = await getWorkspace(workspaceId);
     return workspace?.intelligenceLevel || 'quick';
+}
+
+/**
+ * Convert a data URL or blob URL to a Blob for Supabase upload.
+ */
+function dataUrlToBlob(dataUrl) {
+    const [header, base64] = dataUrl.split(',');
+    const mime = header.match(/:(.*?);/)?.[1] || 'image/jpeg';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime });
+}
+
+/**
+ * Upload item media (content and/or thumbnail) to Supabase Storage.
+ * Replaces the data URL in item.content / item.thumbnail with the storage path.
+ */
+async function offloadItemMediaToSupabase(item) {
+    let current = { ...item };
+    if (!current.id) current.id = crypto.randomUUID();
+
+    // Upload image content
+    if (current.type === 'image' && typeof current.content === 'string' && current.content.startsWith('data:')) {
+        const blob = dataUrlToBlob(current.content);
+        const path = await uploadMedia(blob, current.id, 'image');
+        current.content = path;
+        current.contentStorage = 'supabase';
+    }
+
+    // Upload link thumbnail
+    if (current.type === 'link' && typeof current.thumbnail === 'string' && current.thumbnail.startsWith('data:')) {
+        const blob = dataUrlToBlob(current.thumbnail);
+        const path = await uploadMedia(blob, current.id, 'thumbnail');
+        current.thumbnail = path;
+        current.thumbnailStorage = 'supabase';
+    }
+
+    return current;
 }
 
 /**
  * Save item with Canvas Intelligence tagging
  * Routes to appropriate tier based on workspace setting
- * 
+ *
  * @param {Object} item - Item to save
- * @param {string|Object|null} projectOrId - Project or project ID
+ * @param {string|Object|null} projectOrId - Project or project ID (legacy, unused)
  * @returns {Object} Saved item with tags
  */
 export async function saveItemWithTags(item, projectOrId = null) {
-    // Get project context
-    let project = projectOrId;
-    if (typeof projectOrId === 'string') {
-        project = getProject(projectOrId);
-    } else if (item.projectId) {
-        project = getProject(item.projectId);
+    let preparedItem = { ...item };
+
+    // FIX: Auto-detect image URLs that came in as 'link' type
+    if (preparedItem.type === 'link' && preparedItem.content && preparedItem.content.match(/\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i)) {
+        console.log('🖼️ Auto-detected image URL, converting type to image');
+        preparedItem.type = 'image';
+    }
+
+    if (
+        preparedItem.type === 'image'
+        && typeof preparedItem.content === 'string'
+        && !preparedItem.content.startsWith('data:')
+    ) {
+        try {
+            preparedItem.content = await imageToBase64(preparedItem.content);
+        } catch (error) {
+            throw new Error(error?.message || 'Could not fetch image.');
+        }
+    }
+
+    // Upload media to Supabase Storage
+    if (preparedItem.type === 'image' || preparedItem.type === 'link') {
+        try {
+            preparedItem = await offloadItemMediaToSupabase(preparedItem);
+        } catch (error) {
+            throw new Error(error?.message || 'Could not upload media to storage.');
+        }
     }
 
     // Get intelligence tier from workspace
-    const intelligenceLevel = getIntelligenceLevel(item.workspaceId);
-
-    // FIX: Auto-detect image URLs that came in as 'link' type
-    if (item.type === 'link' && item.content && item.content.match(/\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i)) {
-        console.log('🖼️ Auto-detected image URL, converting type to image');
-        item.type = 'image';
-    }
+    const intelligenceLevel = await getIntelligenceLevel(preparedItem.workspaceId);
 
     // Step 1: Always extract basic metadata (Quick tier - free)
     let tags = [];
-    console.log(`🏷️ extracting tags for ${item.type} (tier: ${intelligenceLevel})...`);
+    console.log(`🏷️ extracting tags for ${preparedItem.type} (tier: ${intelligenceLevel})...`);
     try {
-        tags = await extractAllMetadataTags(item);
+        tags = await extractAllMetadataTags(preparedItem);
         console.log(`🏷️ extracted ${tags.length} basic tags:`, tags);
     } catch (e) {
         console.warn('Metadata extraction failed:', e);
     }
 
     // Step 2: Smart tier - LLM interprets metadata
-    if (!USE_PRIMITIVE_PIPELINE_ONLY && ['smart', 'ultra'].includes(intelligenceLevel) && item.sourceUrl) {
+    if (!USE_PRIMITIVE_PIPELINE_ONLY && ['smart', 'ultra'].includes(intelligenceLevel) && preparedItem.sourceUrl) {
         try {
-            const filename = item.sourceUrl.split('/').pop() || '';
-            const smartTags = await interpretMetadata(item.sourceUrl, filename);
+            const filename = preparedItem.sourceUrl.split('/').pop() || '';
+            const smartTags = await interpretMetadata(preparedItem.sourceUrl, filename);
             tags = [...new Set([...tags, ...smartTags])];
         } catch (e) {
             console.warn('Smart interpretation failed:', e);
         }
     }
 
-    // Step 3: Add project default tags
-    const projectDefaultTags = project?.tags || [];
-    tags = [...new Set([...tags, ...projectDefaultTags])];
-
-    // Step 4: Create item with tags
+    // Step 3: Create item with tags
     const itemWithTags = {
-        ...item,
+        ...preparedItem,
         objectiveTags: tags,
         contextTags: [],
         tags: tags,
-        intelligenceLevel // Track what tier was applied
+        intelligenceLevel
     };
 
-    // Step 5: Save immediately
-    const savedItem = saveItem(itemWithTags, project);
+    // Step 4: Save to Supabase
+    const savedItem = await saveItem(itemWithTags);
 
     // Stage A primitives run for every image in background.
     if (savedItem.type === 'image') {
         queueStageAPrimitiveAnalysis(savedItem);
     }
 
-    // Step 6: Deep/Ultra - queue vision analysis (background)
-    if (!TEMP_DISABLE_LEGACY_VISION_ANALYSIS && ['deep', 'ultra'].includes(intelligenceLevel) && item.type === 'image') {
-        queueForVisionAnalysis(savedItem, project);
+    // Step 5: Deep/Ultra - queue vision analysis (background)
+    if (!TEMP_DISABLE_LEGACY_VISION_ANALYSIS && ['deep', 'ultra'].includes(intelligenceLevel) && preparedItem.type === 'image') {
+        queueForVisionAnalysis(savedItem, null);
     }
 
     return savedItem;
@@ -121,7 +174,7 @@ export async function saveItemWithTags(item, projectOrId = null) {
 /**
  * Process tags for an existing item
  * Used for items that were saved via extension/content script and bypassed initial tagging
- * 
+ *
  * @param {Object} item - Item to process
  * @returns {Promise<Object>} Updated item with tags
  */
@@ -131,7 +184,7 @@ export async function processItemTags(item) {
     console.log(`🏷️ Processing pending tags for item ${item.id} (${item.type})`);
 
     // Get intelligence tier from workspace
-    const intelligenceLevel = getIntelligenceLevel(item.workspaceId);
+    const intelligenceLevel = await getIntelligenceLevel(item.workspaceId);
 
     // Step 1: always extract basic metadata
     let tags = item.tags || [];
@@ -153,35 +206,25 @@ export async function processItemTags(item) {
         }
     }
 
-    // Step 3: Project defaults (if project exists)
-    if (item.projectId) {
-        const project = getProject(item.projectId);
-        if (project && project.tags) {
-            tags = [...new Set([...tags, ...project.tags])];
-        }
-    }
-
     // Update the item
     const updates = {
         tags: tags,
-        objectiveTags: tags, // Simplified for now, mapped to same
-        needsTagging: false, // Clear flag
+        objectiveTags: tags,
+        needsTagging: false,
         intelligenceLevel
     };
 
-    updateItem(item.id, updates);
+    await updateItem(item.id, updates);
 
     // Stage A primitives run for every image in background.
     if (item.type === 'image') {
         queueStageAPrimitiveAnalysis({ ...item, ...updates });
     }
 
-    // Step 4: Queue vision analysis if needed
+    // Queue vision analysis if needed
     if (!TEMP_DISABLE_LEGACY_VISION_ANALYSIS && ['deep', 'ultra'].includes(intelligenceLevel) && item.type === 'image') {
-        const project = item.projectId ? getProject(item.projectId) : null;
-        // Re-fetch item to ensure we have latest state
         const freshItem = { ...item, ...updates };
-        queueForVisionAnalysis(freshItem, project);
+        queueForVisionAnalysis(freshItem, null);
     }
 
     return { ...item, ...updates };
@@ -230,7 +273,7 @@ async function processVisionQueue() {
                 }));
             }
 
-            updateItem(item.id, {
+            await updateItem(item.id, {
                 objectiveTags: newTags,
                 contextTags,
                 tags: [...newTags, ...contextTags.map(ct => ct.tag)]
@@ -253,10 +296,6 @@ async function processVisionQueue() {
  * @returns {Promise<Object>} Enhanced item
  */
 export async function enhanceItemWithAI(item, project = null) {
-    if (!project && item.projectId) {
-        project = getProject(item.projectId);
-    }
-
     showToast('✨ Running Ultra analysis...', 'info');
 
     try {
@@ -291,7 +330,7 @@ export async function enhanceItemWithAI(item, project = null) {
         }
 
         // Update item
-        const updatedItem = updateItem(item.id, {
+        const updatedItem = await updateItem(item.id, {
             objectiveTags: allTags,
             contextTags,
             tags: [...allTags, ...contextTags.map(ct => ct.tag)],

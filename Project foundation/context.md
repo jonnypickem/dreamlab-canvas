@@ -8,14 +8,72 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 ## Tech Stack
 -   **Web App**: React + Vite + Tailwind CSS
 -   **Browser Extension**: Chrome Manifest V3 (Javascript)
--   **Data Storage**: LocalStorage (Web App) & Chrome Storage (Extension)
+-   **Data Storage**: Supabase (Auth + PostgreSQL + Storage) — migrated from localStorage + IndexedDB
+-   **Auth**: Supabase Auth (email + password)
+-   **Media Storage**: Supabase Storage bucket `dreamlab-media` (private, per-user folders)
 -   **Repository**: [github.com/jonnypickem/dreamlab-canvas](https://github.com/jonnypickem/dreamlab-canvas)
 
 ## Current Status
--   **Status**: Extension Full-Page Capture Save + Toast Feedback Integrated
--   **Last Fix**: Added reliable `Cmd/Ctrl+Shift+P` full-page screenshot flow with auto-open Dreamlab save target, quota-aware compression retry, and in-page lifecycle toasts.
+-   **Status**: Supabase Migration Complete — Cloud Storage + Auth + Extension Integration + Optimistic UI
+-   **Last Major Change**: Full migration from localStorage/IndexedDB to Supabase (Auth + PostgreSQL + Storage). All CRUD operations are async via Supabase. Extension capture flow uses postMessage bridge to authenticated web app. Optimistic UI updates on all item add/delete/update operations.
 
 ## Changelog
+### [0.20.0] - 2026-02-13
+#### Added
+- **Supabase Backend Migration** (`src/lib/supabase.js`, `src/lib/supabaseStorage.js`, `src/lib/storage.js`):
+  - Replaced localStorage + IndexedDB with Supabase Auth + PostgreSQL + Storage.
+  - All storage.js CRUD functions are now async, querying Supabase tables (`items`, `workspaces`, `collections`, `active_contexts`, `primitive_analysis`).
+  - Media uploads go to Supabase Storage bucket `dreamlab-media` with per-user folder structure: `{userId}/images/{itemId}.ext`.
+  - Supabase client initialized with env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`).
+
+- **Auth System** (`src/components/AuthScreen.jsx`, `src/App.jsx`):
+  - Added login/signup UI (email + password) via Supabase Auth.
+  - App gated behind auth: `user === undefined` = loading, `null` = show AuthScreen, truthy = show app.
+  - Session persists across reloads with auto-refresh.
+
+- **Migration Tool** (`src/utils/migrateToSupabase.js`, `src/components/MigrationBanner.jsx`):
+  - One-time migration from localStorage/IndexedDB to Supabase.
+  - Uploads images from IndexedDB to Supabase Storage, inserts metadata rows with mapped IDs.
+  - MigrationBanner shows progress, handles partial errors with "Clear Local Data Anyway" option.
+  - Post-migration auto-switches to workspace containing items.
+
+- **Optimistic UI Updates** (`src/App.jsx`):
+  - All CRUD operations (delete, bulk delete, update, paste, extension save) now update local React state immediately via `setItems()` without waiting for Realtime subscriptions.
+  - Supabase Realtime subscriptions on items/workspaces/collections tables for background sync.
+
+#### Changed
+- **Extension Bridge** (`content.js`, `background.js`, `src/App.jsx`):
+  - Extension no longer writes to localStorage directly.
+  - Flow: `background.js → content.js → window.postMessage('DREAMLAB_SAVE_ITEM') → App.jsx listener → saveItemWithTags → Supabase`.
+  - Extension never touches Supabase directly — the authenticated web app session handles all writes.
+
+- **Image Resolution** (`src/hooks/useResolvedImageSource.js`, `src/utils/imageProxy.js`):
+  - `useResolvedImageSource` hook resolves Supabase storage paths to signed URLs transparently.
+  - `fetchImageViaProxy` handles `idb://`, Supabase storage paths, and regular URLs.
+
+- **Full-Page Screenshot Stitching** (`background.js`):
+  - Hides fixed/sticky elements during capture (prevents header duplication).
+  - Increased scroll settle time (120ms → 300ms).
+  - Verifies actual scroll position (prevents duplicate frames).
+  - Bottom-aligns last frame (prevents gap at page end).
+
+#### Database Schema (Supabase SQL Editor)
+- Tables: `workspaces`, `collections`, `items`, `active_contexts`, `primitive_analysis` — all with RLS policies (SELECT, INSERT, UPDATE, DELETE) using `auth.uid()`.
+- Storage bucket `dreamlab-media` with RLS policies on `storage.objects`.
+- Key lesson: `.insert().select().single()` requires BOTH INSERT and SELECT policies — missing SELECT causes misleading "violates row-level security" error.
+
+#### Problems & Fixes
+- **Problem**: Migration data not visible after migration — default empty workspace created before migration ran.
+- **Fix**: Added `hasLegacyData()` guard to skip default workspace creation; post-migration callback switches to workspace with items.
+- **Problem**: Migration banner reappeared every refresh with 0 progress then disappeared.
+- **Fix**: Added 'partial' state to MigrationBanner showing error details instead of silently going to 'done'.
+- **Problem**: RLS "violates row-level security" on workspace INSERT despite correct INSERT policy.
+- **Fix**: Missing SELECT policy on workspaces table. Created all 4 policy types for all tables.
+- **Problem**: Extension screenshots didn't upload — "message channel closed" error.
+- **Fix**: Reload extension AND close/reopen Dreamlab tab for content script re-injection. Added storage bucket RLS policies.
+- **Problem**: Items didn't appear/disappear without manual page reload.
+- **Fix**: Added optimistic `setItems()` calls after every CRUD operation (handleDelete, handleBulkDelete, handleUpdateItem, extension bridge save, paste handlers).
+
 ### [0.19.43] - 2026-02-13
 #### Added
 - **Full-Page Capture Command + Visibility** (`manifest.json`, `src/components/SettingsModal.jsx`):

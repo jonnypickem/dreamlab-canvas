@@ -33,6 +33,7 @@ import {
 } from "@subframe/core";
 import { getDomainDefaultLinkMode, isTextFirstDomain } from '../utils/linkDomainPolicy';
 import { getLinkViewPreference, setLinkViewPreference } from '../utils/linkTextPreference';
+import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
 const uniqueTags = (tags = []) => [...new Set((tags || []).filter(Boolean))];
 
@@ -179,6 +180,9 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const [linkViewMode, setLinkViewMode] = useState(() => resolveInitialLinkViewMode(item));
     const [tweetEmbedState, setTweetEmbedState] = useState('idle'); // idle | loading | ready | failed
     const [centerLinkText, setCenterLinkText] = useState(true);
+    const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
+    const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
 
     const emitToast = (message, type = 'info') => {
         if (onToast) onToast({ message, type });
@@ -232,11 +236,18 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         localStorage.setItem('dreamlab_image_fit', newFit);
     };
 
-    const workspaces = getWorkspaces();
-    const collections = getCollections();
-    const currentWorkspace = workspaces.find(w => w.id === item.workspaceId);
+    const [modalWorkspaces, setModalWorkspaces] = useState([]);
+    const [modalCollections, setModalCollections] = useState([]);
+    useEffect(() => {
+        let cancelled = false;
+        Promise.all([getWorkspaces(), getCollections()]).then(([ws, cs]) => {
+            if (!cancelled) { setModalWorkspaces(ws); setModalCollections(cs); }
+        });
+        return () => { cancelled = true; };
+    }, [item.id]);
+    const currentWorkspace = modalWorkspaces.find(w => w.id === item.workspaceId);
     const availableCollections = currentWorkspace
-        ? collections.filter((collection) => getCollectionWorkspaceId(collection) === item.workspaceId)
+        ? modalCollections.filter((collection) => getCollectionWorkspaceId(collection) === item.workspaceId)
         : [];
     const linkTextPayload = getLinkTextPayload(item);
     const linkTextReady = linkTextPayload.ready;
@@ -368,13 +379,13 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         };
     }, [tweetEmbedUrl, item.type, linkViewMode]);
 
-    const setAndPersistLinkViewMode = (nextMode) => {
+    const setAndPersistLinkViewMode = async (nextMode) => {
         if (nextMode === 'text' && !linkTextReady) return;
         if (nextMode !== 'text' && nextMode !== 'preview') return;
         setLinkViewMode(nextMode);
         setLinkViewPreference(item?.sourceUrl, nextMode);
-        const updated = updateItem(item.id, { linkViewMode: nextMode });
-        if (onUpdate) onUpdate(updated);
+        const updated = await updateItem(item.id, { linkViewMode: nextMode });
+        if (onUpdate && updated) onUpdate(updated);
     };
 
     const getExportTitle = () => {
@@ -399,12 +410,12 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         .trim()
         .slice(0, 80) || 'export';
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const nextCollectionId = collectionId === 'unassigned' ? null : collectionId;
         const linkViewUpdates = item.type === 'link'
             ? { linkViewMode }
             : {};
-        const updated = updateItem(item.id, {
+        const updated = await updateItem(item.id, {
             content,
             title: title.trim() || null,
             description,
@@ -414,7 +425,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
             collectionId: nextCollectionId,
             ...linkViewUpdates,
         });
-        onUpdate(updated);
+        if (updated) onUpdate(updated);
         onClose();
     };
 
@@ -431,8 +442,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
 
     const handleCopyContent = async () => {
         const imageSource = item.type === 'image'
-            ? item.content
-            : (item.type === 'link' ? item.thumbnail : null);
+            ? (resolvedImageSource || item.content)
+            : (item.type === 'link' ? linkThumbnailSource : null);
 
         if (imageSource) {
             try {
@@ -480,8 +491,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
 
     const handleDownload = async () => {
         const source = item.type === 'image'
-            ? item.content
-            : (item.type === 'link' ? item.thumbnail : null);
+            ? (resolvedImageSource || item.content)
+            : (item.type === 'link' ? linkThumbnailSource : null);
 
         if (!source) {
             emitToast(item.type === 'link' ? 'No thumbnail available for download' : 'Download is only available for images', 'info');
@@ -523,16 +534,16 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         }
     };
 
-    const persistTagState = (nextObjectiveTags, nextContextTags, nextSearchTags) => {
+    const persistTagState = async (nextObjectiveTags, nextContextTags, nextSearchTags) => {
         setObjectiveTagsState(nextObjectiveTags);
         setContextTagsState(nextContextTags);
         setSearchTagsState(nextSearchTags);
-        const updated = updateItem(item.id, {
+        const updated = await updateItem(item.id, {
             objectiveTags: nextObjectiveTags,
             contextTags: nextContextTags,
             tags: nextSearchTags,
         });
-        if (onUpdate) onUpdate(updated);
+        if (onUpdate && updated) onUpdate(updated);
     };
 
     const handleRemoveObjectiveTag = (tagToRemove) => {
@@ -611,7 +622,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 "w-full h-full transition-all duration-300",
                                 imageFit === 'cover' ? "object-cover" : "object-contain p-4"
                             )}
-                            src={item.content}
+                            src={resolvedImageSource || item.content}
                             alt="Preview"
                         />
                     ) : item.type === 'link' ? (
@@ -666,9 +677,9 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                                 </div>
                                             ) : null}
                                         </div>
-                                    ) : item.thumbnail ? (
+                                    ) : linkThumbnailSource ? (
                                         <img
-                                            src={item.thumbnail}
+                                            src={linkThumbnailSource}
                                             className="max-w-full max-h-[72%] rounded-lg shadow-md object-contain"
                                             alt="Thumbnail"
                                         />
@@ -889,7 +900,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             >
                                 Copy
                             </Button>
-                            {(item.type === 'image' || (item.type === 'link' && item.thumbnail)) ? (
+                            {(item.type === 'image' || (item.type === 'link' && linkThumbnailSource)) ? (
                                 <Button
                                     variant="neutral-secondary"
                                     className="flex-1"

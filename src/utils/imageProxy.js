@@ -2,6 +2,8 @@
  * Utility to create a proxy URL for fetching external images
  * This bypasses CORS restrictions by routing through our backend
  */
+import { getMediaBlob, isMediaStoreRef } from '../lib/mediaStore';
+import { getMediaUrl, isSupabaseStoragePath } from '../lib/supabaseStorage';
 
 const PROXY_ENDPOINT = '/api/proxy';
 
@@ -13,6 +15,8 @@ export function isExternalUrl(url) {
     if (url.startsWith('data:')) return false;
     if (url.startsWith('/')) return false;
     if (url.startsWith('blob:')) return false;
+    if (isMediaStoreRef(url)) return false;
+    if (isSupabaseStoragePath(url)) return false;
     return url.startsWith('http://') || url.startsWith('https://');
 }
 
@@ -34,6 +38,21 @@ export function getProxyUrl(url) {
  * @returns {Promise<Blob>} - The image blob
  */
 export async function fetchImageViaProxy(url) {
+    if (isMediaStoreRef(url)) {
+        const blob = await getMediaBlob(url);
+        if (!blob) throw new Error('Stored image blob not found');
+        return blob;
+    }
+
+    // Resolve Supabase storage paths to signed URLs
+    if (isSupabaseStoragePath(url)) {
+        const signedUrl = await getMediaUrl(url);
+        if (!signedUrl) throw new Error('Could not resolve storage path');
+        const response = await fetch(signedUrl);
+        if (!response.ok) throw new Error(`Failed to fetch from storage: ${response.status}`);
+        return response.blob();
+    }
+
     const fetchUrl = isExternalUrl(url) ? getProxyUrl(url) : url;
 
     const response = await fetch(fetchUrl);
@@ -51,7 +70,7 @@ export async function fetchImageViaProxy(url) {
  */
 export async function imageToBase64(url) {
     // If already base64, return as-is
-    if (url.startsWith('data:')) {
+    if (url && url.startsWith('data:')) {
         return url;
     }
 

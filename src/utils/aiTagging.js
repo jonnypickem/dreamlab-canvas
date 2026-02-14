@@ -6,6 +6,7 @@
 import { analyzeImageObjective, analyzeImageWithContext, estimateCost } from '../services/geminiVision';
 import { extractAllMetadataTags } from './metadataExtractor';
 import { updateItem, getItems } from '../lib/storage';
+import { imageToBase64 } from './imageProxy';
 
 // Enhancement queue for background processing
 const enhancementQueue = [];
@@ -161,13 +162,14 @@ export async function enhanceSingleImage(item, project = null) {
         item.objectiveTags = [...new Set([...item.objectiveTags, ...metadataTags])];
 
         // Get objective AI tags
-        const objectiveAITags = await analyzeImageObjective(item.content);
+        const imageBase64 = await imageToBase64(item.content);
+        const objectiveAITags = await analyzeImageObjective(imageBase64);
         item.objectiveTags = [...new Set([...item.objectiveTags, ...objectiveAITags])];
 
         // Get context AI tags if project has description
         let contextCount = 0;
         if (project?.description) {
-            const contextTags = await analyzeImageWithContext(item.content, project);
+            const contextTags = await analyzeImageWithContext(imageBase64, project);
 
             item.contextTags = contextTags.map(tag => ({
                 tag,
@@ -221,7 +223,10 @@ export async function enhanceBatchImages(items, project = null) {
 
         // Analyze samples for objective tags in parallel
         const objectiveResults = await Promise.all(
-            samples.map(item => analyzeImageObjective(item.content))
+            samples.map(async (sample) => {
+                const imageBase64 = await imageToBase64(sample.content);
+                return analyzeImageObjective(imageBase64);
+            })
         );
 
         // Find common objective tags
@@ -255,7 +260,10 @@ export async function enhanceBatchImages(items, project = null) {
         // Context tags if project has description
         if (project?.description) {
             const contextResults = await Promise.all(
-                samples.map(item => analyzeImageWithContext(item.content, project))
+                samples.map(async (sample) => {
+                    const imageBase64 = await imageToBase64(sample.content);
+                    return analyzeImageWithContext(imageBase64, project);
+                })
             );
 
             const commonContextTags = findCommonTags(contextResults, 0.5);

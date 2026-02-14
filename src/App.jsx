@@ -6,13 +6,20 @@ import {
     getCollections,
     createCollection,
     deleteCollection,
+    deleteItem as deleteItemFromDb,
     getCollectionWorkspaceId,
     updateCollection,
     createWorkspace,
     getActiveContext,
     setActiveContext,
-    updateItem
+    updateItem,
+    loadPrimitiveAnalysisStore,
+    getPrimitiveAnalysisStore
 } from './lib/storage';
+import { supabase } from './lib/supabase';
+import AuthScreen from './components/AuthScreen';
+import MigrationBanner from './components/MigrationBanner';
+import { hasLegacyData } from './utils/migrateToSupabase';
 import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './components/Sidebar';
 import WorkspaceStrip from './components/WorkspaceStrip';
@@ -23,8 +30,7 @@ import { exportItemsAsZip } from './utils/zipExport';
 import saveAs from 'file-saver';
 import { fetchImageViaProxy } from './utils/imageProxy';
 import { saveItemWithTags, setToastCallback, processItemTags } from './utils/saveItemWithTags';
-import { compactImageStorage } from './utils/storageCompaction';
-import { getPrimitiveAnalysisStore } from './lib/storage';
+import { deleteMedia } from './lib/supabaseStorage';
 import { getPrimitiveVersionMap } from './services/analysisSchemaRegistry';
 import { getImageAnalysisStatus } from './utils/analysisStatus';
 import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveAnalysis';
@@ -45,6 +51,7 @@ import { FeatherChevronLeft, FeatherChevronRight, FeatherLayoutGrid, FeatherSqua
 const STAGE_A_AUTO_BACKFILL_ENABLED = true;
 
 function App() {
+    const [user, setUser] = useState(undefined); // undefined = loading, null = no auth
     const [items, setItems] = useState([]);
     const [workspaces, setWorkspaces] = useState([]);
     const [collections, setCollections] = useState([]);
@@ -163,12 +170,17 @@ function App() {
     }, [analysisBackfillCandidates]);
 
 
-    const loadData = () => {
-        const ws = getWorkspaces();
-        const c = getCollections();
-        const ctx = getActiveContext();
+    const loadData = async () => {
+        const [ws, c, ctx, fetchedItems] = await Promise.all([
+            getWorkspaces(),
+            getCollections(),
+            getActiveContext(),
+            getItems(),
+        ]);
 
-        setItems(getItems());
+        await loadPrimitiveAnalysisStore();
+
+        setItems(fetchedItems);
         setWorkspaces(ws);
         setCollections(c);
 
@@ -185,41 +197,105 @@ function App() {
             } else {
                 setSelectedCollectionId(null);
             }
-        } else if (ws.length > 0) { // If no valid context, or context workspace invalid, default to first workspace
+        } else if (ws.length > 0) {
             setActiveWorkspaceId(ws[0].id);
             setSelectedCollectionId(null);
-        } else {
-            // No workspaces exist -> Create default "Dreamlab" workspace
-            // This will trigger storage-update event, causing loadData to run again
-            createWorkspace('Dreamlab');
+        } else if (!hasLegacyData()) {
+            // No workspaces exist and no legacy data to migrate -> Create default "Dreamlab" workspace
+            const created = await createWorkspace('Dreamlab');
+            if (created) {
+                setActiveWorkspaceId(created.id);
+                setWorkspaces([created]);
+            }
         }
     };
 
-    // Persist active context whenever it changes
+    // Auth state listener
     useEffect(() => {
-        if (activeWorkspaceId) {
-            setActiveContext(activeWorkspaceId, selectedCollectionId);
-        }
-    }, [activeWorkspaceId, selectedCollectionId]);
-
-    useEffect(() => {
-        loadData();
-
-        // Listen for local changes
-        window.addEventListener('storage-update', loadData);
-
-        // Listen for storage changes
-        window.addEventListener('storage', (e) => {
-            if (['dreamlab_items', 'dreamlab_workspaces', 'dreamlab_collections', 'dreamlab_active_context'].includes(e.key) || e.key === null) {
-                loadData();
-            }
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setUser(session?.user ?? null);
         });
 
-        return () => {
-            window.removeEventListener('storage-update', loadData);
-            window.removeEventListener('storage', loadData);
-        };
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
+
+    // Persist active context whenever it changes
+    useEffect(() => {
+        if (activeWorkspaceId && user) {
+            setActiveContext(activeWorkspaceId, selectedCollectionId);
+        }
+    }, [activeWorkspaceId, selectedCollectionId, user]);
+
+    // Load data when user is authenticated
+    useEffect(() => {
+        if (!user) return;
+        loadData();
+
+        // Subscribe to Supabase Realtime for live updates
+        const channel = supabase
+            .channel('dreamlab-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => loadData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'workspaces' }, () => loadData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'collections' }, () => loadData())
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [user]);
+
+    // Extension bridge: listen for postMessage from content.js
+    useEffect(() => {
+        if (!user) return;
+
+        const handleMessage = async (event) => {
+            if (event.source !== window) return;
+
+            if (event.data?.type === 'DREAMLAB_SAVE_ITEM') {
+                const { item, responseChannel } = event.data;
+                console.log('[ExtBridge] Received DREAMLAB_SAVE_ITEM', { type: item?.type, sourceUrl: item?.sourceUrl?.slice(0, 60), hasContent: !!item?.content });
+                try {
+                    const saved = await saveItemWithTags({
+                        ...item,
+                        workspaceId: item.workspaceId || activeWorkspaceId,
+                        collectionId: item.collectionId || (selectedCollectionId === '__unsorted__' ? null : selectedCollectionId),
+                    }, null);
+                    console.log('[ExtBridge] Save succeeded', saved?.id);
+                    if (saved) {
+                        setItems((prev) => [saved, ...prev]);
+                    }
+                    window.postMessage({ type: responseChannel, payload: { success: true, itemId: saved.id } }, '*');
+                } catch (error) {
+                    console.error('[ExtBridge] Save failed', error);
+                    window.postMessage({ type: responseChannel, payload: { success: false, error: error?.message || 'Save failed' } }, '*');
+                }
+            }
+
+            if (event.data?.type === 'DREAMLAB_GET_ORG_DATA') {
+                const { responseChannel } = event.data;
+                window.postMessage({
+                    type: responseChannel,
+                    payload: {
+                        success: true,
+                        workspaces,
+                        projects: [],
+                        collections,
+                        activeContext: {
+                            workspaceId: activeWorkspaceId,
+                            collectionId: selectedCollectionId,
+                        },
+                    },
+                }, '*');
+            }
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, [user, activeWorkspaceId, selectedCollectionId, workspaces, collections]);
 
     useEffect(() => {
         if (!selectedCollectionId || selectedCollectionId === '__unsorted__') {
@@ -233,6 +309,7 @@ function App() {
             setSelectedCollectionId(null);
         }
     }, [collections, selectedCollectionId, activeWorkspaceId]);
+
 
     // Tagging Processing Effect
     useEffect(() => {
@@ -391,76 +468,32 @@ function App() {
                 return;
             }
 
-            // Basic large image warning
-            if (blob.size > 5 * 1024 * 1024) {
-                // In a real app we might compress here or show a dialog.
-                // For now, let's just warn via toast but attempt save if possible, or skip compression for simplicity if too complex for this turn.
-                // The plan included compression logic. Let's add it.
-                setToast({ message: 'Compressing image...', type: 'info' });
-            }
+            try {
+                // Compress large images before upload
+                const compressedBlob = blob.size > 2 * 1024 * 1024
+                    ? await compressImage(blob, { maxDimension: 1600, quality: 0.78, mimeType: 'image/jpeg' })
+                    : blob;
 
-            const attempts = [
-                { maxDimension: 1600, quality: 0.78, mimeType: 'image/jpeg' },
-                { maxDimension: 1200, quality: 0.66, mimeType: 'image/jpeg' },
-                { maxDimension: 900, quality: 0.56, mimeType: 'image/jpeg' },
-                { maxDimension: 700, quality: 0.5, mimeType: 'image/jpeg' },
-            ];
-            let attemptedCompaction = false;
-
-            for (let i = 0; i < attempts.length; i++) {
-                try {
-                    const compressedBlob = await compressImage(blob, attempts[i]);
-                    const base64 = await blobToDataUrl(compressedBlob);
-                    if (!base64 || typeof base64 !== 'string') {
-                        throw new Error('Failed to parse pasted image');
-                    }
-
-                    const newItem = {
-                        type: 'image',
-                        content: base64,
-                        sourceUrl: 'clipboard',
-                        workspaceId: activeWorkspaceId,
-                        projectId: null,
-                        collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                        tags: [],
-                        createdAt: Date.now()
-                    };
-                    await saveItemWithTags(newItem, null);
-                    setToast({ message: 'Image pasted', type: 'success' });
-                    return;
-                } catch (error) {
-                    const isQuota = isQuotaExceededError(error);
-                    const isLastAttempt = i === attempts.length - 1;
-
-                    if (isQuota && !attemptedCompaction) {
-                        attemptedCompaction = true;
-                        try {
-                            const { compactedCount } = await compactImageStorage({
-                                targetFreedBytes: 900 * 1024,
-                                maxItemsToProcess: 40,
-                            });
-                            if (compactedCount > 0) {
-                                i -= 1;
-                                continue;
-                            }
-                        } catch {
-                            // Fall through to regular handling.
-                        }
-                    }
-
-                    if (isQuota && !isLastAttempt) {
-                        continue;
-                    }
-                    if (isQuota && isLastAttempt) {
-                        setToast({
-                            message: 'Storage is full. Delete/export older images before pasting more.',
-                            type: 'error'
-                        });
-                        return;
-                    }
-                    setToast({ message: error?.message || 'Failed to paste image', type: 'error' });
-                    return;
+                const base64 = await blobToDataUrl(compressedBlob);
+                if (!base64 || typeof base64 !== 'string') {
+                    throw new Error('Failed to parse pasted image');
                 }
+
+                const newItem = {
+                    type: 'image',
+                    content: base64,
+                    sourceUrl: 'clipboard',
+                    workspaceId: activeWorkspaceId,
+                    projectId: null,
+                    collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+                    tags: [],
+                    createdAt: Date.now()
+                };
+                const saved = await saveItemWithTags(newItem, null);
+                if (saved) setItems((prev) => [saved, ...prev]);
+                setToast({ message: 'Image pasted', type: 'success' });
+            } catch (error) {
+                setToast({ message: error?.message || 'Failed to paste image', type: 'error' });
             }
         };
 
@@ -487,11 +520,6 @@ function App() {
             });
         };
 
-        const isQuotaExceededError = (error) => {
-            return error?.name === 'QuotaExceededError'
-                || error?.code === 22
-                || /quota/i.test(error?.message || '');
-        };
 
         const compressImage = async (blob, options = {}) => {
             const {
@@ -560,8 +588,14 @@ function App() {
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
                 createdAt: Date.now()
             };
-            saveItemWithTags(newItem, null);
-            setToast({ message: 'Link pasted', type: 'success' });
+            try {
+                const saved = await saveItemWithTags(newItem, null);
+                if (saved) setItems((prev) => [saved, ...prev]);
+                setToast({ message: 'Link pasted', type: 'success' });
+            } catch (error) {
+                setToast({ message: error?.message || 'Failed to paste link', type: 'error' });
+                return;
+            }
 
             // Could attempt to fetch OG image from backend here if setup,
             // currently extension handles scraping. Web app has limited CORS ability.
@@ -583,47 +617,61 @@ function App() {
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
                 createdAt: Date.now()
             };
-            saveItemWithTags(newItem, null);
-            setToast({ message: 'Text pasted', type: 'success' });
+            try {
+                const saved = await saveItemWithTags(newItem, null);
+                if (saved) setItems((prev) => [saved, ...prev]);
+                setToast({ message: 'Text pasted', type: 'success' });
+            } catch (error) {
+                setToast({ message: error?.message || 'Failed to paste text', type: 'error' });
+                return;
+            }
         };
 
         document.addEventListener('paste', handlePaste);
         return () => document.removeEventListener('paste', handlePaste);
     }, [activeWorkspaceId, selectedCollectionId]);
 
-    const handleClear = () => {
-        clearItems();
-        localStorage.removeItem('dreamlab_workspaces');
-        localStorage.removeItem('dreamlab_projects');
-        localStorage.removeItem('dreamlab_collections');
-        localStorage.removeItem('dreamlab_active_context');
-        loadData();
+    const handleClear = async () => {
+        try {
+            await clearItems();
+        } catch (err) {
+            console.error('clearItems failed:', err);
+        }
+        await loadData();
     };
 
-    const handleDelete = (id) => {
-        // Read fresh from localStorage to avoid stale state
-        const currentItems = getItems();
-        const updated = currentItems.filter(i => i.id !== id);
-        localStorage.setItem('dreamlab_items', JSON.stringify(updated));
-        window.dispatchEvent(new Event('storage-update'));
+    const handleDelete = async (id) => {
+        const removedItem = items.find((item) => item.id === id);
+        try {
+            await deleteItemFromDb(id);
+            setItems((prev) => prev.filter((item) => item.id !== id));
+            // Clean up storage media if it was a Supabase path
+            if (removedItem?.content && !removedItem.content.startsWith('data:') && !removedItem.content.startsWith('http')) {
+                void deleteMedia(removedItem.content).catch(() => {});
+            }
+            if (removedItem?.thumbnail && !removedItem.thumbnail.startsWith('data:') && !removedItem.thumbnail.startsWith('http')) {
+                void deleteMedia(removedItem.thumbnail).catch(() => {});
+            }
+        } catch (err) {
+            console.error('handleDelete failed:', err);
+        }
     };
 
-    const handleUpdateItem = (id, updates) => {
-        updateItem(id, updates);
-        // loadData is triggered by event, but we can optimistically update if needed
-        // For now, reliance on event listener is fine
+    const handleUpdateItem = async (id, updates) => {
+        try {
+            const updated = await updateItem(id, updates);
+            if (updated) {
+                setItems((prev) => prev.map((item) => item.id === id ? updated : item));
+            }
+        } catch (err) {
+            console.error('handleUpdateItem failed:', err);
+        }
     };
 
     const getWorkspaceName = (id) => {
         const ws = workspaces.find(ws => ws.id === id);
         return ws ? ws.name : null;
     };
-
-    const isQuotaExceededError = (error) => (
-        error?.name === 'QuotaExceededError'
-        || error?.code === 22
-        || /quota/i.test(error?.message || '')
-    );
 
     const getDefaultCollectionName = () => {
         const base = 'New Collection';
@@ -665,7 +713,7 @@ function App() {
         setEditingItem(liveItem);
     }, [items]);
 
-    const handleCanvasTitleSave = useCallback(() => {
+    const handleCanvasTitleSave = useCallback(async () => {
         if (!activeCollection || !activeCollection.id || activeCollection.id === '__unsorted__') {
             setIsCanvasTitleEditing(false);
             return;
@@ -676,7 +724,7 @@ function App() {
             setIsCanvasTitleEditing(false);
             return;
         }
-        const updated = updateCollection(activeCollection.id, { name: nextName });
+        const updated = await updateCollection(activeCollection.id, { name: nextName });
         if (updated) {
             setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
         }
@@ -704,36 +752,12 @@ function App() {
 
         const finalName = String(requestedName || '').trim() || suggestedName;
 
-        const tryCreateCollection = () => createCollection(activeWorkspaceId, finalName);
-
         try {
-            const created = tryCreateCollection();
+            const created = await createCollection(activeWorkspaceId, finalName);
             if (!created) throw new Error('Collection was not created.');
             setSelectedCollectionId(created.id);
             setToast({ message: `Created collection "${created.name}"`, type: 'success' });
         } catch (error) {
-            if (isQuotaExceededError(error)) {
-                try {
-                    const { compactedCount } = await compactImageStorage({
-                        targetFreedBytes: 700 * 1024,
-                        maxItemsToProcess: 30,
-                    });
-
-                    if (compactedCount > 0) {
-                        const created = tryCreateCollection();
-                        if (created) {
-                            setSelectedCollectionId(created.id);
-                            setToast({ message: `Created collection "${created.name}"`, type: 'success' });
-                            return;
-                        }
-                    }
-                } catch {
-                    // Fall through to error toast below.
-                }
-                setToast({ message: 'Storage is full. Export or delete older images, then try again.', type: 'error' });
-                return;
-            }
-
             setToast({ message: error?.message || 'Failed to create collection', type: 'error' });
         }
     };
@@ -817,17 +841,30 @@ function App() {
         [selectedItemsData]
     );
 
-    const handleBulkDelete = useCallback(() => {
+    const handleBulkDelete = useCallback(async () => {
         if (selectedItems.size === 0) return;
 
         const count = selectedItems.size;
-        const currentItems = getItems();
-        const updated = currentItems.filter(item => !selectedItems.has(item.id));
-        localStorage.setItem('dreamlab_items', JSON.stringify(updated));
-        window.dispatchEvent(new Event('storage-update'));
+        const removedItems = items.filter(item => selectedItems.has(item.id));
+
+        try {
+            await Promise.all(removedItems.map(async (item) => {
+                await deleteItemFromDb(item.id);
+                if (item.content && !item.content.startsWith('data:') && !item.content.startsWith('http')) {
+                    void deleteMedia(item.content).catch(() => {});
+                }
+                if (item.thumbnail && !item.thumbnail.startsWith('data:') && !item.thumbnail.startsWith('http')) {
+                    void deleteMedia(item.thumbnail).catch(() => {});
+                }
+            }));
+            setItems((prev) => prev.filter((item) => !selectedItems.has(item.id)));
+        } catch (err) {
+            console.error('handleBulkDelete failed:', err);
+        }
+
         clearSelection();
         setToast({ message: `Deleted ${count} item${count !== 1 ? 's' : ''}`, type: 'success' });
-    }, [selectedItems, clearSelection]);
+    }, [items, selectedItems, clearSelection]);
 
     const handleCopySelection = useCallback(async () => {
         if (selectedItems.size === 0) return;
@@ -847,8 +884,7 @@ function App() {
         }
 
         try {
-            const response = await fetch(imageItem.content);
-            const blob = await response.blob();
+            const blob = await fetchImageViaProxy(imageItem.content);
             let pngBlob = blob;
             if (blob.type !== 'image/png') {
                 const img = new Image();
@@ -954,7 +990,7 @@ function App() {
         }
     }, [items, selectedItems, activeWorkspaceId, clearSelection, safeExportFilename, getExportTitleForItem]);
 
-    const handleAddTags = useCallback(() => {
+    const handleAddTags = useCallback(async () => {
         const tag = prompt('Enter tag to add to selected items:');
         if (!tag || tag.trim() === '') return;
 
@@ -963,15 +999,16 @@ function App() {
             setToast({ message: 'Commas are not allowed in tags', type: 'error' });
             return;
         }
-        selectedItems.forEach(itemId => {
+
+        await Promise.all([...selectedItems].map(async (itemId) => {
             const item = items.find(i => i.id === itemId);
             if (item) {
                 const currentTags = item.tags || [];
                 if (!currentTags.includes(trimmedTag)) {
-                    updateItem(itemId, { tags: [...currentTags, trimmedTag] });
+                    await updateItem(itemId, { tags: [...currentTags, trimmedTag] });
                 }
             }
-        });
+        }));
 
         setToast({ message: `Added tag "${trimmedTag}" to ${selectedItems.size} items`, type: 'success' });
         clearSelection();
@@ -981,11 +1018,40 @@ function App() {
         clearSelection();
     }, [selectedCollectionId, clearSelection]);
 
+    // Auth gating: loading state
+    if (user === undefined) {
+        return (
+            <div className="flex h-screen w-screen items-center justify-center bg-default-background">
+                <span className="text-subtext-color">Loading...</span>
+            </div>
+        );
+    }
+
+    // Auth gating: not logged in
+    if (!user) {
+        return <AuthScreen />;
+    }
+
     return (
         <div
             className="flex h-screen w-screen overflow-hidden bg-default-background pl-[68px]"
             onWheelCapture={handleCanvasModeWheelCapture}
         >
+            <MigrationBanner onComplete={async (res) => {
+                await loadData();
+                // After migration, switch to a workspace that has items
+                if (res && res.workspaces > 0) {
+                    const allWs = await getWorkspaces();
+                    const allItems = await getItems();
+                    const wsWithItems = allWs.find(ws =>
+                        allItems.some(item => item.workspaceId === ws.id)
+                    );
+                    if (wsWithItems) {
+                        setActiveWorkspaceId(wsWithItems.id);
+                        setSelectedCollectionId(null);
+                    }
+                }
+            }} />
             <WorkspaceStrip
                 workspaces={workspaces}
                 activeWorkspaceId={activeWorkspaceId}
@@ -993,9 +1059,9 @@ function App() {
                     setActiveWorkspaceId(workspaceId);
                     setSelectedCollectionId(null);
                 }}
-                onAddWorkspace={() => {
+                onAddWorkspace={async () => {
                     const name = prompt('Workspace Name:');
-                    if (name) createWorkspace(name);
+                    if (name) await createWorkspace(name);
                 }}
                 lockScroll={viewMode === 'canvas'}
             />
@@ -1009,24 +1075,34 @@ function App() {
                 onCollectionSelect={(collectionId) => {
                     setSelectedCollectionId(collectionId);
                 }}
-                onCollectionRename={(collection, nextNameInput) => {
+                onCollectionRename={async (collection, nextNameInput) => {
                     const nextName = typeof nextNameInput === 'string'
                         ? nextNameInput
                         : prompt('Rename collection:', collection?.name || '');
                     if (!nextName || !nextName.trim()) return;
-                    const updated = updateCollection(collection.id, { name: nextName.trim() });
+                    const updated = await updateCollection(collection.id, { name: nextName.trim() });
                     if (updated) {
                         setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
                     }
                 }}
-                onCollectionDelete={(collection) => {
+                onCollectionDelete={async (collection) => {
                     if (!collection?.id) return;
                     const confirmed = window.confirm(
                         `Delete "${collection.name}" and all items inside it? This cannot be undone.`
                     );
                     if (!confirmed) return;
 
-                    deleteCollection(collection.id, { moveItemsToUnsorted: false });
+                    // Delete media for items in this collection
+                    const collectionItems = items.filter((item) => item.collectionId === collection.id);
+                    for (const item of collectionItems) {
+                        if (item.content && !item.content.startsWith('data:') && !item.content.startsWith('http')) {
+                            void deleteMedia(item.content).catch(() => {});
+                        }
+                        if (item.thumbnail && !item.thumbnail.startsWith('data:') && !item.thumbnail.startsWith('http')) {
+                            void deleteMedia(item.thumbnail).catch(() => {});
+                        }
+                    }
+                    await deleteCollection(collection.id, { moveItemsToUnsorted: false });
                     if (selectedCollectionId === collection.id) {
                         setSelectedCollectionId(null);
                     }
