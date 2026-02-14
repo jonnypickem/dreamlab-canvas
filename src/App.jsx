@@ -386,6 +386,40 @@ function App() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [editingItem, filteredItems, selectedItems]);
 
+    // Image utility helpers — used by paste and drag-and-drop
+    const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read image data'));
+        reader.readAsDataURL(blob);
+    });
+
+    const compressImage = (blob, options = {}) => {
+        const { maxDimension = 2000, quality = 0.85, mimeType = 'image/jpeg' } = options;
+        return new Promise((resolve) => {
+            const img = new Image();
+            const url = URL.createObjectURL(blob);
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                if (width > height) {
+                    if (width > maxDimension) { height = height * (maxDimension / width); width = maxDimension; }
+                } else {
+                    if (height > maxDimension) { width = width * (maxDimension / height); height = maxDimension; }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) { URL.revokeObjectURL(url); resolve(blob); return; }
+                ctx.drawImage(img, 0, 0, width, height);
+                canvas.toBlob((b) => { resolve(b || blob); URL.revokeObjectURL(url); }, mimeType, quality);
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); resolve(blob); };
+            img.src = url;
+        });
+    };
+
     // Shared image save helper — used by both paste and drag-and-drop
     const saveImageFromBlob = useCallback(async (blob) => {
         if (!activeWorkspaceId) {
@@ -566,65 +600,7 @@ function App() {
             }
         };
 
-        const blobToDataUrl = async (blob) => {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = () => reject(new Error('Failed to read image data'));
-                reader.readAsDataURL(blob);
-            });
-        };
 
-
-        const compressImage = async (blob, options = {}) => {
-            const {
-                maxDimension = 2000,
-                quality = 0.85,
-                mimeType = 'image/jpeg',
-            } = options;
-            // Simple canvas compression
-            return new Promise((resolve) => {
-                const img = new Image();
-                const url = URL.createObjectURL(blob);
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    let width = img.width;
-                    let height = img.height;
-
-                    if (width > height) {
-                        if (width > maxDimension) {
-                            height = height * (maxDimension / width);
-                            width = maxDimension;
-                        }
-                    } else {
-                        if (height > maxDimension) {
-                            width = width * (maxDimension / height);
-                            height = maxDimension;
-                        }
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    if (!ctx) {
-                        URL.revokeObjectURL(url);
-                        resolve(blob);
-                        return;
-                    }
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    canvas.toBlob((b) => {
-                        resolve(b || blob);
-                        URL.revokeObjectURL(url);
-                    }, mimeType, quality);
-                };
-                img.onerror = () => {
-                    URL.revokeObjectURL(url);
-                    resolve(blob);
-                };
-                img.src = url;
-            });
-        };
 
         const saveLink = async (url) => {
             if (!activeWorkspaceId) {
