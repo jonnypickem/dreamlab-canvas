@@ -589,13 +589,12 @@ const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
 
+  // Accept: Option+Shift (primary), Cmd/Ctrl+Alt, Cmd/Ctrl+Shift (legacy)
+  const isOptionShift = event.altKey && event.shiftKey && !event.metaKey && !event.ctrlKey;
   const mod = event.metaKey || event.ctrlKey;
-  if (!mod) return;
-
-  // Accept both Cmd/Ctrl+Alt (new default) and Cmd/Ctrl+Shift (legacy)
-  const isAltCombo = mod && event.altKey && !event.shiftKey;
-  const isShiftCombo = mod && event.shiftKey && !event.altKey;
-  if (!isAltCombo && !isShiftCombo) return;
+  const isCmdAlt = mod && event.altKey && !event.shiftKey;
+  const isCmdShift = mod && event.shiftKey && !event.altKey;
+  if (!isOptionShift && !isCmdAlt && !isCmdShift) return;
 
   const match = SHORTCUT_MAP.find((s) => s.code === event.code);
   if (!match) return;

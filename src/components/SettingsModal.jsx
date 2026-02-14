@@ -65,10 +65,10 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
         { label: 'Close Modal', keys: ['Esc'] },
         { label: 'Delete Item', keys: ['Backspace'] },
         { label: 'Deselect Items', keys: ['Esc'] },
-        { label: 'Save Page (Ext)', keys: ['Cmd', 'Alt', 'S'] },
-        { label: 'Smart Picker (Ext)', keys: ['Cmd', 'Alt', 'I'] },
-        { label: 'Area Selector (Ext)', keys: ['Cmd', 'Alt', 'Y'] },
-        { label: 'Full Page Screenshot (Ext)', keys: ['Cmd', 'Alt', 'P'] },
+        { label: 'Save Page (Ext)', keys: ['⌥', '⇧', 'S'] },
+        { label: 'Smart Picker (Ext)', keys: ['⌥', '⇧', 'I'] },
+        { label: 'Area Selector (Ext)', keys: ['⌥', '⇧', 'Y'] },
+        { label: 'Full Page Screenshot (Ext)', keys: ['⌥', '⇧', 'P'] },
     ];
 
     return (

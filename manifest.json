@@ -45,29 +45,29 @@
     "commands": {
         "save-page": {
             "suggested_key": {
-                "default": "Ctrl+Alt+S",
-                "mac": "Command+Alt+S"
+                "default": "Alt+Shift+S",
+                "mac": "Alt+Shift+S"
             },
             "description": "Save current page to Dreamlab"
         },
         "capture-visible": {
             "suggested_key": {
-                "default": "Ctrl+Alt+Y",
-                "mac": "Command+Alt+Y"
+                "default": "Alt+Shift+Y",
+                "mac": "Alt+Shift+Y"
             },
             "description": "Open image capture review"
         },
         "capture-full-page": {
             "suggested_key": {
-                "default": "Ctrl+Alt+P",
-                "mac": "Command+Alt+P"
+                "default": "Alt+Shift+P",
+                "mac": "Alt+Shift+P"
             },
             "description": "Capture full page screenshot"
         },
         "smart-picker": {
             "suggested_key": {
-                "default": "Ctrl+Alt+I",
-                "mac": "Command+Alt+I"
+                "default": "Alt+Shift+I",
+                "mac": "Alt+Shift+I"
             },
             "description": "Pick an image or background from page"
         }
