@@ -13,7 +13,9 @@
         "storage",
         "activeTab",
         "tabs",
-        "scripting"
+        "scripting",
+        "tabCapture",
+        "offscreen"
     ],
     "host_permissions": [
         "https://dreamlab-canvas.vercel.app/*",

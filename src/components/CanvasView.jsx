@@ -19,8 +19,8 @@ const parseCanvasNumber = (value) => {
 };
 
 const getDefaultItemSize = (item) => ({
-    w: item.type === 'image' ? 300 : 280,
-    h: item.type === 'image' ? 200 : 160,
+    w: (item.type === 'image' || item.type === 'video') ? 300 : 280,
+    h: (item.type === 'image' || item.type === 'video') ? 200 : 160,
 });
 
 const normalizeOffset = (value, size) => {

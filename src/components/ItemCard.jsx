@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Link as LinkIcon, FileText, Check } from 'lucide-react';
+import { Camera, Link as LinkIcon, FileText, Video, Check } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
@@ -44,6 +44,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
     const getTypeIcon = () => {
         switch (item.type) {
             case 'image': return <Camera size={16} className="text-white" />;
+            case 'video': return <Video size={16} className="text-white" />;
             case 'link': return <LinkIcon size={16} className="text-white" />;
             case 'text': return <FileText size={16} className="text-white" />;
             default: return <LinkIcon size={16} className="text-white" />;
@@ -54,6 +55,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     // Only fall back to raw item.thumbnail if it's already a renderable URL (http/data/blob).
     // Supabase storage paths must be resolved via the hook — don't use them as raw <img> src.
@@ -133,6 +135,27 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                                 alt={item.title || 'Captured Image'}
                                 className={`w-full max-h-[600px] object-cover object-top block ${imgLoaded ? '' : 'hidden'}`}
                                 onLoad={() => setImgLoaded(true)}
+                            />
+                        </>
+                    )}
+
+                    {/* Video Type */}
+                    {item.type === 'video' && (
+                        <>
+                            {!imgLoaded && (
+                                <div className="w-full min-h-[200px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer flex items-center justify-center">
+                                    <Video size={32} className="text-zinc-300" />
+                                </div>
+                            )}
+                            <video
+                                src={resolvedVideoSource || ''}
+                                className={`w-full max-h-[600px] object-cover object-top block ${imgLoaded ? '' : 'hidden'}`}
+                                onLoadedData={() => setImgLoaded(true)}
+                                muted
+                                loop
+                                playsInline
+                                onMouseEnter={(e) => e.target.play()}
+                                onMouseLeave={(e) => { e.target.pause(); e.target.currentTime = 0; }}
                             />
                         </>
                     )}

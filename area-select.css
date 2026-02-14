@@ -1,0 +1,81 @@
+.__dreamlab_area_overlay__ {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483646;
+    cursor: crosshair;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.__dreamlab_area_selection__ {
+    position: absolute;
+    border: 2px solid #ea580c;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    z-index: 2147483646;
+}
+
+.__dreamlab_area_toolbar__ {
+    position: fixed;
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 6px;
+    background: #171717;
+    border: 1px solid #333;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    pointer-events: auto;
+}
+
+.__dreamlab_area_toolbar__ button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+    white-space: nowrap;
+    font-family: inherit;
+    line-height: 1;
+}
+
+.__dreamlab_area_btn_screenshot__ {
+    background: #ea580c;
+    color: #fff;
+}
+.__dreamlab_area_btn_screenshot__:hover {
+    background: #c2410c;
+}
+
+.__dreamlab_area_btn_record__ {
+    background: #dc2626;
+    color: #fff;
+}
+.__dreamlab_area_btn_record__:hover {
+    background: #b91c1c;
+}
+
+.__dreamlab_area_btn_cancel__ {
+    background: transparent;
+    color: #999;
+    padding: 6px 8px;
+}
+.__dreamlab_area_btn_cancel__:hover {
+    color: #fff;
+    background: #333;
+}
+
+.__dreamlab_area_dims__ {
+    color: #888;
+    font-size: 11px;
+    padding: 0 4px;
+    font-variant-numeric: tabular-nums;
+}

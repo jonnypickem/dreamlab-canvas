@@ -582,6 +582,8 @@ const SHORTCUT_MAP = [
   { code: 'KeyC', command: 'capture-visible' },
   { code: 'KeyP', command: 'capture-full-page' },
   { code: 'KeyI', command: 'smart-picker' },
+  { code: 'KeyA', command: 'area-select' },
+  { code: 'KeyR', command: 'area-record' },
 ];
 
 const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);

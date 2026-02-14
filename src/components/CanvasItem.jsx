@@ -44,8 +44,8 @@ const CanvasItem = ({
     isPanMode = false
 }) => {
     // Default dimensions based on type
-    const defaultWidth = item.type === 'image' ? 300 : 280;
-    const defaultHeight = item.type === 'image' ? 200 : 160;
+    const defaultWidth = (item.type === 'image' || item.type === 'video') ? 300 : 280;
+    const defaultHeight = (item.type === 'image' || item.type === 'video') ? 200 : 160;
 
     const [position, setPosition] = useState(() => {
         const fallbackX = parseSize(initialPosition?.x, 120);
@@ -66,13 +66,16 @@ const CanvasItem = ({
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
     const hasSavedSize = hasFiniteNumber(item.canvas?.w) && hasFiniteNumber(item.canvas?.h);
     const mediaSource = item.type === 'image'
         ? (resolvedImageSource || item.content)
-        : (showLinkAsText ? null : linkThumbnailSource);
-    const hasMediaCard = item.type === 'image' || (item.type === 'link' && !showLinkAsText && Boolean(linkThumbnailSource));
+        : item.type === 'video'
+            ? (resolvedVideoSource || '')
+            : (showLinkAsText ? null : linkThumbnailSource);
+    const hasMediaCard = item.type === 'image' || item.type === 'video' || (item.type === 'link' && !showLinkAsText && Boolean(linkThumbnailSource));
     const isResizableCard = hasMediaCard || item.type === 'text';
     const hasAutoSizedFromMediaRef = useRef(false);
     const suppressClickRef = useRef(false);
@@ -273,6 +276,17 @@ const CanvasItem = ({
                             src={resolvedImageSource || item.content}
                             alt={item.title || 'Captured Image'}
                             className="w-full h-full object-contain pointer-events-none bg-white"
+                        />
+                    )}
+
+                    {item.type === 'video' && (
+                        <video
+                            src={resolvedVideoSource || ''}
+                            className="w-full h-full object-contain pointer-events-none bg-white"
+                            muted
+                            loop
+                            playsInline
+                            autoPlay
                         />
                     )}
 

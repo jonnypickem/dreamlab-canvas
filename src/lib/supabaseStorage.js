@@ -13,11 +13,15 @@ export async function uploadMedia(blob, itemId, type = 'image') {
     const userId = await getCurrentUserId();
     if (!userId) throw new Error('Must be authenticated to upload media.');
 
-    const folder = type === 'thumbnail' ? 'thumbnails' : 'images';
+    const folder = type === 'thumbnail' ? 'thumbnails'
+        : type === 'video' ? 'videos'
+            : 'images';
     const ext = blob.type === 'image/png' ? 'png'
         : blob.type === 'image/webp' ? 'webp'
             : blob.type === 'image/gif' ? 'gif'
-                : 'jpg';
+                : blob.type === 'video/webm' ? 'webm'
+                    : blob.type === 'video/mp4' ? 'mp4'
+                        : 'jpg';
     const path = `${userId}/${folder}/${itemId}.${ext}`;
 
     const { error } = await supabase.storage
@@ -121,7 +125,7 @@ export async function deleteMedia(path) {
 export function isSupabaseStoragePath(value) {
     if (!value || typeof value !== 'string') return false;
     // Supabase paths look like "{uuid}/images/{uuid}.jpg"
-    return /^[0-9a-f-]+\/(images|thumbnails)\//.test(value);
+    return /^[0-9a-f-]+\/(images|thumbnails|videos)\//.test(value);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────

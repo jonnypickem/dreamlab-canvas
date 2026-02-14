@@ -181,6 +181,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const [tweetEmbedState, setTweetEmbedState] = useState('idle'); // idle | loading | ready | failed
     const [centerLinkText, setCenterLinkText] = useState(true);
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
 
@@ -492,30 +493,35 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const handleDownload = async () => {
         const source = item.type === 'image'
             ? (resolvedImageSource || item.content)
-            : (item.type === 'link' ? linkThumbnailSource : null);
+            : item.type === 'video'
+                ? (resolvedVideoSource || '')
+                : (item.type === 'link' ? linkThumbnailSource : null);
 
         if (!source) {
-            emitToast(item.type === 'link' ? 'No thumbnail available for download' : 'Download is only available for images', 'info');
+            emitToast(item.type === 'link' ? 'No thumbnail available for download' : 'Download is only available for images and videos', 'info');
             return;
         }
 
         try {
             const blob = await fetchImageViaProxy(source);
             const inferredType = blob.type || '';
-            const ext = inferredType.includes('png') ? 'png'
-                : inferredType.includes('webp') ? 'webp'
-                    : inferredType.includes('gif') ? 'gif'
-                        : inferredType.includes('jpeg') ? 'jpg'
-                            : (source.includes('.png') ? 'png'
-                                : source.includes('.webp') ? 'webp'
-                                    : source.includes('.gif') ? 'gif'
-                                        : 'jpg');
+            const ext = inferredType.includes('webm') ? 'webm'
+                : inferredType.includes('mp4') ? 'mp4'
+                    : inferredType.includes('png') ? 'png'
+                        : inferredType.includes('webp') ? 'webp'
+                            : inferredType.includes('gif') ? 'gif'
+                                : inferredType.includes('jpeg') ? 'jpg'
+                                    : (source.includes('.webm') ? 'webm'
+                                        : source.includes('.png') ? 'png'
+                                            : source.includes('.webp') ? 'webp'
+                                                : source.includes('.gif') ? 'gif'
+                                                    : 'jpg');
             const baseTitle = toSafeFilename(getExportTitle());
             const filename = `${baseTitle}-${item.id.slice(0, 8)}.${ext}`;
             saveAs(blob, filename);
             emitToast(`Downloaded ${filename}`, 'success');
         } catch {
-            emitToast(item.type === 'link' ? 'Failed to download thumbnail' : 'Failed to download image', 'error');
+            emitToast(item.type === 'video' ? 'Failed to download video' : item.type === 'link' ? 'Failed to download thumbnail' : 'Failed to download image', 'error');
         }
     };
 
@@ -616,7 +622,17 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                     )}
 
                     {/* Main Preview Content */}
-                    {item.type === 'image' ? (
+                    {item.type === 'video' ? (
+                        <video
+                            className="w-full h-full object-contain p-4"
+                            src={resolvedVideoSource || ''}
+                            controls
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                        />
+                    ) : item.type === 'image' ? (
                         <img
                             className={SubframeUtils.twClassNames(
                                 "w-full h-full transition-all duration-300",
@@ -900,7 +916,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             >
                                 Copy
                             </Button>
-                            {(item.type === 'image' || (item.type === 'link' && linkThumbnailSource)) ? (
+                            {(item.type === 'image' || item.type === 'video' || (item.type === 'link' && linkThumbnailSource)) ? (
                                 <Button
                                     variant="neutral-secondary"
                                     className="flex-1"

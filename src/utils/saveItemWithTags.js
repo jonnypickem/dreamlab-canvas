@@ -111,6 +111,25 @@ async function offloadItemMediaToSupabase(item) {
 export async function saveItemWithTags(item, projectOrId = null) {
     let preparedItem = { ...item };
 
+    // Video items: upload directly, skip image processing and tagging
+    if (preparedItem.type === 'video') {
+        if (!preparedItem.id) preparedItem.id = crypto.randomUUID();
+        if (typeof preparedItem.content === 'string' && preparedItem.content.startsWith('data:video/')) {
+            const blob = dataUrlToBlob(preparedItem.content);
+            const path = await uploadMedia(blob, preparedItem.id, 'video');
+            preparedItem.content = path;
+            preparedItem.contentStorage = 'supabase';
+        }
+        const savedItem = await saveItem({
+            ...preparedItem,
+            tags: [],
+            objectiveTags: [],
+            contextTags: [],
+            intelligenceLevel: 'quick',
+        });
+        return savedItem;
+    }
+
     // FIX: Auto-detect image URLs that came in as 'link' type
     if (preparedItem.type === 'link' && preparedItem.content && preparedItem.content.match(/\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i)) {
         console.log('🖼️ Auto-detected image URL, converting type to image');

@@ -2028,6 +2028,29 @@ async function executeCommandFromTab(command, tabId) {
       target: { tabId: tab.id },
       files: ['picker.js'],
     });
+    return;
+  }
+
+  if (command === 'area-select' || command === 'area-record') {
+    if (!tab?.id) return;
+    if (isUnsupportedCaptureUrl(tab.url)) {
+      await showInPageToast(tab.id, {
+        message: 'Area capture is not available on this page.',
+        type: 'error',
+        durationMs: 4200,
+      });
+      return;
+    }
+
+    await chrome.scripting.insertCSS({
+      target: { tabId: tab.id },
+      files: ['area-select.css'],
+    });
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['area-select.js'],
+    });
   }
 }
 
@@ -2100,7 +2123,7 @@ async function handleRuntimeMessage(request, sender) {
     }
 
     case ACTIONS.executeCommand: {
-      const validCommands = ['save-page', 'capture-visible', 'capture-full-page', 'smart-picker'];
+      const validCommands = ['save-page', 'capture-visible', 'capture-full-page', 'smart-picker', 'area-select', 'area-record'];
       if (!validCommands.includes(request.command)) {
         return { success: false, error: 'Unknown command.' };
       }
@@ -2130,12 +2153,187 @@ async function handleRuntimeMessage(request, sender) {
       };
     }
 
+    case 'areaScreenshot': {
+      const tab = sender?.tab;
+      if (!tab?.id) return { success: false, error: 'No tab.' };
+
+      try {
+        // Wait for overlay DOM removal to complete
+        await wait(120);
+
+        const dataUrl = await captureVisibleTab(tab.windowId, { format: 'png' });
+
+        // Crop using OffscreenCanvas
+        const { rect, dpr } = request;
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        const bitmap = await createImageBitmap(blob);
+
+        const cropX = Math.round(rect.x * dpr);
+        const cropY = Math.round(rect.y * dpr);
+        const cropW = Math.round(rect.width * dpr);
+        const cropH = Math.round(rect.height * dpr);
+
+        const canvas = new OffscreenCanvas(cropW, cropH);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        bitmap.close();
+
+        const croppedBlob = await canvas.convertToBlob({ type: 'image/png' });
+        const croppedDataUrl = await blobToDataUrl(croppedBlob);
+
+        const destinationTab = await ensureDreamlabTab();
+        const captureItem = {
+          type: 'image',
+          content: croppedDataUrl,
+          title: request.pageTitle || 'Area Screenshot',
+          description: 'Area screenshot captured via Dreamlab extension',
+          sourceUrl: request.pageUrl || '',
+          metadata: {
+            captureType: 'area',
+            width: cropW,
+            height: cropH,
+            mimeType: 'image/png',
+          },
+          timestamp: Date.now(),
+        };
+
+        const saveResult = await queuePendingAndTrySave(captureItem, {
+          targetTabId: destinationTab?.id || null,
+          skipPendingStorage: true,
+        });
+
+        if (saveResult.success) {
+          const dest = await getDreamlabDestinationSummary(
+            saveResult.targetTabId || destinationTab?.id || null
+          );
+          await showInPageToast(tab.id, {
+            message: `Area screenshot saved to ${dest}.`,
+            type: 'success',
+            durationMs: 3400,
+          });
+        } else {
+          await showInPageToast(tab.id, {
+            message: 'Area screenshot saved as pending. Open popup to retry.',
+            type: 'error',
+            durationMs: 4200,
+          });
+        }
+        return { success: saveResult.success };
+      } catch (error) {
+        await showInPageToast(tab.id, {
+          message: error?.message || 'Area screenshot failed.',
+          type: 'error',
+          durationMs: 5000,
+        });
+        return { success: false, error: error?.message };
+      }
+    }
+
+    case 'areaRecord': {
+      const tab = sender?.tab;
+      if (!tab?.id) return { success: false, error: 'No tab.' };
+
+      try {
+        // Wait for overlay DOM removal
+        await wait(150);
+
+        await showInPageToast(tab.id, {
+          message: 'Recording area (10s)...',
+          type: 'info',
+          durationMs: 10000,
+        });
+
+        // Get tab media stream ID for offscreen document
+        const streamId = await chrome.tabCapture.getMediaStreamId({
+          targetTabId: tab.id,
+        });
+
+        // Create offscreen document if not already open
+        const offscreenUrl = chrome.runtime.getURL('offscreen.html');
+        const existingContexts = await chrome.runtime.getContexts({
+          contextTypes: ['OFFSCREEN_DOCUMENT'],
+          documentUrls: [offscreenUrl],
+        });
+        if (existingContexts.length === 0) {
+          await chrome.offscreen.createDocument({
+            url: 'offscreen.html',
+            reasons: ['USER_MEDIA'],
+            justification: 'Record cropped tab video for area capture',
+          });
+        }
+
+        // Send recording request to offscreen document
+        const recordResult = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'startRecording',
+          streamId,
+          rect: request.rect,
+          dpr: request.dpr,
+          maxDurationMs: 10000,
+        });
+
+        if (!recordResult?.success) {
+          throw new Error(recordResult?.error || 'Recording failed.');
+        }
+
+        // Save the video
+        const destinationTab = await ensureDreamlabTab();
+        const videoItem = {
+          type: 'video',
+          content: recordResult.dataUrl,
+          title: request.pageTitle || 'Area Recording',
+          description: 'Area video recorded via Dreamlab extension',
+          sourceUrl: request.pageUrl || '',
+          metadata: {
+            captureType: 'area-video',
+            mimeType: 'video/webm',
+            durationMs: recordResult.durationMs || 10000,
+          },
+          timestamp: Date.now(),
+        };
+
+        const saveResult = await queuePendingAndTrySave(videoItem, {
+          targetTabId: destinationTab?.id || null,
+          skipPendingStorage: true,
+        });
+
+        if (saveResult.success) {
+          const dest = await getDreamlabDestinationSummary(
+            saveResult.targetTabId || destinationTab?.id || null
+          );
+          await showInPageToast(tab.id, {
+            message: `Video saved to ${dest}.`,
+            type: 'success',
+            durationMs: 3400,
+          });
+        } else {
+          await showInPageToast(tab.id, {
+            message: 'Video saved as pending. Open popup to retry.',
+            type: 'error',
+            durationMs: 4200,
+          });
+        }
+        return { success: saveResult.success };
+      } catch (error) {
+        await showInPageToast(tab.id, {
+          message: error?.message || 'Area recording failed.',
+          type: 'error',
+          durationMs: 5000,
+        });
+        return { success: false, error: error?.message };
+      }
+    }
+
     default:
       return { success: false, error: 'Unknown action.' };
   }
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Ignore messages targeted at offscreen document
+  if (request?.target === 'offscreen') return false;
+
   handleRuntimeMessage(request, sender)
     .then((payload) => sendResponse(payload))
     .catch((error) => {
