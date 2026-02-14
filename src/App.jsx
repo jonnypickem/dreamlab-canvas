@@ -497,6 +497,7 @@ function App() {
                 }
 
                 const newItem = {
+                    id: tempId,
                     type: 'image',
                     content: base64,
                     sourceUrl: 'clipboard',
@@ -628,6 +629,7 @@ function App() {
                 }
 
                 const newItem = {
+                    id: tempId,
                     type: 'link',
                     content: url,
                     sourceUrl: url,
