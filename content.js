@@ -572,10 +572,34 @@ function getAllImages() {
   return deepScanImages(false);
 }
 
-// Local in-page shortcut fallback for image review.
+// In-page keyboard shortcut fallbacks.
+// Arc and some Chromium-based browsers do not fire chrome.commands,
+// so we listen for keydown events directly and forward to the background.
+const SHORTCUT_MAP = [
+  { key: 'S', command: 'save-page' },
+  { key: 'Y', command: 'capture-visible' },
+  { key: 'P', command: 'capture-full-page' },
+  { key: 'I', command: 'smart-picker' },
+];
+
 document.addEventListener('keydown', (event) => {
-  if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'Y') {
-    event.preventDefault();
+  if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
+
+  const upper = event.key.toUpperCase();
+  const match = SHORTCUT_MAP.find((s) => s.key === upper);
+  if (!match) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  // capture-visible can also use the local triggerMultiSelect for speed
+  if (match.command === 'capture-visible') {
     triggerMultiSelect();
+    return;
   }
-});
+
+  chrome.runtime.sendMessage({
+    action: 'executeCommand',
+    command: match.command,
+  });
+}, true);

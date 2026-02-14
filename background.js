@@ -25,6 +25,7 @@ const ACTIONS = {
   getDreamlabOrgData: 'getDreamlabOrgData',
   getMultiSelectState: 'getMultiSelectState',
   scanSourceImages: 'scanSourceImages',
+  executeCommand: 'executeCommand',
 };
 
 const CONTENT_ACTIONS = {
@@ -1824,207 +1825,209 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-chrome.commands.onCommand.addListener(async (command) => {
-  try {
-    if (command === 'save-page') {
-      const [tab] = await queryTabs({ active: true, currentWindow: true });
-      if (!tab) return;
+async function executeCommandFromTab(command, tabId) {
+  const tab = tabId
+    ? await chrome.tabs.get(tabId).catch(() => null)
+    : (await queryTabs({ active: true, currentWindow: true }))[0];
+  if (!tab) return;
 
-      let selectedText = '';
-      try {
-        const result = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => String(window.getSelection() || '').trim(),
-        });
-        selectedText = result?.[0]?.result || '';
-      } catch {
-        selectedText = '';
-      }
-
-      if (selectedText) {
-        await queuePendingAndTrySave({
-          type: 'text',
-          content: selectedText,
-          sourceUrl: tab.url,
-          timestamp: Date.now(),
-        });
-      } else {
-        const metadata = await getPageMetadata(tab.id, tab.url);
-        const linkItem = await enrichLinkCapture({
-          type: 'link',
-          content: metadata.title || tab.title || tab.url,
-          title: metadata.title || tab.title || null,
-          description: isUsefulDescription(metadata.description) ? metadata.description : null,
-          thumbnail: metadata.image || null,
-          sourceUrl: tab.url,
-          timestamp: Date.now(),
-        });
-        await queuePendingAndTrySave(linkItem);
-      }
-      return;
+  if (command === 'save-page') {
+    let selectedText = '';
+    try {
+      const result = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => String(window.getSelection() || '').trim(),
+      });
+      selectedText = result?.[0]?.result || '';
+    } catch {
+      selectedText = '';
     }
 
-    if (command === 'capture-visible') {
-      const [tab] = await queryTabs({ active: true, currentWindow: true });
-      if (!tab?.id) return;
+    if (selectedText) {
+      await queuePendingAndTrySave({
+        type: 'text',
+        content: selectedText,
+        sourceUrl: tab.url,
+        timestamp: Date.now(),
+      });
+    } else {
+      const metadata = await getPageMetadata(tab.id, tab.url);
+      const linkItem = await enrichLinkCapture({
+        type: 'link',
+        content: metadata.title || tab.title || tab.url,
+        title: metadata.title || tab.title || null,
+        description: isUsefulDescription(metadata.description) ? metadata.description : null,
+        thumbnail: metadata.image || null,
+        sourceUrl: tab.url,
+        timestamp: Date.now(),
+      });
+      await queuePendingAndTrySave(linkItem);
+    }
+    return;
+  }
 
-      const scan = await requestImageScan(tab.id, 'visible_with_total');
-      await openMultiSelectWindow({
-        sourceTabId: tab.id,
-        sourceUrl: scan.sourceUrl || tab.url || '',
-        visibleImages: scan.visibleImages || [],
-        totalImagesCount: scan.totalCount || 0,
+  if (command === 'capture-visible') {
+    if (!tab?.id) return;
+    const scan = await requestImageScan(tab.id, 'visible_with_total');
+    await openMultiSelectWindow({
+      sourceTabId: tab.id,
+      sourceUrl: scan.sourceUrl || tab.url || '',
+      visibleImages: scan.visibleImages || [],
+      totalImagesCount: scan.totalCount || 0,
+    });
+    return;
+  }
+
+  if (command === 'capture-full-page') {
+    if (!tab?.id) return;
+
+    if (isUnsupportedCaptureUrl(tab.url)) {
+      await showInPageToast(tab.id, {
+        message: 'Full-page capture is not available on this page.',
+        type: 'error',
+        durationMs: 4200,
       });
       return;
     }
 
-    if (command === 'capture-full-page') {
-      const [tab] = await queryTabs({ active: true, currentWindow: true });
-      if (!tab?.id) return;
+    try {
+      await showInPageToast(tab.id, {
+        message: 'Capturing full page...',
+        type: 'info',
+        durationMs: 2400,
+      });
 
-      if (isUnsupportedCaptureUrl(tab.url)) {
-        await showInPageToast(tab.id, {
-          message: 'Full-page capture is not available on this page.',
-          type: 'error',
-          durationMs: 4200,
-        });
-        return;
-      }
-
+      const destinationTab = await ensureDreamlabTab();
+      let screenshot = null;
+      await wait(160);
+      await setInPageToastVisibility(tab.id, false);
       try {
+        screenshot = await captureFullPageScreenshot(tab);
+      } finally {
+        await setInPageToastVisibility(tab.id, true);
+      }
+      const originalByteEstimate = estimateDataUrlBytes(screenshot.dataUrl);
+
+      let captureItem = {
+        type: 'image',
+        content: screenshot.dataUrl,
+        title: tab.title || 'Full Page Screenshot',
+        description: 'Full-page screenshot captured via Dreamlab extension',
+        sourceUrl: tab.url || '',
+        metadata: {
+          captureType: 'full-page',
+          width: screenshot.width,
+          height: screenshot.height,
+          mimeType: screenshot.mimeType || 'image/jpeg',
+          estimatedBytes: originalByteEstimate,
+          originalWidth: screenshot.width,
+          originalHeight: screenshot.height,
+          originalMimeType: screenshot.mimeType || 'image/jpeg',
+        },
+        timestamp: Date.now(),
+      };
+
+      await showInPageToast(tab.id, {
+        message: 'Saving to Dreamlab...',
+        type: 'info',
+        durationMs: 2600,
+      });
+
+      let saveResult = await queuePendingAndTrySave(captureItem, {
+        targetTabId: destinationTab?.id || null,
+        skipPendingStorage: true,
+      });
+
+      let storageErrorType = classifyStorageErrorMessage(saveResult.error);
+      const shouldRetryWithCompression = !saveResult.success
+        && isStorageQuotaErrorMessage(saveResult.error)
+        && storageErrorType === 'localstorage';
+
+      if (shouldRetryWithCompression) {
         await showInPageToast(tab.id, {
-          message: 'Capturing full page...',
+          message: 'Browser localStorage is full. Retrying with stronger compression...',
           type: 'info',
-          durationMs: 2400,
+          durationMs: 3200,
         });
 
-        const destinationTab = await ensureDreamlabTab();
-        let screenshot = null;
-        await wait(160);
-        await setInPageToastVisibility(tab.id, false);
         try {
-          screenshot = await captureFullPageScreenshot(tab);
-        } finally {
-          await setInPageToastVisibility(tab.id, true);
+          const compressedDataUrl = await aggressiveStorageCompression(captureItem.content);
+          if (compressedDataUrl && compressedDataUrl !== captureItem.content) {
+            captureItem = {
+              ...captureItem,
+              content: compressedDataUrl,
+              metadata: {
+                ...captureItem.metadata,
+                compressionRetry: true,
+                compressedEstimatedBytes: estimateDataUrlBytes(compressedDataUrl),
+              },
+            };
+          }
+        } catch {
+          // Keep original capture payload if compression fails.
         }
-        const originalByteEstimate = estimateDataUrlBytes(screenshot.dataUrl);
 
-        let captureItem = {
-          type: 'image',
-          content: screenshot.dataUrl,
-          title: tab.title || 'Full Page Screenshot',
-          description: 'Full-page screenshot captured via Dreamlab extension',
-          sourceUrl: tab.url || '',
-          metadata: {
-            captureType: 'full-page',
-            width: screenshot.width,
-            height: screenshot.height,
-            mimeType: screenshot.mimeType || 'image/jpeg',
-            estimatedBytes: originalByteEstimate,
-            originalWidth: screenshot.width,
-            originalHeight: screenshot.height,
-            originalMimeType: screenshot.mimeType || 'image/jpeg',
-          },
-          timestamp: Date.now(),
-        };
-
-        await showInPageToast(tab.id, {
-          message: 'Saving to Dreamlab...',
-          type: 'info',
-          durationMs: 2600,
-        });
-
-        let saveResult = await queuePendingAndTrySave(captureItem, {
+        saveResult = await queuePendingAndTrySave(captureItem, {
           targetTabId: destinationTab?.id || null,
           skipPendingStorage: true,
         });
+        storageErrorType = classifyStorageErrorMessage(saveResult.error);
+      }
 
-        let storageErrorType = classifyStorageErrorMessage(saveResult.error);
-        const shouldRetryWithCompression = !saveResult.success
-          && isStorageQuotaErrorMessage(saveResult.error)
-          && storageErrorType === 'localstorage';
-
-        if (shouldRetryWithCompression) {
-          await showInPageToast(tab.id, {
-            message: 'Browser localStorage is full. Retrying with stronger compression...',
-            type: 'info',
-            durationMs: 3200,
-          });
-
-          try {
-            const compressedDataUrl = await aggressiveStorageCompression(captureItem.content);
-            if (compressedDataUrl && compressedDataUrl !== captureItem.content) {
-              captureItem = {
-                ...captureItem,
-                content: compressedDataUrl,
-                metadata: {
-                  ...captureItem.metadata,
-                  compressionRetry: true,
-                  compressedEstimatedBytes: estimateDataUrlBytes(compressedDataUrl),
-                },
-              };
-            }
-          } catch {
-            // Keep original capture payload if compression fails.
-          }
-
-          saveResult = await queuePendingAndTrySave(captureItem, {
-            targetTabId: destinationTab?.id || null,
-            skipPendingStorage: true,
-          });
-          storageErrorType = classifyStorageErrorMessage(saveResult.error);
-        }
-
-        if (saveResult.success) {
-          const destinationSummary = await getDreamlabDestinationSummary(
-            saveResult.targetTabId || destinationTab?.id || null
-          );
-          await showInPageToast(tab.id, {
-            message: `Saved to ${destinationSummary}.`,
-            type: 'success',
-            durationMs: 3400,
-          });
-        } else {
-          const errorDetail = String(saveResult.error || '').trim();
-          let message = 'Saved as pending capture; open the Dreamlab Capture popup to retry.';
-          if (storageErrorType === 'indexeddb') {
-            message = 'Could not write screenshot to browser media storage (IndexedDB). Open the Dreamlab Capture popup to retry.';
-          } else if (storageErrorType === 'extension-storage') {
-            message = 'Extension storage (chrome.storage.local) is full. Open the Dreamlab Capture popup to retry.';
-          } else if (storageErrorType === 'localstorage') {
-            message = 'Dreamlab localStorage is full. Open the Dreamlab Capture popup to retry.';
-          }
-          const suffix = errorDetail ? ` (${errorDetail})` : '';
-          await showInPageToast(tab.id, {
-            message: `${message}${suffix}`,
-            type: 'error',
-            durationMs: 5000,
-          });
-        }
-      } catch (error) {
+      if (saveResult.success) {
+        const destinationSummary = await getDreamlabDestinationSummary(
+          saveResult.targetTabId || destinationTab?.id || null
+        );
         await showInPageToast(tab.id, {
-          message: error?.message || 'Full-page capture failed.',
+          message: `Saved to ${destinationSummary}.`,
+          type: 'success',
+          durationMs: 3400,
+        });
+      } else {
+        const errorDetail = String(saveResult.error || '').trim();
+        let message = 'Saved as pending capture; open the Dreamlab Capture popup to retry.';
+        if (storageErrorType === 'indexeddb') {
+          message = 'Could not write screenshot to browser media storage (IndexedDB). Open the Dreamlab Capture popup to retry.';
+        } else if (storageErrorType === 'extension-storage') {
+          message = 'Extension storage (chrome.storage.local) is full. Open the Dreamlab Capture popup to retry.';
+        } else if (storageErrorType === 'localstorage') {
+          message = 'Dreamlab localStorage is full. Open the Dreamlab Capture popup to retry.';
+        }
+        const suffix = errorDetail ? ` (${errorDetail})` : '';
+        await showInPageToast(tab.id, {
+          message: `${message}${suffix}`,
           type: 'error',
           durationMs: 5000,
         });
       }
-      return;
-    }
-
-    if (command === 'smart-picker') {
-      const [tab] = await queryTabs({ active: true, currentWindow: true });
-      if (!tab?.id) return;
-
-      await chrome.scripting.insertCSS({
-        target: { tabId: tab.id },
-        files: ['picker.css'],
-      });
-
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['picker.js'],
+    } catch (error) {
+      await showInPageToast(tab.id, {
+        message: error?.message || 'Full-page capture failed.',
+        type: 'error',
+        durationMs: 5000,
       });
     }
+    return;
+  }
+
+  if (command === 'smart-picker') {
+    if (!tab?.id) return;
+
+    await chrome.scripting.insertCSS({
+      target: { tabId: tab.id },
+      files: ['picker.css'],
+    });
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['picker.js'],
+    });
+  }
+}
+
+chrome.commands.onCommand.addListener(async (command) => {
+  try {
+    await executeCommandFromTab(command);
   } catch (error) {
     console.error('Command handling failed:', error?.message || error);
   }
@@ -2073,6 +2076,15 @@ async function handleRuntimeMessage(request, sender) {
     case ACTIONS.getMultiSelectState: {
       const stored = await getStorage(STORAGE_KEYS.multiSelectState);
       return { success: true, state: stored?.[STORAGE_KEYS.multiSelectState] || null };
+    }
+
+    case ACTIONS.executeCommand: {
+      const validCommands = ['save-page', 'capture-visible', 'capture-full-page', 'smart-picker'];
+      if (!validCommands.includes(request.command)) {
+        return { success: false, error: 'Unknown command.' };
+      }
+      await executeCommandFromTab(request.command, sender?.tab?.id || null);
+      return { success: true };
     }
 
     case ACTIONS.scanSourceImages: {
