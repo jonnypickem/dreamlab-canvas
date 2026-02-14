@@ -131,7 +131,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                             <img
                                 src={resolvedImageSource || item.content}
                                 alt={item.title || 'Captured Image'}
-                                className={`w-full h-auto block ${imgLoaded ? '' : 'hidden'}`}
+                                className={`w-full max-h-[600px] object-cover object-top block ${imgLoaded ? '' : 'hidden'}`}
                                 onLoad={() => setImgLoaded(true)}
                             />
                         </>

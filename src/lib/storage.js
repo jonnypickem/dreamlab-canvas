@@ -217,24 +217,33 @@ export async function updateCollection(id, updates) {
 }
 
 export async function deleteCollection(collectionId, { moveItemsToUnsorted = true } = {}) {
+    // Query items first so the caller can clean up media and local state
+    const { data: collectionItems } = await supabase
+        .from('items')
+        .select('id, content, thumbnail')
+        .eq('collection_id', collectionId);
+
     if (moveItemsToUnsorted) {
-        // Unlink items from this collection
-        await supabase
+        const { error } = await supabase
             .from('items')
             .update({ collection_id: null })
             .eq('collection_id', collectionId);
+        if (error) throw error;
     } else {
-        // Delete items in this collection
-        await supabase
+        const { error } = await supabase
             .from('items')
             .delete()
             .eq('collection_id', collectionId);
+        if (error) throw error;
     }
 
-    await supabase
+    const { error } = await supabase
         .from('collections')
         .delete()
         .eq('id', collectionId);
+    if (error) throw error;
+
+    return { deletedItems: collectionItems || [] };
 }
 
 // ── Items ───────────────────────────────────────────────────────────

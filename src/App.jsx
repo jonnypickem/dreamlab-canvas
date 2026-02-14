@@ -55,8 +55,13 @@ function App() {
     const [items, setItems] = useState([]);
     const [workspaces, setWorkspaces] = useState([]);
     const [collections, setCollections] = useState([]);
-    const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
-    const [selectedCollectionId, setSelectedCollectionId] = useState(null);
+    const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => {
+        try { return localStorage.getItem('dreamlab_nav_workspace') || null; } catch { return null; }
+    });
+    const [selectedCollectionId, setSelectedCollectionId] = useState(() => {
+        try { return localStorage.getItem('dreamlab_nav_collection') || null; } catch { return null; }
+    });
+    const navRestoredRef = useRef(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [editingItem, setEditingItem] = useState(null);
     const [tagFilter, setTagFilter] = useState(null);
@@ -208,6 +213,8 @@ function App() {
                 setWorkspaces([created]);
             }
         }
+
+        navRestoredRef.current = true;
     };
 
     // Auth state listener
@@ -225,9 +232,18 @@ function App() {
 
     // Persist active context whenever it changes
     useEffect(() => {
-        if (activeWorkspaceId && user) {
-            setActiveContext(activeWorkspaceId, selectedCollectionId);
-        }
+        if (!activeWorkspaceId || !user) return;
+        // Skip the first render to avoid overwriting the DB context before loadData restores it
+        if (!navRestoredRef.current) return;
+        try {
+            localStorage.setItem('dreamlab_nav_workspace', activeWorkspaceId);
+            if (selectedCollectionId) {
+                localStorage.setItem('dreamlab_nav_collection', selectedCollectionId);
+            } else {
+                localStorage.removeItem('dreamlab_nav_collection');
+            }
+        } catch { /* ignore */ }
+        setActiveContext(activeWorkspaceId, selectedCollectionId);
     }, [activeWorkspaceId, selectedCollectionId, user]);
 
     // Load data when user is authenticated
@@ -1147,21 +1163,30 @@ function App() {
                     );
                     if (!confirmed) return;
 
-                    // Delete media for items in this collection
-                    const collectionItems = items.filter((item) => item.collectionId === collection.id);
-                    for (const item of collectionItems) {
-                        if (item.content && !item.content.startsWith('data:') && !item.content.startsWith('http')) {
-                            void deleteMedia(item.content).catch(() => {});
+                    try {
+                        const { deletedItems } = await deleteCollection(collection.id, { moveItemsToUnsorted: false });
+
+                        // Clean up media files in storage
+                        for (const item of deletedItems) {
+                            if (item.content && !item.content.startsWith('data:') && !item.content.startsWith('http')) {
+                                void deleteMedia(item.content).catch(() => {});
+                            }
+                            if (item.thumbnail && !item.thumbnail.startsWith('data:') && !item.thumbnail.startsWith('http')) {
+                                void deleteMedia(item.thumbnail).catch(() => {});
+                            }
                         }
-                        if (item.thumbnail && !item.thumbnail.startsWith('data:') && !item.thumbnail.startsWith('http')) {
-                            void deleteMedia(item.thumbnail).catch(() => {});
+
+                        // Update local state immediately
+                        const deletedIds = new Set(deletedItems.map((i) => i.id));
+                        setItems((prev) => prev.filter((item) => !deletedIds.has(item.id)));
+
+                        if (selectedCollectionId === collection.id) {
+                            setSelectedCollectionId(null);
                         }
+                        setToast({ message: `Deleted "${collection.name}" and its items`, type: 'success' });
+                    } catch (error) {
+                        setToast({ message: error?.message || 'Failed to delete collection', type: 'error' });
                     }
-                    await deleteCollection(collection.id, { moveItemsToUnsorted: false });
-                    if (selectedCollectionId === collection.id) {
-                        setSelectedCollectionId(null);
-                    }
-                    setToast({ message: `Deleted collection "${collection.name}" and its items`, type: 'success' });
                 }}
                 onCreateCollection={(collectionName) => {
                     void handleCreateCollection(collectionName);
