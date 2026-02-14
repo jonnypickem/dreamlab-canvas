@@ -624,8 +624,9 @@ function App() {
                 try {
                     const res = await fetch(`/api/og?url=${encodeURIComponent(url)}`);
                     if (res.ok) ogMeta = await res.json();
-                } catch {
-                    // OG fetch failed — save link without metadata
+                    console.log('🔗 OG metadata:', ogMeta);
+                } catch (ogErr) {
+                    console.warn('🔗 OG fetch failed:', ogErr);
                 }
 
                 const newItem = {
@@ -644,6 +645,7 @@ function App() {
                 };
 
                 const saved = await saveItemWithTags(newItem, null);
+                console.log('🔗 Saved item:', { thumbnail: saved?.thumbnail, thumbnailStorage: saved?.thumbnailStorage, title: saved?.title });
                 if (saved) {
                     setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
                 } else {
@@ -651,6 +653,7 @@ function App() {
                 }
                 setToast({ message: 'Link saved', type: 'success' });
             } catch (error) {
+                console.error('🔗 Save failed:', error);
                 setItems((prev) => prev.filter((item) => item.id !== tempId));
                 setToast({ message: error?.message || 'Failed to paste link', type: 'error' });
             }

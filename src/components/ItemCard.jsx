@@ -55,7 +55,10 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
-    const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
+    // Only fall back to raw item.thumbnail if it's already a renderable URL (http/data/blob).
+    // Supabase storage paths must be resolved via the hook — don't use them as raw <img> src.
+    const rawThumbnailIsUrl = item.thumbnail && (item.thumbnail.startsWith('http') || item.thumbnail.startsWith('data:') || item.thumbnail.startsWith('blob:'));
+    const linkThumbnailSource = resolvedLinkThumbnailSource || (rawThumbnailIsUrl ? item.thumbnail : '');
 
     const domainName = (url) => {
         try {
