@@ -468,6 +468,23 @@ function App() {
                 return;
             }
 
+            // Show loading placeholder with instant blob preview
+            const tempId = crypto.randomUUID();
+            const blobUrl = URL.createObjectURL(blob);
+            const placeholderItem = {
+                id: tempId,
+                type: 'image',
+                content: blobUrl,
+                sourceUrl: 'clipboard',
+                workspaceId: activeWorkspaceId,
+                projectId: null,
+                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+                tags: [],
+                createdAt: Date.now(),
+                isLoading: true,
+            };
+            setItems((prev) => [placeholderItem, ...prev]);
+
             try {
                 // Compress large images before upload
                 const compressedBlob = blob.size > 2 * 1024 * 1024
@@ -490,10 +507,17 @@ function App() {
                     createdAt: Date.now()
                 };
                 const saved = await saveItemWithTags(newItem, null);
-                if (saved) setItems((prev) => [saved, ...prev]);
+                if (saved) {
+                    setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
+                } else {
+                    setItems((prev) => prev.filter((item) => item.id !== tempId));
+                }
                 setToast({ message: 'Image pasted', type: 'success' });
             } catch (error) {
+                setItems((prev) => prev.filter((item) => item.id !== tempId));
                 setToast({ message: error?.message || 'Failed to paste image', type: 'error' });
+            } finally {
+                URL.revokeObjectURL(blobUrl);
             }
         };
 
@@ -577,8 +601,10 @@ function App() {
                 return;
             }
 
-            // Initial placeholder item
-            const newItem = {
+            // Show loading placeholder immediately
+            const tempId = crypto.randomUUID();
+            const placeholderItem = {
+                id: tempId,
                 type: 'link',
                 content: url,
                 sourceUrl: url,
@@ -586,20 +612,46 @@ function App() {
                 workspaceId: activeWorkspaceId,
                 projectId: null,
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                isLoading: true,
             };
-            try {
-                const saved = await saveItemWithTags(newItem, null);
-                if (saved) setItems((prev) => [saved, ...prev]);
-                setToast({ message: 'Link pasted', type: 'success' });
-            } catch (error) {
-                setToast({ message: error?.message || 'Failed to paste link', type: 'error' });
-                return;
-            }
+            setItems((prev) => [placeholderItem, ...prev]);
 
-            // Could attempt to fetch OG image from backend here if setup,
-            // currently extension handles scraping. Web app has limited CORS ability.
-            // We'll save it as a link and let the link card handle display logic (fallback to icon).
+            try {
+                // Fetch OG metadata in the background
+                let ogMeta = { title: null, image: null, description: null };
+                try {
+                    const res = await fetch(`/api/og?url=${encodeURIComponent(url)}`);
+                    if (res.ok) ogMeta = await res.json();
+                } catch {
+                    // OG fetch failed — save link without metadata
+                }
+
+                const newItem = {
+                    type: 'link',
+                    content: url,
+                    sourceUrl: url,
+                    title: ogMeta.title || null,
+                    description: ogMeta.description || null,
+                    thumbnail: ogMeta.image || null,
+                    linkViewMode: 'preview',
+                    workspaceId: activeWorkspaceId,
+                    projectId: null,
+                    collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+                    createdAt: Date.now(),
+                };
+
+                const saved = await saveItemWithTags(newItem, null);
+                if (saved) {
+                    setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
+                } else {
+                    setItems((prev) => prev.filter((item) => item.id !== tempId));
+                }
+                setToast({ message: 'Link saved', type: 'success' });
+            } catch (error) {
+                setItems((prev) => prev.filter((item) => item.id !== tempId));
+                setToast({ message: error?.message || 'Failed to paste link', type: 'error' });
+            }
         };
 
         const saveText = async (text) => {

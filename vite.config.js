@@ -23,6 +23,68 @@ function imageProxyPlugin() {
     configureServer(server) {
       // Register middleware before Vite's internal middleware
       server.middlewares.use(async (req, res, next) => {
+        // OG metadata endpoint (mirrors api/og.js serverless function)
+        if (req.url?.startsWith('/api/og')) {
+          const parsedUrl = new URL(req.url, 'http://localhost')
+          const targetUrl = parsedUrl.searchParams.get('url')
+
+          if (!targetUrl) {
+            res.statusCode = 400
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Missing url parameter' }))
+            return
+          }
+
+          try {
+            const response = await fetch(targetUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml',
+              },
+              signal: AbortSignal.timeout(8000),
+            })
+
+            if (!response.ok) {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ title: null, image: null, description: null }))
+              return
+            }
+
+            const html = await response.text()
+
+            const getMetaMatch = (property) => {
+              const regex = new RegExp(
+                `<meta[^>]*property=["'](?:og:|twitter:)?${property}["'][^>]*content=["']([^"']+)["']|<meta[^>]*content=["']([^"']+)["'][^>]*property=["'](?:og:|twitter:)?${property}["']`,
+                'i'
+              )
+              const match = html.match(regex)
+              return match ? (match[1] || match[2]) : null
+            }
+
+            const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
+            const title = getMetaMatch('title') || (titleMatch ? titleMatch[1] : null)
+            let image = getMetaMatch('image:secure_url') || getMetaMatch('image:url') || getMetaMatch('image')
+
+            if (image && !image.startsWith('http')) {
+              try { image = new URL(image, targetUrl).href } catch { image = null }
+            }
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({
+              title: title || null,
+              image: image || null,
+              description: getMetaMatch('description') || null,
+            }))
+          } catch {
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ title: null, image: null, description: null }))
+          }
+          return
+        }
+
         if (req.url?.startsWith('/api/stagea')) {
           res.setHeader('Access-Control-Allow-Origin', '*')
           res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')

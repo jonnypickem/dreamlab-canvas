@@ -73,12 +73,28 @@ async function offloadItemMediaToSupabase(item) {
         current.contentStorage = 'supabase';
     }
 
-    // Upload link thumbnail
-    if (current.type === 'link' && typeof current.thumbnail === 'string' && current.thumbnail.startsWith('data:')) {
-        const blob = dataUrlToBlob(current.thumbnail);
-        const path = await uploadMedia(blob, current.id, 'thumbnail');
-        current.thumbnail = path;
-        current.thumbnailStorage = 'supabase';
+    // Upload link thumbnail (data URL or HTTP URL)
+    if (current.type === 'link' && typeof current.thumbnail === 'string') {
+        if (current.thumbnail.startsWith('data:')) {
+            const blob = dataUrlToBlob(current.thumbnail);
+            const path = await uploadMedia(blob, current.id, 'thumbnail');
+            current.thumbnail = path;
+            current.thumbnailStorage = 'supabase';
+        } else if (current.thumbnail.startsWith('http')) {
+            try {
+                const response = await fetch(current.thumbnail);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    if (blob.type?.startsWith('image/')) {
+                        const path = await uploadMedia(blob, current.id, 'thumbnail');
+                        current.thumbnail = path;
+                        current.thumbnailStorage = 'supabase';
+                    }
+                }
+            } catch {
+                // Keep original URL if download fails
+            }
+        }
     }
 
     return current;

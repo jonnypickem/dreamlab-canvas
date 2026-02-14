@@ -105,7 +105,17 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
             </div>
 
             {/* Content Rendering */}
-            {isVisible ? (
+            {item.isLoading ? (
+                <div className="w-full min-h-[200px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer flex flex-col items-center justify-center gap-3 p-4">
+                    <div className="w-10 h-10 border-[3px] border-zinc-200 border-t-orange-500 rounded-full animate-spin" />
+                    <span className="text-xs text-zinc-400 font-medium">Loading preview...</span>
+                    {item.sourceUrl && (
+                        <span className="text-[11px] text-zinc-300 font-mono truncate max-w-full">
+                            {domainName(item.sourceUrl)}
+                        </span>
+                    )}
+                </div>
+            ) : isVisible ? (
                 <>
                     {/* Image Type */}
                     {item.type === 'image' && (
