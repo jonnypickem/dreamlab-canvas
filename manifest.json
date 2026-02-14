@@ -52,8 +52,8 @@
         },
         "capture-visible": {
             "suggested_key": {
-                "default": "Alt+Shift+Y",
-                "mac": "Alt+Shift+Y"
+                "default": "Alt+Shift+C",
+                "mac": "Alt+Shift+C"
             },
             "description": "Open image capture review"
         },

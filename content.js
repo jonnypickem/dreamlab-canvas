@@ -579,7 +579,7 @@ function getAllImages() {
 // characters in event.key (e.g. Cmd+Alt+S → key:"ß", code:"KeyS").
 const SHORTCUT_MAP = [
   { code: 'KeyS', command: 'save-page' },
-  { code: 'KeyY', command: 'capture-visible' },
+  { code: 'KeyC', command: 'capture-visible' },
   { code: 'KeyP', command: 'capture-full-page' },
   { code: 'KeyI', command: 'smart-picker' },
 ];

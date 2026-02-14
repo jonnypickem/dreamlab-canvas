@@ -67,7 +67,7 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
         { label: 'Deselect Items', keys: ['Esc'] },
         { label: 'Save Page (Ext)', keys: ['⌥', '⇧', 'S'] },
         { label: 'Smart Picker (Ext)', keys: ['⌥', '⇧', 'I'] },
-        { label: 'Area Selector (Ext)', keys: ['⌥', '⇧', 'Y'] },
+        { label: 'Area Selector (Ext)', keys: ['⌥', '⇧', 'C'] },
         { label: 'Full Page Screenshot (Ext)', keys: ['⌥', '⇧', 'P'] },
     ];
 

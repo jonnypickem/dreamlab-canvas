@@ -624,7 +624,6 @@ function App() {
                 try {
                     const res = await fetch(`/api/og?url=${encodeURIComponent(url)}`);
                     if (res.ok) ogMeta = await res.json();
-                    console.log('🔗 OG metadata:', ogMeta);
                 } catch (ogErr) {
                     console.warn('🔗 OG fetch failed:', ogErr);
                 }
@@ -645,7 +644,6 @@ function App() {
                 };
 
                 const saved = await saveItemWithTags(newItem, null);
-                console.log('🔗 Saved item:', { thumbnail: saved?.thumbnail, thumbnailStorage: saved?.thumbnailStorage, title: saved?.title });
                 if (saved) {
                     setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
                 } else {

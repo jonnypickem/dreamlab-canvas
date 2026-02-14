@@ -1698,13 +1698,19 @@ async function openMultiSelectWindow({ sourceTabId, sourceUrl, visibleImages, to
 
   await setStorage({ [STORAGE_KEYS.multiSelectState]: state });
 
-  await createWindow({
-    url: 'multi-select.html',
-    type: 'popup',
-    width: 920,
-    height: 700,
-    focused: true,
-  });
+  // Use tabs.create instead of windows.create — Arc blocks popup windows.
+  try {
+    await createWindow({
+      url: 'multi-select.html',
+      type: 'popup',
+      width: 920,
+      height: 700,
+      focused: true,
+    });
+  } catch {
+    // Fallback: open as a new tab if popup window creation fails
+    await chrome.tabs.create({ url: 'multi-select.html', active: true });
+  }
 }
 
 async function saveItemToWebApp(item, options = {}) {
