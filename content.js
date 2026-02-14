@@ -606,18 +606,14 @@ window.addEventListener('keydown', (event) => {
   event.preventDefault();
   event.stopPropagation();
 
-  const keySignature = `${match.command}:${Date.now()}`;
-
-  // capture-visible can use the local triggerMultiSelect for speed
-  if (match.command === 'capture-visible') {
-    triggerMultiSelect();
-    return;
-  }
+  // Only the top frame should forward commands to avoid duplicate
+  // execution from iframes (all_frames: true).
+  if (window !== window.top) return;
 
   chrome.runtime.sendMessage({
     action: 'executeCommand',
     command: match.command,
     origin: 'content-fallback',
-    keySignature,
+    keySignature: `${match.command}:${Date.now()}`,
   });
 }, true);
