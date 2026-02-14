@@ -1310,6 +1310,7 @@ function App() {
                             activeWorkspace={workspaces.find(w => w.id === activeWorkspaceId)}
                             onUpdateWorkspace={loadData}
                             onResetAllData={handleClear}
+                            user={user}
                         />
                     )}
                 </AnimatePresence>
