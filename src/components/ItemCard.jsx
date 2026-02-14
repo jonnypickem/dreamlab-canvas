@@ -19,6 +19,8 @@ const getLinkTextPayload = (item) => {
 
 function ItemCard({ item, onClick, isSelected = false, onSelect }) {
     const [isVisible, setIsVisible] = useState(false);
+    const [imgLoaded, setImgLoaded] = useState(false);
+    const [imgError, setImgError] = useState(false);
     const cardRef = useRef(null);
 
     useEffect(() => {
@@ -119,11 +121,17 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                 <>
                     {/* Image Type */}
                     {item.type === 'image' && (
-                        <img
-                            src={resolvedImageSource || item.content}
-                            alt={item.title || 'Captured Image'}
-                            className="w-full h-auto block"
-                        />
+                        <>
+                            {!imgLoaded && (
+                                <div className="w-full min-h-[200px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer" />
+                            )}
+                            <img
+                                src={resolvedImageSource || item.content}
+                                alt={item.title || 'Captured Image'}
+                                className={`w-full h-auto block ${imgLoaded ? '' : 'hidden'}`}
+                                onLoad={() => setImgLoaded(true)}
+                            />
+                        </>
                     )}
 
                     {/* Link Type */}
@@ -160,22 +168,25 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                                     {domainName(item.sourceUrl)}
                                 </span>
                             </div>
-                        ) : linkThumbnailSource ? (
-                            <img
-                                src={linkThumbnailSource}
-                                alt={item.title || 'Link Thumbnail'}
-                                className="w-full h-auto block"
-                                onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                    e.currentTarget.nextSibling.style.display = 'flex';
-                                }}
-                            />
+                        ) : linkThumbnailSource && !imgError ? (
+                            <>
+                                {!imgLoaded && (
+                                    <div className="w-full min-h-[200px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer" />
+                                )}
+                                <img
+                                    src={linkThumbnailSource}
+                                    alt={item.title || 'Link Thumbnail'}
+                                    className={`w-full h-auto block ${imgLoaded ? '' : 'hidden'}`}
+                                    onLoad={() => setImgLoaded(true)}
+                                    onError={() => setImgError(true)}
+                                />
+                            </>
                         ) : null
                     )}
                     {/* Fallback for Link if no thumbnail or error load */}
-                    {item.type === 'link' && (!linkThumbnailSource || !isVisible) && (
+                    {item.type === 'link' && (!linkThumbnailSource || imgError || !isVisible) && (
                         <div
-                            className={`w-full aspect-video bg-zinc-50 flex flex-col items-center justify-center p-4 ${linkThumbnailSource ? 'hidden' : 'flex'}`}
+                            className={`w-full aspect-video bg-zinc-50 flex flex-col items-center justify-center p-4 ${linkThumbnailSource && !imgError ? 'hidden' : 'flex'}`}
                         >
                             <LinkIcon size={48} className="text-zinc-200 mb-2" />
                             <span className="text-xs text-zinc-400 font-mono truncate max-w-full">
