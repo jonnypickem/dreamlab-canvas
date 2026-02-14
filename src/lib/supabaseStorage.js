@@ -37,6 +37,14 @@ export async function uploadDataUrl(dataUrl, itemId, type = 'image') {
 }
 
 /**
+ * In-memory cache for signed URLs to avoid redundant network requests
+ * when switching collections or re-rendering cards.
+ * Entries expire 5 minutes before the signed URL itself to avoid stale URLs.
+ */
+const _signedUrlCache = new Map();
+const CACHE_MARGIN_MS = 5 * 60 * 1000; // refresh 5 min before expiry
+
+/**
  * Get a signed URL for a storage path. Returns the input as-is for
  * http(s) URLs, data-URLs, and legacy idb:// references.
  * @param {string} pathOrUrl
@@ -66,13 +74,29 @@ export async function getMediaUrl(pathOrUrl, expiresIn = 3600) {
         }
     }
 
+    // Check cache first
+    const cached = _signedUrlCache.get(pathOrUrl);
+    if (cached && Date.now() < cached.expiresAt) {
+        return cached.url;
+    }
+
     // Supabase storage path — get a signed URL.
     const { data, error } = await supabase.storage
         .from(BUCKET)
         .createSignedUrl(pathOrUrl, expiresIn);
 
     if (error) throw error;
-    return data?.signedUrl || '';
+    const url = data?.signedUrl || '';
+
+    // Cache the signed URL
+    if (url) {
+        _signedUrlCache.set(pathOrUrl, {
+            url,
+            expiresAt: Date.now() + (expiresIn * 1000) - CACHE_MARGIN_MS,
+        });
+    }
+
+    return url;
 }
 
 /**
@@ -80,6 +104,8 @@ export async function getMediaUrl(pathOrUrl, expiresIn = 3600) {
  */
 export async function deleteMedia(path) {
     if (!path || path.startsWith('idb://') || path.startsWith('data:')) return;
+
+    _signedUrlCache.delete(path);
 
     const { error } = await supabase.storage
         .from(BUCKET)
