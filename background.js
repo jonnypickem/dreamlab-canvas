@@ -2077,6 +2077,157 @@ chrome.commands.onCommand.addListener(async (command) => {
   await dispatchCommand({ command, origin: 'commands-api' });
 });
 
+/**
+ * Runs in the page's MAIN world (not the extension's isolated world).
+ * Has full access to getDisplayMedia but no access to chrome.runtime.
+ * Results are sent back via window.postMessage → content script listener.
+ *
+ * Injected by background via chrome.scripting.executeScript({ world: 'MAIN' }).
+ */
+function mainWorldRecorder(rect, dpr) {
+  (async () => {
+    let areaBorder = null;
+    let indicator = null;
+    let blinkStyle = null;
+    let countdownInterval = null;
+
+    function cleanupUI() {
+      if (areaBorder) { areaBorder.remove(); areaBorder = null; }
+      if (indicator) { indicator.remove(); indicator = null; }
+      if (blinkStyle) { blinkStyle.remove(); blinkStyle = null; }
+      if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'browser' },
+        preferCurrentTab: true,
+      });
+
+      await new Promise((r) => setTimeout(r, 300));
+
+      const cropX = Math.round(rect.x * dpr);
+      const cropY = Math.round(rect.y * dpr);
+      const cropW = Math.round(rect.width * dpr);
+      const cropH = Math.round(rect.height * dpr);
+
+      let canvasW = cropW;
+      let canvasH = cropH;
+      const maxDim = 1920;
+      if (canvasW > maxDim || canvasH > maxDim) {
+        const scale = Math.min(maxDim / canvasW, maxDim / canvasH);
+        canvasW = Math.round(canvasW * scale);
+        canvasH = Math.round(canvasH * scale);
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasW;
+      canvas.height = canvasH;
+      canvas.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;opacity:0;';
+      document.documentElement.appendChild(canvas);
+      const ctx = canvas.getContext('2d');
+
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+      video.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;opacity:0;';
+      document.documentElement.appendChild(video);
+      await video.play();
+
+      let drawing = true;
+      function drawFrame() {
+        if (!drawing) return;
+        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvasW, canvasH);
+        requestAnimationFrame(drawFrame);
+      }
+      drawFrame();
+
+      const canvasStream = canvas.captureStream(30);
+      let mimeType = 'video/webm;codecs=vp9';
+      if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp8';
+      if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+
+      const recorder = new MediaRecorder(canvasStream, {
+        mimeType,
+        videoBitsPerSecond: 2500000,
+      });
+
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      // ── Area border indicator ──
+      areaBorder = document.createElement('div');
+      areaBorder.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #dc2626;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,0.3),0 0 12px rgba(220,38,38,0.4);transition:opacity 0.3s;'
+        + 'left:' + rect.x + 'px;top:' + rect.y + 'px;width:' + rect.width + 'px;height:' + rect.height + 'px;';
+      document.documentElement.appendChild(areaBorder);
+
+      // ── Recording indicator bar ──
+      indicator = document.createElement('div');
+      indicator.style.cssText = 'position:fixed;z-index:2147483647;display:flex;align-items:center;gap:8px;padding:8px 16px;background:#171717;border:1px solid #333;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.35);font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;color:#fff;pointer-events:none;';
+      blinkStyle = document.createElement('style');
+      blinkStyle.textContent = '@keyframes __dl_blink{0%,100%{opacity:1}50%{opacity:0.3}}';
+      document.documentElement.appendChild(blinkStyle);
+
+      // Position indicator centered above the area border (or below if no room)
+      var indGap = 8;
+      var indY = rect.y - 42 - indGap;
+      if (indY < 8) indY = rect.y + rect.height + indGap;
+      var indX = rect.x + (rect.width / 2) - 80;
+      indX = Math.max(8, Math.min(indX, window.innerWidth - 168));
+      indicator.style.left = indX + 'px';
+      indicator.style.top = indY + 'px';
+      document.documentElement.appendChild(indicator);
+
+      let countdown = 10;
+      const dot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;animation:__dl_blink 1s ease-in-out infinite;"></span>';
+      indicator.innerHTML = dot + ' Recording\u2026 10s';
+      countdownInterval = setInterval(() => {
+        countdown--;
+        if (countdown > 0 && indicator) indicator.innerHTML = dot + ' Recording\u2026 ' + countdown + 's';
+      }, 1000);
+
+      const startTime = Date.now();
+
+      const recordingDone = new Promise((resolve) => {
+        recorder.onstop = () => {
+          drawing = false;
+          cleanupUI();
+          stream.getTracks().forEach((t) => t.stop());
+          canvasStream.getTracks().forEach((t) => t.stop());
+          video.srcObject = null;
+          video.remove();
+          canvas.remove();
+          resolve(new Blob(chunks, { type: 'video/webm' }));
+        };
+      });
+
+      recorder.start();
+      setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 10000);
+
+      // Also stop if the user stops sharing via Chrome's "Stop sharing" button
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
+        if (recorder.state === 'recording') recorder.stop();
+      });
+
+      const blob = await recordingDone;
+      const durationMs = Date.now() - startTime;
+
+      const reader = new FileReader();
+      const dataUrl = await new Promise((resolve, reject) => {
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Read failed'));
+        reader.readAsDataURL(blob);
+      });
+
+      window.postMessage({ type: '__dreamlab_recording_done__', dataUrl, durationMs }, '*');
+
+    } catch (err) {
+      cleanupUI();
+      window.postMessage({ type: '__dreamlab_recording_error__', error: err.message }, '*');
+    }
+  })();
+}
+
 async function handleRuntimeMessage(request, sender) {
   switch (request?.action) {
     case ACTIONS.ping:
@@ -2228,6 +2379,47 @@ async function handleRuntimeMessage(request, sender) {
         });
         return { success: false, error: error?.message };
       }
+    }
+
+    case 'injectAreaRecorder': {
+      // Inject the recorder function into the page's MAIN world.
+      // chrome.scripting.executeScript with world:'MAIN' bypasses page CSP
+      // (inline <script> tags are blocked on many sites).
+      const tab = sender?.tab;
+      if (!tab?.id) return { success: false, error: 'No tab.' };
+
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          func: mainWorldRecorder,
+          args: [request.rect, request.dpr],
+        });
+        return { success: true };
+      } catch (error) {
+        await showInPageToast(tab.id, {
+          message: error?.message || 'Could not start recording on this page.',
+          type: 'error',
+          durationMs: 4200,
+        });
+        return { success: false, error: error?.message };
+      }
+    }
+
+    case 'areaRecordError': {
+      const tab = sender?.tab;
+      if (tab?.id) {
+        const errMsg = request.error || 'Recording failed';
+        const userMsg = errMsg.includes('Permission denied') || errMsg.includes('NotAllowedError') || errMsg.includes('user denied')
+          ? 'Recording cancelled — screen sharing was not granted.'
+          : `Recording failed: ${errMsg}`;
+        await showInPageToast(tab.id, {
+          message: userMsg,
+          type: 'error',
+          durationMs: 4200,
+        });
+      }
+      return { success: true };
     }
 
     case 'areaRecordComplete': {

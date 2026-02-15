@@ -73,6 +73,14 @@ async function offloadItemMediaToSupabase(item) {
         current.contentStorage = 'supabase';
     }
 
+    // Upload video content
+    if (current.type === 'video' && typeof current.content === 'string' && current.content.startsWith('data:video/')) {
+        const blob = dataUrlToBlob(current.content);
+        const path = await uploadMedia(blob, current.id, 'video');
+        current.content = path;
+        current.contentStorage = 'supabase';
+    }
+
     // Upload link thumbnail (data URL or HTTP URL)
     if (current.type === 'link' && typeof current.thumbnail === 'string') {
         if (current.thumbnail.startsWith('data:')) {
@@ -111,14 +119,24 @@ async function offloadItemMediaToSupabase(item) {
 export async function saveItemWithTags(item, projectOrId = null) {
     let preparedItem = { ...item };
 
+    console.log('[saveItemWithTags] type:', preparedItem.type, 'content starts:', typeof preparedItem.content === 'string' ? preparedItem.content.slice(0, 40) : '(not string)');
+
+    // Auto-detect video data URLs even if type wasn't set correctly
+    if (preparedItem.type !== 'video' && typeof preparedItem.content === 'string' && preparedItem.content.startsWith('data:video/')) {
+        console.log('[saveItemWithTags] Auto-correcting type to video from content data URL');
+        preparedItem.type = 'video';
+    }
+
     // Video items: upload directly, skip image processing and tagging
     if (preparedItem.type === 'video') {
         if (!preparedItem.id) preparedItem.id = crypto.randomUUID();
         if (typeof preparedItem.content === 'string' && preparedItem.content.startsWith('data:video/')) {
+            console.log('[saveItemWithTags] Uploading video blob to Supabase...');
             const blob = dataUrlToBlob(preparedItem.content);
             const path = await uploadMedia(blob, preparedItem.id, 'video');
             preparedItem.content = path;
             preparedItem.contentStorage = 'supabase';
+            console.log('[saveItemWithTags] Video uploaded:', path);
         }
         const savedItem = await saveItem({
             ...preparedItem,
@@ -126,6 +144,7 @@ export async function saveItemWithTags(item, projectOrId = null) {
             objectiveTags: [],
             contextTags: [],
             intelligenceLevel: 'quick',
+            needsTagging: false,
         });
         return savedItem;
     }
@@ -149,7 +168,7 @@ export async function saveItemWithTags(item, projectOrId = null) {
     }
 
     // Upload media to Supabase Storage
-    if (preparedItem.type === 'image' || preparedItem.type === 'link') {
+    if (preparedItem.type === 'image' || preparedItem.type === 'link' || preparedItem.type === 'video') {
         try {
             preparedItem = await offloadItemMediaToSupabase(preparedItem);
         } catch (error) {
