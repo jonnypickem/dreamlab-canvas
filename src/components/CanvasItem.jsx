@@ -66,12 +66,13 @@ const CanvasItem = ({
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedImageThumb = useResolvedImageSource(item.type === 'image' && item.thumbnail ? item.thumbnail : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
     const hasSavedSize = hasFiniteNumber(item.canvas?.w) && hasFiniteNumber(item.canvas?.h);
     const mediaSource = item.type === 'image'
-        ? (resolvedImageSource || item.content)
+        ? (resolvedImageThumb || resolvedImageSource || item.content)
         : item.type === 'video'
             ? (resolvedVideoSource || '')
             : (showLinkAsText ? null : linkThumbnailSource);
@@ -273,7 +274,7 @@ const CanvasItem = ({
                 <div className="flex-grow overflow-hidden relative bg-white">
                     {item.type === 'image' && (
                         <img
-                            src={resolvedImageSource || item.content}
+                            src={resolvedImageThumb || resolvedImageSource || item.content}
                             alt={item.title || 'Captured Image'}
                             className="w-full h-full object-contain pointer-events-none bg-white"
                         />

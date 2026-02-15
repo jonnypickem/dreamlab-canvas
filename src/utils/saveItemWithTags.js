@@ -10,6 +10,7 @@ import { interpretMetadata } from '../services/geminiText';
 import { analyzeImageObjective, analyzeImageWithContext } from '../services/geminiVision';
 import { queueStageAPrimitiveAnalysis } from '../services/primitiveAnalysis';
 import { imageToBase64 } from './imageProxy';
+import { generateThumbnail } from './imageResize';
 
 const TEMP_DISABLE_LEGACY_VISION_ANALYSIS = true;
 const USE_PRIMITIVE_PIPELINE_ONLY = true;
@@ -65,12 +66,24 @@ async function offloadItemMediaToSupabase(item) {
     let current = { ...item };
     if (!current.id) current.id = crypto.randomUUID();
 
-    // Upload image content
+    // Upload image content + generate grid thumbnail
     if (current.type === 'image' && typeof current.content === 'string' && current.content.startsWith('data:')) {
         const blob = dataUrlToBlob(current.content);
         const path = await uploadMedia(blob, current.id, 'image');
         current.content = path;
         current.contentStorage = 'supabase';
+
+        // Generate a smaller thumbnail for grid/card views
+        try {
+            const thumbBlob = await generateThumbnail(blob);
+            if (thumbBlob !== blob) {
+                const thumbPath = await uploadMedia(thumbBlob, current.id, 'thumbnail');
+                current.thumbnail = thumbPath;
+                current.thumbnailStorage = 'supabase';
+            }
+        } catch {
+            // Non-fatal — grid will fall back to full-res image
+        }
     }
 
     // Upload video content

@@ -55,6 +55,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedImageThumb = useResolvedImageSource(item.type === 'image' && item.thumbnail ? item.thumbnail : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     // Only fall back to raw item.thumbnail if it's already a renderable URL (http/data/blob).
@@ -131,7 +132,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                                 <div className="w-full min-h-[200px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer" />
                             )}
                             <img
-                                src={resolvedImageSource || item.content}
+                                src={resolvedImageThumb || resolvedImageSource || item.content}
                                 alt={item.title || 'Captured Image'}
                                 className={`w-full max-h-[600px] object-cover object-top block ${imgLoaded ? '' : 'hidden'}`}
                                 onLoad={() => setImgLoaded(true)}
