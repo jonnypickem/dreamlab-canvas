@@ -2230,65 +2230,22 @@ async function handleRuntimeMessage(request, sender) {
       }
     }
 
-    case 'areaRecord': {
+    case 'areaRecordComplete': {
+      // Video was recorded in the content script via getDisplayMedia.
+      // We just need to save it.
       const tab = sender?.tab;
-      if (!tab?.id) return { success: false, error: 'No tab.' };
-
       try {
-        // Wait for overlay DOM removal
-        await wait(150);
-
-        await showInPageToast(tab.id, {
-          message: 'Recording area (10s)...',
-          type: 'info',
-          durationMs: 10000,
-        });
-
-        // Get tab media stream ID for offscreen document
-        const streamId = await chrome.tabCapture.getMediaStreamId({
-          targetTabId: tab.id,
-        });
-
-        // Create offscreen document if not already open
-        const offscreenUrl = chrome.runtime.getURL('offscreen.html');
-        const existingContexts = await chrome.runtime.getContexts({
-          contextTypes: ['OFFSCREEN_DOCUMENT'],
-          documentUrls: [offscreenUrl],
-        });
-        if (existingContexts.length === 0) {
-          await chrome.offscreen.createDocument({
-            url: 'offscreen.html',
-            reasons: ['USER_MEDIA'],
-            justification: 'Record cropped tab video for area capture',
-          });
-        }
-
-        // Send recording request to offscreen document
-        const recordResult = await chrome.runtime.sendMessage({
-          target: 'offscreen',
-          action: 'startRecording',
-          streamId,
-          rect: request.rect,
-          dpr: request.dpr,
-          maxDurationMs: 10000,
-        });
-
-        if (!recordResult?.success) {
-          throw new Error(recordResult?.error || 'Recording failed.');
-        }
-
-        // Save the video
         const destinationTab = await ensureDreamlabTab();
         const videoItem = {
           type: 'video',
-          content: recordResult.dataUrl,
+          content: request.dataUrl,
           title: request.pageTitle || 'Area Recording',
           description: 'Area video recorded via Dreamlab extension',
           sourceUrl: request.pageUrl || '',
           metadata: {
             captureType: 'area-video',
-            mimeType: 'video/webm',
-            durationMs: recordResult.durationMs || 10000,
+            mimeType: request.mimeType || 'video/webm',
+            durationMs: request.durationMs || 10000,
           },
           timestamp: Date.now(),
         };
@@ -2298,7 +2255,7 @@ async function handleRuntimeMessage(request, sender) {
           skipPendingStorage: true,
         });
 
-        if (saveResult.success) {
+        if (saveResult.success && tab?.id) {
           const dest = await getDreamlabDestinationSummary(
             saveResult.targetTabId || destinationTab?.id || null
           );
@@ -2307,7 +2264,7 @@ async function handleRuntimeMessage(request, sender) {
             type: 'success',
             durationMs: 3400,
           });
-        } else {
+        } else if (tab?.id) {
           await showInPageToast(tab.id, {
             message: 'Video saved as pending. Open popup to retry.',
             type: 'error',
@@ -2316,11 +2273,13 @@ async function handleRuntimeMessage(request, sender) {
         }
         return { success: saveResult.success };
       } catch (error) {
-        await showInPageToast(tab.id, {
-          message: error?.message || 'Area recording failed.',
-          type: 'error',
-          durationMs: 5000,
-        });
+        if (tab?.id) {
+          await showInPageToast(tab.id, {
+            message: error?.message || 'Failed to save recording.',
+            type: 'error',
+            durationMs: 5000,
+          });
+        }
         return { success: false, error: error?.message };
       }
     }
