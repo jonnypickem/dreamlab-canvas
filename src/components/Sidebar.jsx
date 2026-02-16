@@ -130,7 +130,13 @@ export default function Sidebar({
                                     >
                                         Settings
                                     </DropdownMenu.DropdownItem>
-                                    <DropdownMenu.DropdownItem icon={<FeatherLogOut />}>
+                                    <DropdownMenu.DropdownItem
+                                        icon={<FeatherLogOut />}
+                                        onClick={async () => {
+                                            const { supabase } = await import('../lib/supabase');
+                                            await supabase.auth.signOut();
+                                        }}
+                                    >
                                         Sign out
                                     </DropdownMenu.DropdownItem>
                                 </DropdownMenu>
