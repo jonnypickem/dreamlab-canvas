@@ -205,7 +205,7 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
 
     return (
         <motion.div
-            className="absolute top-0 right-0 h-full w-[360px] z-[60] flex flex-col bg-white border-l border-neutral-200 shadow-2xl"
+            className="absolute top-3 right-3 bottom-3 w-[360px] z-[60] flex flex-col bg-white border border-neutral-200 shadow-lg rounded-2xl overflow-hidden"
             initial={{ x: 360, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 360, opacity: 0 }}
