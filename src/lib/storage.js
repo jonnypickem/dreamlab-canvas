@@ -28,6 +28,7 @@ function itemFromDb(row) {
         linkEmbed: row.link_embed || null,
         textExtract: row.text_extract || null,
         metadata: row.metadata || null,
+        canvas: row.canvas || null,
         timestamp: Number(row.timestamp) || new Date(row.created_at).getTime(),
         createdAt: new Date(row.created_at).getTime(),
     };
@@ -55,6 +56,7 @@ function itemToDb(item, userId) {
     if (item.linkEmbed !== undefined) row.link_embed = item.linkEmbed;
     if (item.textExtract !== undefined) row.text_extract = item.textExtract;
     if (item.metadata !== undefined) row.metadata = item.metadata;
+    if (item.canvas !== undefined) row.canvas = item.canvas;
     if (item.timestamp !== undefined) row.timestamp = item.timestamp;
     return row;
 }
@@ -307,6 +309,7 @@ export async function updateItem(id, updates) {
     if (updates.linkEmbed !== undefined) row.link_embed = updates.linkEmbed;
     if (updates.textExtract !== undefined) row.text_extract = updates.textExtract;
     if (updates.metadata !== undefined) row.metadata = updates.metadata;
+    if (updates.canvas !== undefined) row.canvas = updates.canvas;
     if (updates.analysisStatus !== undefined) row.metadata = { ...(updates.metadata || {}), analysisStatus: updates.analysisStatus };
     if (updates.analysisUpdatedAt !== undefined) row.metadata = { ...(row.metadata || {}), analysisUpdatedAt: updates.analysisUpdatedAt };
     if (updates.analysisRetryAt !== undefined) row.metadata = { ...(row.metadata || {}), analysisRetryAt: updates.analysisRetryAt };

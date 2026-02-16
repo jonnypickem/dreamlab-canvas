@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS items (
     link_embed JSONB,
     text_extract JSONB,
     metadata JSONB,
+    canvas JSONB,
     timestamp BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()

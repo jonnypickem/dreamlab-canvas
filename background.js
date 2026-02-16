@@ -735,10 +735,14 @@ async function captureFullPageScreenshot(tab) {
       const drawHeight = Math.min(Math.round(frame.bitmap.height * scale), remainingHeight);
       const sourceHeight = Math.max(1, Math.round(drawHeight / scale));
 
+      // For the last frame, read from the bottom of the bitmap (the new content),
+      // not the top (which overlaps with the previous frame).
+      const sourceY = isLast ? frame.bitmap.height - sourceHeight : 0;
+
       context.drawImage(
         frame.bitmap,
         0,
-        0,
+        sourceY,
         frame.bitmap.width,
         sourceHeight,
         0,
