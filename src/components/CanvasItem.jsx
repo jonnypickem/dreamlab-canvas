@@ -38,6 +38,7 @@ const CanvasItem = ({
     initialPosition = null,
     onUpdate,
     isSelected,
+    isDetailFocused = false,
     onSelect,
     onOpenDetails,
     scale,
@@ -226,7 +227,7 @@ const CanvasItem = ({
             onDragStop={handleDragStop}
             onResizeStop={handleResizeStop}
             scale={scale}
-            style={{ zIndex: isSelected ? 1000 : (item.canvas?.z || 1) }}
+            style={{ zIndex: isDetailFocused ? 999 : isSelected ? 1000 : (item.canvas?.z || 1) }}
             className={`group canvas-item-root ${isSelected ? 'z-50' : ''}`}
             disableDragging={isPanMode}
             cancel=".canvas-item-no-drag, a, button, input, textarea, select"
@@ -237,9 +238,11 @@ const CanvasItem = ({
         >
             <div
                 className={`group relative flex h-full w-full flex-col overflow-hidden rounded-lg bg-white shadow-sm transition-all duration-200
-                    ${isSelected
-                        ? 'border-2 border-orange-600'
-                        : 'border border-[var(--ds-gray-200)] hover:border-orange-600 hover:shadow-md'
+                    ${isDetailFocused
+                        ? 'border-2 border-orange-500 ring-2 ring-orange-400/40 ring-offset-2 shadow-lg'
+                        : isSelected
+                            ? 'border-2 border-orange-600'
+                            : 'border border-[var(--ds-gray-200)] hover:border-orange-600 hover:shadow-md'
                     }
                 `}
                 onClick={handleCardClick}

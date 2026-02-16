@@ -40,6 +40,7 @@ import SettingsModal from './components/SettingsModal';
 import MasonryGrid from './components/MasonryGrid';
 import CreateToolbar from './components/CreateToolbar';
 import NoteEditorModal from './components/NoteEditorModal';
+import CanvasDetailPanel from './components/CanvasDetailPanel';
 
 // Subframe Imports
 import { Button } from "./ui/components/Button";
@@ -66,6 +67,7 @@ function App() {
     const navRestoredRef = useRef(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [editingItem, setEditingItem] = useState(null);
+    const [detailPanelItem, setDetailPanelItem] = useState(null);
     const [tagFilter, setTagFilter] = useState(null);
 
     const [showSettings, setShowSettings] = useState(false);
@@ -813,8 +815,12 @@ function App() {
         if (!itemId) return;
         const liveItem = items.find((candidate) => candidate.id === itemId);
         if (!liveItem) return;
-        setEditingItem(liveItem);
-    }, [items]);
+        if (viewMode === 'canvas') {
+            setDetailPanelItem(liveItem);
+        } else {
+            setEditingItem(liveItem);
+        }
+    }, [items, viewMode]);
 
     const handleCanvasTitleSave = useCallback(async () => {
         if (!activeCollection || !activeCollection.id || activeCollection.id === '__unsorted__') {
@@ -1360,7 +1366,26 @@ function App() {
                                     onUpdateItem={handleUpdateItem}
                                     onDeleteItem={handleDelete}
                                     onOpenItem={handleOpenItemDetails}
+                                    detailPanelItemId={detailPanelItem?.id || null}
                                 />
+                                <AnimatePresence>
+                                    {detailPanelItem && (
+                                        <CanvasDetailPanel
+                                            item={detailPanelItem}
+                                            onClose={() => setDetailPanelItem(null)}
+                                            onExpand={() => {
+                                                setEditingItem(detailPanelItem);
+                                                setDetailPanelItem(null);
+                                            }}
+                                            onUpdate={(updated) => {
+                                                handleUpdateItem(updated.id, updated);
+                                                setDetailPanelItem(updated);
+                                            }}
+                                            onDelete={handleDelete}
+                                            onToast={setToast}
+                                        />
+                                    )}
+                                </AnimatePresence>
                             </motion.div>
                         ) : (
                             <motion.div

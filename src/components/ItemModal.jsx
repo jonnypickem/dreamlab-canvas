@@ -14,7 +14,7 @@ import { TextField } from "../ui/components/TextField";
 import { Select } from "../ui/components/Select";
 import { Badge } from "../ui/components/Badge";
 import { IconButton } from "../ui/components/IconButton";
-import * as SubframeUtils from "../ui/utils";
+
 import {
     FeatherCopy,
     FeatherDownload,
@@ -26,16 +26,23 @@ import {
     FeatherImage,
     FeatherLink,
     FeatherFileText,
-    FeatherMaximize,
-    FeatherMinimize,
     FeatherChevronLeft,
     FeatherChevronRight
 } from "@subframe/core";
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+import { Palette } from 'lucide-react';
 import { getDomainDefaultLinkMode, isTextFirstDomain } from '../utils/linkDomainPolicy';
 import { getLinkViewPreference, setLinkViewPreference } from '../utils/linkTextPreference';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
 const uniqueTags = (tags = []) => [...new Set((tags || []).filter(Boolean))];
+
+function isLightColor(hex) {
+    const c = (hex || '#000000').replace('#', '');
+    if (c.length !== 6) return false;
+    const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6;
+}
 
 const getContextTagText = (contextTag) => (
     typeof contextTag === 'string' ? contextTag : contextTag?.tag
@@ -178,6 +185,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         return uniqueTags(item.tags || [...(item.objectiveTags || []), ...contextTags]);
     });
     const [linkViewMode, setLinkViewMode] = useState(() => resolveInitialLinkViewMode(item));
+    const [colorValue, setColorValue] = useState(item.type === 'color' ? item.content : '#000000');
+    const [textContentDirty, setTextContentDirty] = useState(false);
     const [tweetEmbedState, setTweetEmbedState] = useState('idle'); // idle | loading | ready | failed
     const [centerLinkText, setCenterLinkText] = useState(true);
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
@@ -203,6 +212,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         setContextTagsState(contextTags);
         setSearchTagsState(searchTags);
         setLinkViewMode(resolveInitialLinkViewMode(item));
+        setColorValue(item.type === 'color' ? item.content : '#000000');
+        setTextContentDirty(false);
     }, [item]);
 
     // Keyboard Navigation
@@ -222,20 +233,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     }, [hasNext, hasPrev, onNext, onPrev]);
 
     // View State
-    const [imageFit, setImageFit] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('dreamlab_image_fit') || 'cover';
-        }
-        return 'cover';
-    });
     const [expandedTags, setExpandedTags] = useState(false);
     const [expandedContextTags, setExpandedContextTags] = useState(false);
-
-    const toggleImageFit = () => {
-        const newFit = imageFit === 'cover' ? 'contain' : 'cover';
-        setImageFit(newFit);
-        localStorage.setItem('dreamlab_image_fit', newFit);
-    };
 
     const [modalWorkspaces, setModalWorkspaces] = useState([]);
     const [modalCollections, setModalCollections] = useState([]);
@@ -427,6 +426,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
             ...linkViewUpdates,
         });
         if (updated) onUpdate(updated);
+        setTextContentDirty(false);
         onClose();
     };
 
@@ -442,51 +442,77 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     };
 
     const handleCopyContent = async () => {
-        const imageSource = item.type === 'image'
-            ? (resolvedImageSource || item.content)
-            : (item.type === 'link' ? linkThumbnailSource : null);
-
-        if (imageSource) {
-            try {
-                const blob = await fetchImageViaProxy(imageSource);
-                let pngBlob = blob;
-                if (blob.type !== 'image/png') {
-                    const img = new Image();
-                    const url = URL.createObjectURL(blob);
-                    pngBlob = await new Promise((resolve) => {
-                        img.onload = () => {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                            canvas.getContext('2d').drawImage(img, 0, 0);
-                            canvas.toBlob(resolve, 'image/png');
-                            URL.revokeObjectURL(url);
-                        };
-                        img.src = url;
-                    });
+        try {
+            switch (item.type) {
+                case 'image': {
+                    const imageSource = resolvedImageSource || item.content;
+                    const blob = await fetchImageViaProxy(imageSource);
+                    let pngBlob = blob;
+                    if (blob.type !== 'image/png') {
+                        const img = new Image();
+                        const url = URL.createObjectURL(blob);
+                        pngBlob = await new Promise((resolve) => {
+                            img.onload = () => {
+                                const canvas = document.createElement('canvas');
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                                canvas.getContext('2d').drawImage(img, 0, 0);
+                                canvas.toBlob(resolve, 'image/png');
+                                URL.revokeObjectURL(url);
+                            };
+                            img.src = url;
+                        });
+                    }
+                    await navigator.clipboard.write([
+                        new ClipboardItem({ 'image/png': pngBlob })
+                    ]);
+                    emitToast('Copied image', 'success');
+                    break;
                 }
-                await navigator.clipboard.write([
-                    new ClipboardItem({ 'image/png': pngBlob })
-                ]);
-                emitToast('Copied image', 'success');
-                return;
-            } catch {
-                try {
-                    await navigator.clipboard.writeText(item.sourceUrl || item.content || '');
-                    emitToast('Copied URL', 'info');
-                    return;
-                } catch {
-                    emitToast('Clipboard permission failed', 'error');
-                    return;
+                case 'video': {
+                    await navigator.clipboard.writeText(item.sourceUrl || resolvedVideoSource || item.content || '');
+                    emitToast('Copied video URL', 'success');
+                    break;
+                }
+                case 'link': {
+                    const lt = getLinkTextPayload(item);
+                    if (lt.ready && lt.content) {
+                        await navigator.clipboard.writeText(lt.content);
+                        emitToast('Copied article text', 'success');
+                    } else {
+                        await navigator.clipboard.writeText(item.sourceUrl || item.content || '');
+                        emitToast('Copied URL', 'success');
+                    }
+                    break;
+                }
+                case 'text': {
+                    await navigator.clipboard.writeText(content || '');
+                    emitToast('Copied text', 'success');
+                    break;
+                }
+                case 'color': {
+                    await navigator.clipboard.writeText(colorValue || item.content || '');
+                    emitToast('Copied color code', 'success');
+                    break;
+                }
+                default: {
+                    await navigator.clipboard.writeText(item.sourceUrl || content || '');
+                    emitToast('Copied', 'success');
                 }
             }
-        }
-
-        try {
-            await navigator.clipboard.writeText(item.sourceUrl || content || '');
-            emitToast(item.type === 'text' ? 'Copied text' : 'Copied URL', 'success');
         } catch {
             emitToast('Clipboard permission failed', 'error');
+        }
+    };
+
+    const getCopyLabel = () => {
+        switch (item.type) {
+            case 'image': return 'Copy Image';
+            case 'video': return 'Copy URL';
+            case 'link': return getLinkTextPayload(item).ready ? 'Copy Text' : 'Copy URL';
+            case 'text': return 'Copy Text';
+            case 'color': return 'Copy Hex';
+            default: return 'Copy';
         }
     };
 
@@ -575,8 +601,10 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const getTypeIcon = () => {
         switch (item.type) {
             case 'image': return <FeatherImage />;
+            case 'video': return <FeatherImage />;
             case 'link': return <FeatherLink />;
             case 'text': return <FeatherFileText />;
+            case 'color': return <Palette size={16} />;
             default: return <FeatherImage />;
         }
     };
@@ -633,14 +661,50 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             playsInline
                         />
                     ) : item.type === 'image' ? (
-                        <img
-                            className={SubframeUtils.twClassNames(
-                                "w-full h-full transition-all duration-300",
-                                imageFit === 'cover' ? "object-cover" : "object-contain p-4"
+                        <TransformWrapper
+                            initialScale={1}
+                            minScale={0.5}
+                            maxScale={8}
+                            centerOnInit
+                            wheel={{ step: 0.1 }}
+                            doubleClick={{ mode: 'reset' }}
+                        >
+                            {({ zoomIn, zoomOut, resetTransform }) => (
+                                <>
+                                    <TransformComponent wrapperClass="!w-full !h-full" contentClass="!w-full !h-full flex items-center justify-center">
+                                        <img
+                                            className="max-w-full max-h-full object-contain"
+                                            src={resolvedImageSource || item.content}
+                                            alt="Preview"
+                                            draggable={false}
+                                        />
+                                    </TransformComponent>
+                                    <div className="absolute bottom-6 left-6 z-10 flex items-center gap-1 bg-white rounded-lg border border-neutral-200 shadow-sm p-1">
+                                        <button
+                                            onClick={() => zoomOut()}
+                                            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-neutral-100 text-neutral-600 text-lg font-medium"
+                                            title="Zoom out"
+                                        >
+                                            −
+                                        </button>
+                                        <button
+                                            onClick={() => resetTransform()}
+                                            className="px-2 h-8 flex items-center justify-center rounded-md hover:bg-neutral-100 text-neutral-600 text-xs font-medium"
+                                            title="Reset zoom (or double-click)"
+                                        >
+                                            Reset
+                                        </button>
+                                        <button
+                                            onClick={() => zoomIn()}
+                                            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-neutral-100 text-neutral-600 text-lg font-medium"
+                                            title="Zoom in"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
+                                </>
                             )}
-                            src={resolvedImageSource || item.content}
-                            alt="Preview"
-                        />
+                        </TransformWrapper>
                     ) : item.type === 'link' ? (
                         <div className="absolute inset-x-[72px] top-[80px] bottom-[84px]">
                             {linkViewMode === 'text' && linkTextReady ? (
@@ -718,6 +782,40 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 </div>
                             )}
                         </div>
+                    ) : item.type === 'color' ? (
+                        <div
+                            className="w-full h-full flex items-center justify-center"
+                            style={{ backgroundColor: colorValue || item.content }}
+                        >
+                            <span
+                                className="text-3xl font-mono font-bold uppercase tracking-wider px-6 py-3 rounded-xl"
+                                style={{
+                                    color: isLightColor(colorValue || item.content) ? '#18181b' : '#ffffff',
+                                    backgroundColor: isLightColor(colorValue || item.content) ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)',
+                                }}
+                            >
+                                {colorValue || item.content}
+                            </span>
+                        </div>
+                    ) : item.type === 'text' ? (
+                        <div className="absolute inset-x-[72px] top-[80px] bottom-[84px]">
+                            <div className="h-full w-full overflow-y-auto">
+                                <div className="min-h-full flex items-center justify-center">
+                                    <div className="max-w-2xl mx-auto py-4 w-full">
+                                        <textarea
+                                            className="w-full text-lg text-neutral-700 bg-transparent border-none outline-none resize-none leading-relaxed whitespace-pre-wrap break-words min-h-[200px]"
+                                            value={content}
+                                            onChange={(e) => {
+                                                setContent(e.target.value);
+                                                setTextContentDirty(true);
+                                            }}
+                                            placeholder="Write your note..."
+                                            style={{ minHeight: '200px', height: 'auto' }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     ) : (
                         <div className="absolute inset-x-[72px] top-[80px] bottom-[84px]">
                             <div className="h-full w-full overflow-y-auto">
@@ -733,15 +831,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                     )}
 
                     <div className="absolute bottom-6 left-6 z-10">
-                        {item.type === 'image' ? (
-                            <button
-                                onClick={toggleImageFit}
-                                className="bg-white hover:bg-neutral-50 shadow-sm border border-neutral-100 p-2 rounded-md flex items-center justify-center transition-colors text-neutral-600"
-                                title={imageFit === 'cover' ? "Fit image" : "Fill screen"}
-                            >
-                                {imageFit === 'cover' ? <FeatherMinimize size={16} /> : <FeatherMaximize size={16} />}
-                            </button>
-                        ) : null}
                         {item.type === 'link' ? (
                             <div className="inline-flex items-center rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
                                 <button
@@ -786,8 +875,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             placeholder="Add a title..."
                         />
 
-                        {/* Content Source */}
-                        <div className="flex flex-col gap-2">
+                        {/* Content Source — hidden for text and color types */}
+                        {item.type !== 'text' && item.type !== 'color' && <div className="flex flex-col gap-2">
                             <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Content Source</span>
                             <div className="flex items-center gap-2">
                                 <span className="text-sm text-neutral-600 truncate flex-1">
@@ -816,7 +905,38 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                     </>
                                 )}
                             </div>
-                        </div>
+                        </div>}
+
+                        {/* Color Picker — for color type only */}
+                        {item.type === 'color' && (
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Color</span>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="color"
+                                        value={colorValue}
+                                        onChange={(e) => {
+                                            setColorValue(e.target.value);
+                                            setContent(e.target.value);
+                                        }}
+                                        className="w-10 h-10 rounded-lg border border-neutral-200 cursor-pointer p-0"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={colorValue}
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            if (/^#[0-9a-fA-F]{0,6}$/.test(v)) {
+                                                setColorValue(v);
+                                                if (v.length === 7) setContent(v);
+                                            }
+                                        }}
+                                        className="flex-1 text-sm font-mono bg-neutral-50 border border-neutral-200 rounded-md p-2 outline-none focus:border-brand-500 uppercase"
+                                        maxLength={7}
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         {/* Description Field */}
                         <div className="flex flex-col gap-2">
@@ -914,7 +1034,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 icon={<FeatherCopy />}
                                 onClick={handleCopyContent}
                             >
-                                Copy
+                                {getCopyLabel()}
                             </Button>
                             {(item.type === 'image' || item.type === 'video' || (item.type === 'link' && linkThumbnailSource)) ? (
                                 <Button
@@ -926,7 +1046,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                     Download
                                 </Button>
                             ) : null}
-                            {item.sourceUrl && (
+                            {item.sourceUrl && item.type !== 'color' && (
                                 <Button
                                     variant="neutral-secondary"
                                     className="flex-1"

@@ -57,7 +57,7 @@ const isTypingTarget = (target) => {
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 };
 
-const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem }) => {
+const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanelItemId }) => {
     const containerRef = useRef(null);
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [interactionMode, setInteractionMode] = useState('select'); // 'select' | 'pan'
@@ -447,6 +447,7 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem }) => {
                                         initialPosition={autoLayoutPositions.get(item.id)}
                                         onUpdate={onUpdateItem}
                                         isSelected={selectedIds.has(item.id)}
+                                        isDetailFocused={item.id === detailPanelItemId}
                                         onSelect={handleItemSelect}
                                         onOpenDetails={onOpenItem}
                                         scale={scale}
