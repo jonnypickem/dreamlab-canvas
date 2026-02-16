@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Command, Settings as SettingsIcon, Keyboard, Sparkles, AlertTriangle, User, LogOut } from 'lucide-react';
+import { X, Save, Command, Settings as SettingsIcon, Keyboard, Sparkles, AlertTriangle, User, LogOut, Key, Mail, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { updateWorkspace } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -11,6 +11,61 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
     const [workspaceIcon, setWorkspaceIcon] = useState(activeWorkspace?.icon?.value || '');
     const [iconType, setIconType] = useState(activeWorkspace?.icon?.type === 'image' ? 'image' : 'text');
     const [intelligenceLevel, setIntelligenceLevel] = useState(activeWorkspace?.intelligenceLevel || 'quick');
+
+    // Account settings state
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [newEmail, setNewEmail] = useState('');
+    const [accountMessage, setAccountMessage] = useState(null);
+    const [accountLoading, setAccountLoading] = useState(false);
+
+    const handleChangePassword = async () => {
+        setAccountMessage(null);
+        if (!currentPassword) { setAccountMessage({ text: 'Enter your current password.', type: 'error' }); return; }
+        if (newPassword.length < 6) { setAccountMessage({ text: 'New password must be at least 6 characters.', type: 'error' }); return; }
+        if (newPassword !== confirmPassword) { setAccountMessage({ text: 'Passwords do not match.', type: 'error' }); return; }
+
+        setAccountLoading(true);
+        try {
+            // Verify current password
+            const { error: verifyError } = await supabase.auth.signInWithPassword({
+                email: user.email,
+                password: currentPassword,
+            });
+            if (verifyError) throw new Error('Current password is incorrect.');
+
+            // Update password
+            const { error } = await supabase.auth.updateUser({ password: newPassword });
+            if (error) throw error;
+
+            setAccountMessage({ text: 'Password updated successfully.', type: 'success' });
+            setCurrentPassword('');
+            setNewPassword('');
+            setConfirmPassword('');
+        } catch (err) {
+            setAccountMessage({ text: err.message || 'Failed to update password.', type: 'error' });
+        } finally {
+            setAccountLoading(false);
+        }
+    };
+
+    const handleChangeEmail = async () => {
+        setAccountMessage(null);
+        if (!newEmail || !newEmail.includes('@')) { setAccountMessage({ text: 'Enter a valid email address.', type: 'error' }); return; }
+
+        setAccountLoading(true);
+        try {
+            const { error } = await supabase.auth.updateUser({ email: newEmail });
+            if (error) throw error;
+            setAccountMessage({ text: 'Confirmation link sent to your new email address.', type: 'success' });
+            setNewEmail('');
+        } catch (err) {
+            setAccountMessage({ text: err.message || 'Failed to update email.', type: 'error' });
+        } finally {
+            setAccountLoading(false);
+        }
+    };
 
     const intelligenceTiers = [
 
@@ -224,25 +279,6 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
                                     </button>
                                 </div>
 
-                                <div className="pt-6 border-t border-zinc-100">
-                                    <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                                        <div className="flex items-start gap-3">
-                                            <AlertTriangle size={16} className="mt-0.5 text-red-600" />
-                                            <div className="space-y-2">
-                                                <p className="text-sm font-semibold text-red-800">Danger Zone</p>
-                                                <p className="text-xs text-red-700">
-                                                    Reset all local app data. This action cannot be undone.
-                                                </p>
-                                                <button
-                                                    onClick={handleResetAllData}
-                                                    className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
-                                                >
-                                                    Reset All Data
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
                             </div>
                         )}
 
@@ -281,32 +317,104 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
                                     </p>
                                 </div>
 
-                                <div className="space-y-4">
-                                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                                        <div className="space-y-3">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-zinc-200 flex items-center justify-center">
-                                                    <User size={20} className="text-zinc-500" />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-sm font-semibold text-zinc-900 truncate">
-                                                        {user?.email || 'Unknown'}
-                                                    </p>
-                                                    <p className="text-xs text-zinc-500">
-                                                        Signed in via Supabase Auth
-                                                    </p>
-                                                </div>
-                                            </div>
+                                {/* Status message */}
+                                {accountMessage && (
+                                    <div className={`rounded-lg px-3 py-2 text-sm ${accountMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                                        {accountMessage.text}
+                                    </div>
+                                )}
 
-                                            <div className="text-xs text-zinc-400 space-y-1">
-                                                <p>User ID: <span className="font-mono">{user?.id?.slice(0, 8)}...</span></p>
-                                                {user?.created_at && (
-                                                    <p>Member since: {new Date(user.created_at).toLocaleDateString()}</p>
-                                                )}
+                                {/* Profile info */}
+                                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-zinc-200 flex items-center justify-center">
+                                                <User size={20} className="text-zinc-500" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold text-zinc-900 truncate">
+                                                    {user?.email || 'Unknown'}
+                                                </p>
+                                                <p className="text-xs text-zinc-500">
+                                                    Signed in via Supabase Auth
+                                                </p>
                                             </div>
                                         </div>
+                                        <div className="text-xs text-zinc-400 space-y-1">
+                                            <p>User ID: <span className="font-mono">{user?.id?.slice(0, 8)}...</span></p>
+                                            {user?.created_at && (
+                                                <p>Member since: {new Date(user.created_at).toLocaleDateString()}</p>
+                                            )}
+                                        </div>
                                     </div>
+                                </div>
 
+                                {/* Change Password */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <Key size={16} className="text-zinc-500" />
+                                        <h4 className="text-sm font-semibold text-zinc-900">Change Password</h4>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <input
+                                            type="password"
+                                            value={currentPassword}
+                                            onChange={(e) => setCurrentPassword(e.target.value)}
+                                            placeholder="Current password"
+                                            className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400 text-sm"
+                                        />
+                                        <input
+                                            type="password"
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            placeholder="New password (min 6 characters)"
+                                            minLength={6}
+                                            className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400 text-sm"
+                                        />
+                                        <input
+                                            type="password"
+                                            value={confirmPassword}
+                                            onChange={(e) => setConfirmPassword(e.target.value)}
+                                            placeholder="Confirm new password"
+                                            className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400 text-sm"
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleChangePassword}
+                                        disabled={accountLoading}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                                    >
+                                        Update Password
+                                    </button>
+                                </div>
+
+                                {/* Change Email */}
+                                <div className="space-y-3 pt-4 border-t border-zinc-100">
+                                    <div className="flex items-center gap-2">
+                                        <Mail size={16} className="text-zinc-500" />
+                                        <h4 className="text-sm font-semibold text-zinc-900">Change Email</h4>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="email"
+                                            value={newEmail}
+                                            onChange={(e) => setNewEmail(e.target.value)}
+                                            placeholder="New email address"
+                                            className="flex-1 px-3 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400 text-sm"
+                                        />
+                                        <button
+                                            onClick={handleChangeEmail}
+                                            disabled={accountLoading}
+                                            className="px-4 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                                        >
+                                            Update
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-zinc-400">A confirmation link will be sent to your new email.</p>
+                                </div>
+
+                                {/* Session */}
+                                <div className="pt-4 border-t border-zinc-100">
                                     <button
                                         onClick={async () => {
                                             await supabase.auth.signOut();
@@ -317,6 +425,30 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
                                         <LogOut size={16} />
                                         Sign Out
                                     </button>
+                                </div>
+
+                                {/* Danger Zone */}
+                                <div className="pt-4 border-t border-zinc-100">
+                                    <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                                        <div className="flex items-start gap-3">
+                                            <AlertTriangle size={16} className="mt-0.5 text-red-600" />
+                                            <div className="space-y-3">
+                                                <p className="text-sm font-semibold text-red-800">Danger Zone</p>
+                                                <div className="space-y-2">
+                                                    <p className="text-xs text-red-700">
+                                                        Reset all app data. This action cannot be undone.
+                                                    </p>
+                                                    <button
+                                                        onClick={handleResetAllData}
+                                                        className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                        Reset All Data
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
