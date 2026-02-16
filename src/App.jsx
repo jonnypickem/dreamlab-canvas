@@ -38,6 +38,8 @@ import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveA
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
 import MasonryGrid from './components/MasonryGrid';
+import CreateToolbar from './components/CreateToolbar';
+import NoteEditorModal from './components/NoteEditorModal';
 
 // Subframe Imports
 import { Button } from "./ui/components/Button";
@@ -76,6 +78,7 @@ function App() {
 
     // View Mode State
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'canvas'
+    const [showNoteEditor, setShowNoteEditor] = useState(false);
 
     // Zoom/Grid Size State (0=Small Items, 4=Large Items)
     // Subframe slider returns array, need to handle that
@@ -498,24 +501,173 @@ function App() {
         }
     }, [saveImageFromBlob]);
 
-    // Clipboard Paste Listener
-    useEffect(() => {
-        const handlePaste = async (e) => {
-            // Don't interfere with inputs
-            if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) {
-                return;
+    const saveLink = useCallback(async (url) => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+
+        const tempId = crypto.randomUUID();
+        const placeholderItem = {
+            id: tempId,
+            type: 'link',
+            content: url,
+            sourceUrl: url,
+            linkViewMode: 'preview',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now(),
+            isLoading: true,
+        };
+        setItems((prev) => [placeholderItem, ...prev]);
+
+        try {
+            let ogMeta = { title: null, image: null, description: null };
+            try {
+                const res = await fetch(`/api/og?url=${encodeURIComponent(url)}`);
+                if (res.ok) ogMeta = await res.json();
+            } catch (ogErr) {
+                console.warn('OG fetch failed:', ogErr);
             }
 
-            e.preventDefault();
-            const clipboardData = e.clipboardData;
-            await processClipboard(clipboardData);
+            const newItem = {
+                id: tempId,
+                type: 'link',
+                content: url,
+                sourceUrl: url,
+                title: ogMeta.title || null,
+                description: ogMeta.description || null,
+                thumbnail: ogMeta.image || null,
+                linkViewMode: 'preview',
+                workspaceId: activeWorkspaceId,
+                projectId: null,
+                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+                createdAt: Date.now(),
+            };
+
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) {
+                setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
+            } else {
+                setItems((prev) => prev.filter((item) => item.id !== tempId));
+            }
+            setToast({ message: 'Link saved', type: 'success' });
+        } catch (error) {
+            console.error('Save failed:', error);
+            setItems((prev) => prev.filter((item) => item.id !== tempId));
+            setToast({ message: error?.message || 'Failed to save link', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId]);
+
+    const saveText = useCallback(async (text, source = 'clipboard') => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+
+        const newItem = {
+            type: 'text',
+            content: text,
+            sourceUrl: source,
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now()
+        };
+        try {
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) setItems((prev) => [saved, ...prev]);
+            setToast({ message: source === 'note' ? 'Note created' : 'Text saved', type: 'success' });
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to save text', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId]);
+
+    const saveColor = useCallback(async (hexColor) => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+
+        const newItem = {
+            type: 'color',
+            content: hexColor,
+            sourceUrl: 'color-picker',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now()
+        };
+        try {
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) setItems((prev) => [saved, ...prev]);
+            setToast({ message: 'Color saved', type: 'success' });
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to save color', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId]);
+
+    const handlePasteClipboard = useCallback(async () => {
+        try {
+            const clipboardItems = await navigator.clipboard.read();
+            for (const clipItem of clipboardItems) {
+                // Check for images first
+                const imageType = clipItem.types.find(t => t.startsWith('image/'));
+                if (imageType) {
+                    const blob = await clipItem.getType(imageType);
+                    await saveImageFromBlob(blob);
+                    return;
+                }
+                // Fall back to text
+                if (clipItem.types.includes('text/plain')) {
+                    const blob = await clipItem.getType('text/plain');
+                    const text = await blob.text();
+                    const trimmed = text.trim();
+                    if (!trimmed) continue;
+                    try {
+                        const url = new URL(trimmed);
+                        if (['http:', 'https:'].includes(url.protocol)) {
+                            await saveLink(trimmed);
+                            return;
+                        }
+                    } catch {}
+                    await saveText(trimmed);
+                    return;
+                }
+            }
+            setToast({ message: 'Nothing to paste', type: 'info' });
+        } catch (err) {
+            // Clipboard API may require user gesture or permission
+            setToast({ message: 'Could not read clipboard', type: 'error' });
+        }
+    }, [saveImageFromBlob, saveLink, saveText]);
+
+    // Clipboard Paste Listener
+    useEffect(() => {
+        const isURL = (text) => {
+            try {
+                const url = new URL(text);
+                return ['http:', 'https:'].includes(url.protocol);
+            } catch {
+                return false;
+            }
+        };
+
+        const saveImageFromBase64 = async (base64Data) => {
+            try {
+                const response = await fetch(base64Data);
+                const blob = await response.blob();
+                await saveImageFromBlob(blob);
+            } catch (error) {
+                setToast({ message: error?.message || 'Failed to paste image', type: 'error' });
+            }
         };
 
         const processClipboard = async (clipboardData) => {
             const items = clipboardData.items;
             const files = clipboardData.files;
 
-            // 0. Check direct clipboard files first (local disk copy/paste often lands here)
             if (files && files.length > 0) {
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
@@ -526,7 +678,6 @@ function App() {
                 }
             }
 
-            // 1. Check for direct image types (screenshots, etc.)
             for (let i = 0; i < items.length; i++) {
                 if (items[i].type.startsWith('image')) {
                     const blob = items[i].getAsFile();
@@ -535,10 +686,8 @@ function App() {
                 }
             }
 
-            // 2. Check for HTML content with embedded images
             const htmlContent = clipboardData.getData('text/html');
             if (htmlContent) {
-                // Detect Figma's proprietary format (can't be decoded in browser)
                 if (htmlContent.includes('figmeta') || htmlContent.includes('fig-kiwie')) {
                     setToast({
                         message: 'Figma uses a proprietary format. Use "Copy as PNG" or export the image first.',
@@ -547,14 +696,12 @@ function App() {
                     return;
                 }
 
-                // Try to extract base64 image from HTML
                 const base64Match = htmlContent.match(/src=["']?(data:image\/[^"'\s>]+)["']?/i);
                 if (base64Match && base64Match[1]) {
                     await saveImageFromBase64(base64Match[1]);
                     return;
                 }
 
-                // Try to extract regular image URL from HTML
                 const imgMatch = htmlContent.match(/<img[^>]+src=["']?(https?:\/\/[^"'\s>]+)["']?/i);
                 if (imgMatch && imgMatch[1]) {
                     await saveLink(imgMatch[1]);
@@ -562,7 +709,6 @@ function App() {
                 }
             }
 
-            // 3. Check for Text (URL or plain text)
             const text = clipboardData.getData('text/plain');
             if (text) {
                 if (isURL(text)) {
@@ -576,121 +722,17 @@ function App() {
             setToast({ message: 'Nothing to paste', type: 'info' });
         };
 
-        const isURL = (text) => {
-            try {
-                const url = new URL(text);
-                return ['http:', 'https:'].includes(url.protocol);
-            } catch {
-                return false;
-            }
-        };
-
-
-        const saveImageFromBase64 = async (base64Data) => {
-            if (!activeWorkspaceId) {
-                setToast({ message: 'Select a workspace first', type: 'error' });
+        const handlePaste = async (e) => {
+            if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) {
                 return;
             }
-            try {
-                const response = await fetch(base64Data);
-                const blob = await response.blob();
-                await saveImageFromBlob(blob);
-            } catch (error) {
-                setToast({ message: error?.message || 'Failed to paste image', type: 'error' });
-            }
-        };
-
-
-
-        const saveLink = async (url) => {
-            if (!activeWorkspaceId) {
-                setToast({ message: 'Select a workspace first', type: 'error' });
-                return;
-            }
-
-            // Show loading placeholder immediately
-            const tempId = crypto.randomUUID();
-            const placeholderItem = {
-                id: tempId,
-                type: 'link',
-                content: url,
-                sourceUrl: url,
-                linkViewMode: 'preview',
-                workspaceId: activeWorkspaceId,
-                projectId: null,
-                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                createdAt: Date.now(),
-                isLoading: true,
-            };
-            setItems((prev) => [placeholderItem, ...prev]);
-
-            try {
-                // Fetch OG metadata in the background
-                let ogMeta = { title: null, image: null, description: null };
-                try {
-                    const res = await fetch(`/api/og?url=${encodeURIComponent(url)}`);
-                    if (res.ok) ogMeta = await res.json();
-                } catch (ogErr) {
-                    console.warn('🔗 OG fetch failed:', ogErr);
-                }
-
-                const newItem = {
-                    id: tempId,
-                    type: 'link',
-                    content: url,
-                    sourceUrl: url,
-                    title: ogMeta.title || null,
-                    description: ogMeta.description || null,
-                    thumbnail: ogMeta.image || null,
-                    linkViewMode: 'preview',
-                    workspaceId: activeWorkspaceId,
-                    projectId: null,
-                    collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                    createdAt: Date.now(),
-                };
-
-                const saved = await saveItemWithTags(newItem, null);
-                if (saved) {
-                    setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
-                } else {
-                    setItems((prev) => prev.filter((item) => item.id !== tempId));
-                }
-                setToast({ message: 'Link saved', type: 'success' });
-            } catch (error) {
-                console.error('🔗 Save failed:', error);
-                setItems((prev) => prev.filter((item) => item.id !== tempId));
-                setToast({ message: error?.message || 'Failed to paste link', type: 'error' });
-            }
-        };
-
-        const saveText = async (text) => {
-            if (!activeWorkspaceId) {
-                setToast({ message: 'Select a workspace first', type: 'error' });
-                return;
-            }
-
-            const newItem = {
-                type: 'text',
-                content: text,
-                sourceUrl: 'clipboard',
-                workspaceId: activeWorkspaceId,
-                projectId: null,
-                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                createdAt: Date.now()
-            };
-            try {
-                const saved = await saveItemWithTags(newItem, null);
-                if (saved) setItems((prev) => [saved, ...prev]);
-                setToast({ message: 'Text pasted', type: 'success' });
-            } catch (error) {
-                setToast({ message: error?.message || 'Failed to paste text', type: 'error' });
-                return;
-            }
+            e.preventDefault();
+            await processClipboard(e.clipboardData);
         };
 
         document.addEventListener('paste', handlePaste);
         return () => document.removeEventListener('paste', handlePaste);
-    }, [activeWorkspaceId, selectedCollectionId, saveImageFromBlob]);
+    }, [activeWorkspaceId, saveImageFromBlob, saveLink, saveText]);
 
     const handleClear = async () => {
         try {
@@ -1395,6 +1437,16 @@ function App() {
                     )}
                 </AnimatePresence>
 
+                {/* Note Editor Modal */}
+                <AnimatePresence>
+                    {showNoteEditor && (
+                        <NoteEditorModal
+                            onSave={(text) => saveText(text, 'note')}
+                            onClose={() => setShowNoteEditor(false)}
+                        />
+                    )}
+                </AnimatePresence>
+
                 {/* Toast Notifications */}
                 <AnimatePresence>
                     {toast && (
@@ -1440,6 +1492,13 @@ function App() {
                                 </div>
                             </div>
                         </div>
+                        <CreateToolbar
+                            onCreateNote={() => setShowNoteEditor(true)}
+                            onUploadImage={(file) => saveImageFromBlob(file)}
+                            onCreateLink={(url) => saveLink(url)}
+                            onPasteClipboard={handlePasteClipboard}
+                            onCreateColor={(hex) => saveColor(hex)}
+                        />
                         <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
                             <ToggleGroup.Item
                                 icon={<FeatherLayoutGrid />}

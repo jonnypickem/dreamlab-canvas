@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Rnd } from 'react-rnd';
-import { Camera, Link as LinkIcon, FileText, Info } from 'lucide-react';
+import { Camera, Link as LinkIcon, FileText, Info, Palette } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
@@ -44,8 +44,8 @@ const CanvasItem = ({
     isPanMode = false
 }) => {
     // Default dimensions based on type
-    const defaultWidth = (item.type === 'image' || item.type === 'video') ? 300 : 280;
-    const defaultHeight = (item.type === 'image' || item.type === 'video') ? 200 : 160;
+    const defaultWidth = item.type === 'color' ? 160 : (item.type === 'image' || item.type === 'video') ? 300 : 280;
+    const defaultHeight = item.type === 'color' ? 160 : (item.type === 'image' || item.type === 'video') ? 200 : 160;
 
     const [position, setPosition] = useState(() => {
         const fallbackX = parseSize(initialPosition?.x, 120);
@@ -77,7 +77,7 @@ const CanvasItem = ({
             ? (resolvedVideoSource || '')
             : (showLinkAsText ? null : linkThumbnailSource);
     const hasMediaCard = item.type === 'image' || item.type === 'video' || (item.type === 'link' && !showLinkAsText && Boolean(linkThumbnailSource));
-    const isResizableCard = hasMediaCard || item.type === 'text';
+    const isResizableCard = hasMediaCard || item.type === 'text' || item.type === 'color';
     const hasAutoSizedFromMediaRef = useRef(false);
     const suppressClickRef = useRef(false);
     const dragStateRef = useRef({ startX: 0, startY: 0, moved: false });
@@ -175,6 +175,7 @@ const CanvasItem = ({
             case 'image': return <Camera className="w-4 h-4" />;
             case 'text': return <FileText className="w-4 h-4" />;
             case 'link': return <LinkIcon className="w-4 h-4" />;
+            case 'color': return <Palette className="w-4 h-4" />;
             default: return <LinkIcon className="w-4 h-4" />;
         }
     };
@@ -357,6 +358,17 @@ const CanvasItem = ({
                                     {supportingText}
                                 </p>
                             ) : null}
+                        </div>
+                    )}
+
+                    {item.type === 'color' && (
+                        <div
+                            className="w-full h-full flex items-end justify-start p-3"
+                            style={{ backgroundColor: item.content }}
+                        >
+                            <span className="text-xs font-mono font-semibold px-2 py-1 rounded-md bg-black/20 text-white backdrop-blur-sm uppercase">
+                                {item.content}
+                            </span>
                         </div>
                     )}
                 </div>
