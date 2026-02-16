@@ -57,7 +57,7 @@ const isTypingTarget = (target) => {
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 };
 
-const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanelItemId }) => {
+const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanelItemId, viewportRef, inlineEditingId, onFinishInlineEdit }) => {
     const containerRef = useRef(null);
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [interactionMode, setInteractionMode] = useState('select'); // 'select' | 'pan'
@@ -70,6 +70,19 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
     });
 
     const isPanMode = interactionMode === 'pan' || isSpacePressed;
+
+    // Initialize viewport ref on mount
+    useEffect(() => {
+        if (!viewportRef || !containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        viewportRef.current = {
+            scale: 1,
+            positionX: 0,
+            positionY: 0,
+            containerWidth: rect.width,
+            containerHeight: rect.height,
+        };
+    }, [viewportRef]);
 
     const autoLayoutPositions = useMemo(() => {
         const overlaps = (a, b, padding = 32) => (
@@ -163,13 +176,29 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
         return rectMap;
     }, [items, autoLayoutPositions]);
 
+    const updateViewportRef = useCallback((scale, positionX, positionY) => {
+        if (!viewportRef) return;
+        const rect = containerRef.current?.getBoundingClientRect();
+        viewportRef.current = {
+            scale,
+            positionX,
+            positionY,
+            containerWidth: rect?.width || 0,
+            containerHeight: rect?.height || 0,
+        };
+    }, [viewportRef]);
+
     const handleTransformed = useCallback((_ref, state) => {
         if (!state) return;
+        const nextScale = state.scale || 1;
+        const nextPosX = state.positionX || 0;
+        const nextPosY = state.positionY || 0;
+        updateViewportRef(nextScale, nextPosX, nextPosY);
         setTransformSnapshot((prev) => {
             const next = {
-                scale: state.scale || 1,
-                positionX: state.positionX || 0,
-                positionY: state.positionY || 0,
+                scale: nextScale,
+                positionX: nextPosX,
+                positionY: nextPosY,
             };
             if (
                 prev.scale === next.scale
@@ -180,7 +209,14 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
             }
             return next;
         });
-    }, []);
+    }, [updateViewportRef]);
+
+    const handleFinishEditing = useCallback((itemId, newContent) => {
+        if (newContent !== undefined) {
+            onUpdateItem(itemId, { content: newContent });
+        }
+        onFinishInlineEdit?.();
+    }, [onUpdateItem, onFinishInlineEdit]);
 
     const handleItemSelect = useCallback((itemId, event) => {
         setSelectionDraft(null);
@@ -448,6 +484,8 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
                                         onUpdate={onUpdateItem}
                                         isSelected={selectedIds.has(item.id)}
                                         isDetailFocused={item.id === detailPanelItemId}
+                                        isEditing={item.id === inlineEditingId}
+                                        onFinishEditing={handleFinishEditing}
                                         onSelect={handleItemSelect}
                                         onOpenDetails={onOpenItem}
                                         scale={scale}

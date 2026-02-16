@@ -39,6 +39,8 @@ const CanvasItem = ({
     onUpdate,
     isSelected,
     isDetailFocused = false,
+    isEditing = false,
+    onFinishEditing,
     onSelect,
     onOpenDetails,
     scale,
@@ -82,6 +84,21 @@ const CanvasItem = ({
     const hasAutoSizedFromMediaRef = useRef(false);
     const suppressClickRef = useRef(false);
     const dragStateRef = useRef({ startX: 0, startY: 0, moved: false });
+    const [editText, setEditText] = useState(item.content || '');
+    const editTextareaRef = useRef(null);
+
+    useEffect(() => {
+        if (isEditing && editTextareaRef.current) {
+            editTextareaRef.current.focus();
+            // Place cursor at end
+            const len = editTextareaRef.current.value.length;
+            editTextareaRef.current.setSelectionRange(len, len);
+        }
+    }, [isEditing]);
+
+    useEffect(() => {
+        if (!isEditing) setEditText(item.content || '');
+    }, [item.content, isEditing]);
 
     // Debounce save
     const timeoutRef = useRef(null);
@@ -229,7 +246,7 @@ const CanvasItem = ({
             scale={scale}
             style={{ zIndex: isDetailFocused ? 999 : isSelected ? 1000 : (item.canvas?.z || 1) }}
             className={`group canvas-item-root ${isSelected ? 'z-50' : ''}`}
-            disableDragging={isPanMode}
+            disableDragging={isPanMode || isEditing}
             cancel=".canvas-item-no-drag, a, button, input, textarea, select"
             enableResizing={!isPanMode && isResizableCard}
             lockAspectRatio={lockAspectRatio}
@@ -352,16 +369,39 @@ const CanvasItem = ({
                     )}
 
                     {item.type === 'text' && (
-                        <div className="w-full h-full p-5 bg-white flex flex-col items-start justify-start gap-2.5">
-                            <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-4 text-left leading-snug w-full">
-                                {heroText}
-                            </p>
-                            {supportingText ? (
-                                <p className="text-body text-[var(--ds-gray-700)] line-clamp-5 text-left leading-relaxed w-full">
-                                    {supportingText}
+                        isEditing ? (
+                            <div className="w-full h-full p-5 bg-white flex flex-col">
+                                <textarea
+                                    ref={editTextareaRef}
+                                    className="canvas-item-no-drag w-full h-full resize-none bg-transparent text-heading-2 font-medium text-[var(--ds-gray-1000)] leading-snug outline-none placeholder:text-zinc-300"
+                                    placeholder="Start typing..."
+                                    value={editText}
+                                    onChange={(e) => setEditText(e.target.value)}
+                                    onBlur={() => onFinishEditing?.(item.id, editText)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Escape') {
+                                            e.preventDefault();
+                                            onFinishEditing?.(item.id, editText);
+                                        }
+                                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                            e.preventDefault();
+                                            onFinishEditing?.(item.id, editText);
+                                        }
+                                    }}
+                                />
+                            </div>
+                        ) : (
+                            <div className="w-full h-full p-5 bg-white flex flex-col items-start justify-start gap-2.5">
+                                <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-4 text-left leading-snug w-full">
+                                    {heroText}
                                 </p>
-                            ) : null}
-                        </div>
+                                {supportingText ? (
+                                    <p className="text-body text-[var(--ds-gray-700)] line-clamp-5 text-left leading-relaxed w-full">
+                                        {supportingText}
+                                    </p>
+                                ) : null}
+                            </div>
+                        )
                     )}
 
                     {item.type === 'color' && (

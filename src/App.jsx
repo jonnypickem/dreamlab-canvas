@@ -81,6 +81,8 @@ function App() {
     // View Mode State
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'canvas'
     const [showNoteEditor, setShowNoteEditor] = useState(false);
+    const [canvasInlineEditId, setCanvasInlineEditId] = useState(null);
+    const canvasViewportRef = useRef(null);
 
     // Zoom/Grid Size State (0=Small Items, 4=Large Items)
     // Subframe slider returns array, need to handle that
@@ -181,12 +183,17 @@ function App() {
 
 
     const loadData = async () => {
-        const [ws, c, ctx, fetchedItems] = await Promise.all([
+        const isFirstLoad = !navRestoredRef.current;
+
+        const fetches = [
             getWorkspaces(),
             getCollections(),
-            getActiveContext(),
             getItems(),
-        ]);
+        ];
+        // Only fetch active context on first load; subsequent refreshes keep current nav state
+        if (isFirstLoad) fetches.push(getActiveContext());
+
+        const [ws, c, fetchedItems, ctx] = await Promise.all(fetches);
 
         await loadPrimitiveAnalysisStore();
 
@@ -194,32 +201,34 @@ function App() {
         setWorkspaces(ws);
         setCollections(c);
 
-        // Set active context from persistence, or fallback to first workspace
-        if (ctx.workspaceId && ws.some(w => w.id === ctx.workspaceId)) {
-            setActiveWorkspaceId(ctx.workspaceId);
-            if (ctx.collectionId) {
-                const collectionIsValid = ctx.collectionId === '__unsorted__'
-                    || c.some((collection) => (
-                        collection.id === ctx.collectionId
-                        && getCollectionWorkspaceId(collection) === ctx.workspaceId
-                    ));
-                setSelectedCollectionId(collectionIsValid ? ctx.collectionId : null);
-            } else {
+        if (isFirstLoad) {
+            // Set active context from persistence, or fallback to first workspace
+            if (ctx.workspaceId && ws.some(w => w.id === ctx.workspaceId)) {
+                setActiveWorkspaceId(ctx.workspaceId);
+                if (ctx.collectionId) {
+                    const collectionIsValid = ctx.collectionId === '__unsorted__'
+                        || c.some((collection) => (
+                            collection.id === ctx.collectionId
+                            && getCollectionWorkspaceId(collection) === ctx.workspaceId
+                        ));
+                    setSelectedCollectionId(collectionIsValid ? ctx.collectionId : null);
+                } else {
+                    setSelectedCollectionId(null);
+                }
+            } else if (ws.length > 0) {
+                setActiveWorkspaceId(ws[0].id);
                 setSelectedCollectionId(null);
+            } else if (!hasLegacyData()) {
+                // No workspaces exist and no legacy data to migrate -> Create default "Dreamlab" workspace
+                const created = await createWorkspace('Dreamlab');
+                if (created) {
+                    setActiveWorkspaceId(created.id);
+                    setWorkspaces([created]);
+                }
             }
-        } else if (ws.length > 0) {
-            setActiveWorkspaceId(ws[0].id);
-            setSelectedCollectionId(null);
-        } else if (!hasLegacyData()) {
-            // No workspaces exist and no legacy data to migrate -> Create default "Dreamlab" workspace
-            const created = await createWorkspace('Dreamlab');
-            if (created) {
-                setActiveWorkspaceId(created.id);
-                setWorkspaces([created]);
-            }
-        }
 
-        navRestoredRef.current = true;
+            navRestoredRef.current = true;
+        }
     };
 
     // Auth state listener
@@ -472,7 +481,8 @@ function App() {
                 projectId: null,
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
                 tags: [],
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('image') } : {}),
             };
             const saved = await saveItemWithTags(newItem, null);
             if (saved) {
@@ -487,7 +497,7 @@ function App() {
         } finally {
             URL.revokeObjectURL(blobUrl);
         }
-    }, [activeWorkspaceId, selectedCollectionId]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
 
     // Drag-and-drop file handler
     const [isDragging, setIsDragging] = useState(false);
@@ -546,6 +556,7 @@ function App() {
                 projectId: null,
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
                 createdAt: Date.now(),
+                ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('link') } : {}),
             };
 
             const saved = await saveItemWithTags(newItem, null);
@@ -560,7 +571,7 @@ function App() {
             setItems((prev) => prev.filter((item) => item.id !== tempId));
             setToast({ message: error?.message || 'Failed to save link', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
 
     const saveText = useCallback(async (text, source = 'clipboard') => {
         if (!activeWorkspaceId) {
@@ -575,7 +586,8 @@ function App() {
             workspaceId: activeWorkspaceId,
             projectId: null,
             collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('text') } : {}),
         };
         try {
             const saved = await saveItemWithTags(newItem, null);
@@ -584,7 +596,7 @@ function App() {
         } catch (error) {
             setToast({ message: error?.message || 'Failed to save text', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
 
     const saveColor = useCallback(async (hexColor) => {
         if (!activeWorkspaceId) {
@@ -599,7 +611,8 @@ function App() {
             workspaceId: activeWorkspaceId,
             projectId: null,
             collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('color') } : {}),
         };
         try {
             const saved = await saveItemWithTags(newItem, null);
@@ -608,7 +621,89 @@ function App() {
         } catch (error) {
             setToast({ message: error?.message || 'Failed to save color', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
+
+    const getCanvasPlacement = useCallback((itemType) => {
+        const defaultSizes = {
+            text: { w: 280, h: 160 },
+            color: { w: 160, h: 160 },
+            image: { w: 300, h: 200 },
+            video: { w: 300, h: 200 },
+            link: { w: 280, h: 160 },
+        };
+        const size = defaultSizes[itemType] || defaultSizes.text;
+        const vp = canvasViewportRef.current;
+        if (!vp || !vp.containerWidth) {
+            return { x: 120, y: 120, ...size, z: 1 };
+        }
+        const centerX = (vp.containerWidth / 2 - vp.positionX) / vp.scale;
+        const centerY = (vp.containerHeight / 2 - vp.positionY) / vp.scale;
+        const startX = Math.round(centerX - size.w / 2);
+        const startY = Math.round(centerY - size.h / 2);
+
+        const occupiedRects = items
+            .filter((it) => it.canvas?.x != null && it.canvas?.y != null)
+            .map((it) => ({
+                x: it.canvas.x,
+                y: it.canvas.y,
+                w: it.canvas.w || (defaultSizes[it.type] || defaultSizes.text).w,
+                h: it.canvas.h || (defaultSizes[it.type] || defaultSizes.text).h,
+            }));
+
+        const overlaps = (ax, ay, aw, ah) =>
+            occupiedRects.some((r) =>
+                ax < r.x + r.w + 20 && ax + aw + 20 > r.x &&
+                ay < r.y + r.h + 20 && ay + ah + 20 > r.y
+            );
+
+        if (!overlaps(startX, startY, size.w, size.h)) {
+            return { x: startX, y: startY, ...size, z: 1 };
+        }
+
+        // Spiral outward to find a free spot
+        const step = 40;
+        for (let ring = 1; ring <= 20; ring++) {
+            for (let dx = -ring; dx <= ring; dx++) {
+                for (let dy = -ring; dy <= ring; dy++) {
+                    if (Math.abs(dx) !== ring && Math.abs(dy) !== ring) continue;
+                    const cx = startX + dx * step;
+                    const cy = startY + dy * step;
+                    if (!overlaps(cx, cy, size.w, size.h)) {
+                        return { x: cx, y: cy, ...size, z: 1 };
+                    }
+                }
+            }
+        }
+
+        return { x: startX + 40, y: startY + 40, ...size, z: 1 };
+    }, [items]);
+
+    const createCanvasNote = useCallback(async () => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+        const canvas = getCanvasPlacement('text');
+        const newItem = {
+            type: 'text',
+            content: '',
+            sourceUrl: 'note',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now(),
+            canvas,
+        };
+        try {
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) {
+                setItems((prev) => [saved, ...prev]);
+                setCanvasInlineEditId(saved.id);
+            }
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to create note', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId, getCanvasPlacement]);
 
     const handlePasteClipboard = useCallback(async () => {
         try {
@@ -1367,6 +1462,9 @@ function App() {
                                     onDeleteItem={handleDelete}
                                     onOpenItem={handleOpenItemDetails}
                                     detailPanelItemId={detailPanelItem?.id || null}
+                                    viewportRef={canvasViewportRef}
+                                    inlineEditingId={canvasInlineEditId}
+                                    onFinishInlineEdit={() => setCanvasInlineEditId(null)}
                                 />
                                 <AnimatePresence>
                                     {detailPanelItem && (
@@ -1518,7 +1616,7 @@ function App() {
                             </div>
                         </div>
                         <CreateToolbar
-                            onCreateNote={() => setShowNoteEditor(true)}
+                            onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : setShowNoteEditor(true)}
                             onUploadImage={(file) => saveImageFromBlob(file)}
                             onCreateLink={(url) => saveLink(url)}
                             onPasteClipboard={handlePasteClipboard}
