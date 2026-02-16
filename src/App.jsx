@@ -434,6 +434,88 @@ function App() {
         });
     };
 
+    const getCanvasPlacement = useCallback((itemType) => {
+        const defaultSizes = {
+            text: { w: 280, h: 160 },
+            color: { w: 160, h: 160 },
+            image: { w: 300, h: 200 },
+            video: { w: 300, h: 200 },
+            link: { w: 280, h: 160 },
+        };
+        const size = defaultSizes[itemType] || defaultSizes.text;
+        const vp = canvasViewportRef.current;
+        if (!vp || !vp.containerWidth) {
+            return { x: 120, y: 120, ...size, z: 1 };
+        }
+        const centerX = (vp.containerWidth / 2 - vp.positionX) / vp.scale;
+        const centerY = (vp.containerHeight / 2 - vp.positionY) / vp.scale;
+        const startX = Math.round(centerX - size.w / 2);
+        const startY = Math.round(centerY - size.h / 2);
+
+        const occupiedRects = items
+            .filter((it) => it.canvas?.x != null && it.canvas?.y != null)
+            .map((it) => ({
+                x: it.canvas.x,
+                y: it.canvas.y,
+                w: it.canvas.w || (defaultSizes[it.type] || defaultSizes.text).w,
+                h: it.canvas.h || (defaultSizes[it.type] || defaultSizes.text).h,
+            }));
+
+        const overlaps = (ax, ay, aw, ah) =>
+            occupiedRects.some((r) =>
+                ax < r.x + r.w + 20 && ax + aw + 20 > r.x &&
+                ay < r.y + r.h + 20 && ay + ah + 20 > r.y
+            );
+
+        if (!overlaps(startX, startY, size.w, size.h)) {
+            return { x: startX, y: startY, ...size, z: 1 };
+        }
+
+        // Spiral outward to find a free spot
+        const step = 40;
+        for (let ring = 1; ring <= 20; ring++) {
+            for (let dx = -ring; dx <= ring; dx++) {
+                for (let dy = -ring; dy <= ring; dy++) {
+                    if (Math.abs(dx) !== ring && Math.abs(dy) !== ring) continue;
+                    const cx = startX + dx * step;
+                    const cy = startY + dy * step;
+                    if (!overlaps(cx, cy, size.w, size.h)) {
+                        return { x: cx, y: cy, ...size, z: 1 };
+                    }
+                }
+            }
+        }
+
+        return { x: startX + 40, y: startY + 40, ...size, z: 1 };
+    }, [items]);
+
+    const createCanvasNote = useCallback(async () => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+        const canvas = getCanvasPlacement('text');
+        const newItem = {
+            type: 'text',
+            content: '',
+            sourceUrl: 'note',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now(),
+            canvas,
+        };
+        try {
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) {
+                setItems((prev) => [saved, ...prev]);
+                setCanvasInlineEditId(saved.id);
+            }
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to create note', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId, getCanvasPlacement]);
+
     // Shared image save helper — used by both paste and drag-and-drop
     const saveImageFromBlob = useCallback(async (blob) => {
         if (!activeWorkspaceId) {
@@ -622,88 +704,6 @@ function App() {
             setToast({ message: error?.message || 'Failed to save color', type: 'error' });
         }
     }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
-
-    const getCanvasPlacement = useCallback((itemType) => {
-        const defaultSizes = {
-            text: { w: 280, h: 160 },
-            color: { w: 160, h: 160 },
-            image: { w: 300, h: 200 },
-            video: { w: 300, h: 200 },
-            link: { w: 280, h: 160 },
-        };
-        const size = defaultSizes[itemType] || defaultSizes.text;
-        const vp = canvasViewportRef.current;
-        if (!vp || !vp.containerWidth) {
-            return { x: 120, y: 120, ...size, z: 1 };
-        }
-        const centerX = (vp.containerWidth / 2 - vp.positionX) / vp.scale;
-        const centerY = (vp.containerHeight / 2 - vp.positionY) / vp.scale;
-        const startX = Math.round(centerX - size.w / 2);
-        const startY = Math.round(centerY - size.h / 2);
-
-        const occupiedRects = items
-            .filter((it) => it.canvas?.x != null && it.canvas?.y != null)
-            .map((it) => ({
-                x: it.canvas.x,
-                y: it.canvas.y,
-                w: it.canvas.w || (defaultSizes[it.type] || defaultSizes.text).w,
-                h: it.canvas.h || (defaultSizes[it.type] || defaultSizes.text).h,
-            }));
-
-        const overlaps = (ax, ay, aw, ah) =>
-            occupiedRects.some((r) =>
-                ax < r.x + r.w + 20 && ax + aw + 20 > r.x &&
-                ay < r.y + r.h + 20 && ay + ah + 20 > r.y
-            );
-
-        if (!overlaps(startX, startY, size.w, size.h)) {
-            return { x: startX, y: startY, ...size, z: 1 };
-        }
-
-        // Spiral outward to find a free spot
-        const step = 40;
-        for (let ring = 1; ring <= 20; ring++) {
-            for (let dx = -ring; dx <= ring; dx++) {
-                for (let dy = -ring; dy <= ring; dy++) {
-                    if (Math.abs(dx) !== ring && Math.abs(dy) !== ring) continue;
-                    const cx = startX + dx * step;
-                    const cy = startY + dy * step;
-                    if (!overlaps(cx, cy, size.w, size.h)) {
-                        return { x: cx, y: cy, ...size, z: 1 };
-                    }
-                }
-            }
-        }
-
-        return { x: startX + 40, y: startY + 40, ...size, z: 1 };
-    }, [items]);
-
-    const createCanvasNote = useCallback(async () => {
-        if (!activeWorkspaceId) {
-            setToast({ message: 'Select a workspace first', type: 'error' });
-            return;
-        }
-        const canvas = getCanvasPlacement('text');
-        const newItem = {
-            type: 'text',
-            content: '',
-            sourceUrl: 'note',
-            workspaceId: activeWorkspaceId,
-            projectId: null,
-            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-            createdAt: Date.now(),
-            canvas,
-        };
-        try {
-            const saved = await saveItemWithTags(newItem, null);
-            if (saved) {
-                setItems((prev) => [saved, ...prev]);
-                setCanvasInlineEditId(saved.id);
-            }
-        } catch (error) {
-            setToast({ message: error?.message || 'Failed to create note', type: 'error' });
-        }
-    }, [activeWorkspaceId, selectedCollectionId, getCanvasPlacement]);
 
     const handlePasteClipboard = useCallback(async () => {
         try {
