@@ -197,3 +197,43 @@ USING (
     bucket_id = 'dreamlab-media'
     AND (storage.foldername(name))[1] = auth.uid()::text
 );
+
+-- =============================================================
+-- Invite Codes (closed alpha)
+-- =============================================================
+CREATE TABLE IF NOT EXISTS invite_codes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code TEXT NOT NULL UNIQUE,
+    used_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE invite_codes ENABLE ROW LEVEL SECURITY;
+-- No direct access policies — table is fully locked down.
+-- All access goes through SECURITY DEFINER functions below.
+
+-- Check if a code is valid (callable by anyone, including unauthenticated users)
+CREATE OR REPLACE FUNCTION check_invite_code(invite_code TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM invite_codes WHERE code = invite_code AND used_by IS NULL
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Atomically claim a code after signup succeeds
+CREATE OR REPLACE FUNCTION claim_invite_code(invite_code TEXT, claiming_user_id UUID)
+RETURNS BOOLEAN AS $$
+DECLARE
+    found_id UUID;
+BEGIN
+    UPDATE invite_codes
+    SET used_by = claiming_user_id, used_at = NOW()
+    WHERE code = invite_code AND used_by IS NULL
+    RETURNING id INTO found_id;
+
+    RETURN found_id IS NOT NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

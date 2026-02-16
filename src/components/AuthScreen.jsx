@@ -5,6 +5,7 @@ export default function AuthScreen({ onAuthenticated }) {
     const [mode, setMode] = useState('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [inviteCode, setInviteCode] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [message, setMessage] = useState(null);
@@ -17,11 +18,34 @@ export default function AuthScreen({ onAuthenticated }) {
 
         try {
             if (mode === 'signup') {
-                const { error: signUpError } = await supabase.auth.signUp({
+                // Validate invite code first
+                const trimmedCode = inviteCode.trim();
+                if (!trimmedCode) {
+                    throw new Error('Invite code is required.');
+                }
+                const { data: isValid, error: rpcError } = await supabase.rpc('check_invite_code', {
+                    invite_code: trimmedCode,
+                });
+                if (rpcError) throw rpcError;
+                if (!isValid) {
+                    throw new Error('Invalid or already used invite code.');
+                }
+
+                // Code is valid — create account
+                const { data, error: signUpError } = await supabase.auth.signUp({
                     email,
                     password,
                 });
                 if (signUpError) throw signUpError;
+
+                // Claim the invite code
+                if (data?.user?.id) {
+                    await supabase.rpc('claim_invite_code', {
+                        invite_code: trimmedCode,
+                        claiming_user_id: data.user.id,
+                    });
+                }
+
                 setMessage('Check your email for a confirmation link.');
             } else {
                 const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -81,6 +105,22 @@ export default function AuthScreen({ onAuthenticated }) {
                         />
                     </div>
 
+                    {mode === 'signup' && (
+                        <div className="flex flex-col gap-1">
+                            <label className="text-caption-bold font-caption-bold text-subtext-color">
+                                Invite Code
+                            </label>
+                            <input
+                                type="text"
+                                value={inviteCode}
+                                onChange={(e) => setInviteCode(e.target.value)}
+                                required
+                                className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-body font-body text-default-font outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
+                                placeholder="Enter your invite code"
+                            />
+                        </div>
+                    )}
+
                     {error && (
                         <div className="rounded-lg bg-error-50 px-3 py-2 text-caption font-caption text-error-700">
                             {error}
@@ -109,6 +149,7 @@ export default function AuthScreen({ onAuthenticated }) {
                             setMode(mode === 'login' ? 'signup' : 'login');
                             setError(null);
                             setMessage(null);
+                            setInviteCode('');
                         }}
                         className="text-caption font-caption text-subtext-color hover:text-default-font"
                     >
