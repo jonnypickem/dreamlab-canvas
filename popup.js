@@ -150,6 +150,19 @@ function getCollectionsForWorkspace(workspaceId) {
   return state.collections.filter((collection) => getCollectionWorkspaceId(collection) === workspaceId);
 }
 
+function getProjectName(projectId) {
+  if (!projectId) return null;
+  const project = state.projects.find((candidate) => candidate.id === projectId);
+  return project?.name || null;
+}
+
+function formatCollectionLabel(collection) {
+  const collectionName = String(collection?.name || 'Untitled').trim() || 'Untitled';
+  const projectName = getProjectName(collection?.projectId);
+  if (!projectName) return `Ungrouped / ${collectionName}`;
+  return `${projectName} / ${collectionName}`;
+}
+
 function setSelectOptions(selectElement, options, placeholderLabel, selectedValue) {
   selectElement.innerHTML = '';
 
@@ -200,8 +213,8 @@ function populateCollectionOptions(workspaceId, preferredCollectionId) {
   const collections = getCollectionsForWorkspace(workspaceId);
   const collectionOptions = collections.map((collection) => ({
     value: collection.id,
-    label: collection.name,
-  }));
+    label: formatCollectionLabel(collection),
+  })).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   const collectionIds = collectionOptions.map((option) => option.value);
 
   const collectionId = pickValid(preferredCollectionId, collectionIds, null);

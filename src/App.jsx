@@ -3,7 +3,11 @@ import {
     getItems,
     clearItems,
     getWorkspaces,
+    getProjects,
     getCollections,
+    createProject,
+    updateProject,
+    deleteProject,
     createCollection,
     deleteCollection,
     deleteItem as deleteItemFromDb,
@@ -56,6 +60,7 @@ function App() {
     const [user, setUser] = useState(undefined); // undefined = loading, null = no auth
     const [items, setItems] = useState([]);
     const [workspaces, setWorkspaces] = useState([]);
+    const [projects, setProjects] = useState([]);
     const [collections, setCollections] = useState([]);
     const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => {
         try { return localStorage.getItem('dreamlab_nav_workspace') || null; } catch { return null; }
@@ -109,6 +114,18 @@ function App() {
             .filter((collection) => getCollectionWorkspaceId(collection) === activeWorkspaceId)
             .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
     }, [collections, activeWorkspaceId]);
+
+    const workspaceProjects = useMemo(() => {
+        if (!activeWorkspaceId) return [];
+        return projects
+            .filter((project) => project.workspaceId === activeWorkspaceId)
+            .sort((a, b) => {
+                const aGeneral = String(a?.name || '').trim().toLowerCase() === 'general';
+                const bGeneral = String(b?.name || '').trim().toLowerCase() === 'general';
+                if (aGeneral !== bGeneral) return aGeneral ? -1 : 1;
+                return (a.createdAt || 0) - (b.createdAt || 0);
+            });
+    }, [projects, activeWorkspaceId]);
 
     const activeCollection = useMemo(() => {
         if (!selectedCollectionId) return null;
@@ -188,18 +205,20 @@ function App() {
 
         const fetches = [
             getWorkspaces(),
+            getProjects(),
             getCollections(),
             getItems(),
         ];
         // Only fetch active context on first load; subsequent refreshes keep current nav state
         if (isFirstLoad) fetches.push(getActiveContext());
 
-        const [ws, c, fetchedItems, ctx] = await Promise.all(fetches);
+        const [ws, p, c, fetchedItems, ctx] = await Promise.all(fetches);
 
         await loadPrimitiveAnalysisStore();
 
         setItems(fetchedItems);
         setWorkspaces(ws);
+        setProjects(p);
         setCollections(c);
 
         if (isFirstLoad) {
@@ -271,6 +290,7 @@ function App() {
             .channel('dreamlab-changes')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => loadData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'workspaces' }, () => loadData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => loadData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'collections' }, () => loadData())
             .subscribe();
 
@@ -313,7 +333,7 @@ function App() {
                     payload: {
                         success: true,
                         workspaces,
-                        projects: [],
+                        projects,
                         collections,
                         activeContext: {
                             workspaceId: activeWorkspaceId,
@@ -326,7 +346,7 @@ function App() {
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [user, activeWorkspaceId, selectedCollectionId, workspaces, collections]);
+    }, [user, activeWorkspaceId, selectedCollectionId, workspaces, projects, collections]);
 
     useEffect(() => {
         if (!selectedCollectionId || selectedCollectionId === '__unsorted__') {
@@ -900,10 +920,29 @@ function App() {
         return ws ? ws.name : null;
     };
 
-    const getDefaultCollectionName = () => {
-        const base = 'New Collection';
+    const getDefaultProjectName = () => {
+        const base = 'New Folder';
         const existing = new Set(
-            workspaceCollections
+            workspaceProjects
+                .map((project) => String(project?.name || '').trim().toLowerCase())
+                .filter(Boolean)
+        );
+
+        if (!existing.has(base.toLowerCase())) return base;
+        for (let i = 2; i < 1000; i += 1) {
+            const candidate = `${base} ${i}`;
+            if (!existing.has(candidate.toLowerCase())) return candidate;
+        }
+        return `${base} ${Date.now()}`;
+    };
+
+    const getDefaultCollectionName = (projectId = null) => {
+        const base = 'New Collection';
+        const scopedCollections = projectId
+            ? workspaceCollections.filter((collection) => collection.projectId === projectId)
+            : workspaceCollections;
+        const existing = new Set(
+            scopedCollections
                 .map((collection) => String(collection?.name || '').trim().toLowerCase())
                 .filter(Boolean)
         );
@@ -914,6 +953,87 @@ function App() {
             if (!existing.has(candidate.toLowerCase())) return candidate;
         }
         return `${base} ${Date.now()}`;
+    };
+
+    const handleCreateProject = async (requestedNameInput = null) => {
+        if (!activeWorkspaceId) return;
+        if (requestedNameInput !== null && !String(requestedNameInput || '').trim()) return;
+
+        const suggestedName = getDefaultProjectName();
+        let requestedName = requestedNameInput;
+        if (requestedNameInput === null) {
+            try {
+                requestedName = prompt('Folder name:', suggestedName);
+            } catch {
+                requestedName = suggestedName;
+            }
+        }
+
+        const finalName = String(requestedName || '').trim() || suggestedName;
+
+        try {
+            const created = await createProject(activeWorkspaceId, finalName);
+            if (!created) throw new Error('Project folder was not created.');
+            setProjects((prev) => [created, ...prev.filter((project) => project.id !== created.id)]);
+            setToast({ message: `Created folder "${created.name}"`, type: 'success' });
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to create folder', type: 'error' });
+        }
+    };
+
+    const handleRenameProject = async (project, nextNameInput) => {
+        const nextName = typeof nextNameInput === 'string'
+            ? nextNameInput
+            : prompt('Rename folder:', project?.name || '');
+        if (!nextName || !nextName.trim()) return;
+        const updated = await updateProject(project.id, { name: nextName.trim() });
+        if (updated) {
+            setProjects((prev) => prev.map((candidate) => (
+                candidate.id === updated.id ? updated : candidate
+            )));
+            setToast({ message: `Renamed folder to "${updated.name}"`, type: 'success' });
+        }
+    };
+
+    const handleDeleteProject = async (project) => {
+        if (!project?.id) return;
+        const hasCollections = workspaceCollections.some((collection) => collection.projectId === project.id);
+        if (hasCollections) {
+            setToast({ message: 'Folder must be empty before deletion', type: 'error' });
+            return;
+        }
+
+        const confirmed = window.confirm(`Delete folder "${project.name}"?`);
+        if (!confirmed) return;
+
+        const deleted = await deleteProject(project.id);
+        if (!deleted) {
+            setToast({ message: 'Failed to delete folder', type: 'error' });
+            return;
+        }
+
+        setProjects((prev) => prev.filter((candidate) => candidate.id !== project.id));
+        setToast({ message: `Deleted folder "${project.name}"`, type: 'success' });
+    };
+
+    const handleMoveCollectionToProject = async (collection, nextProjectId) => {
+        if (!collection?.id || !nextProjectId || collection.projectId === nextProjectId) return;
+        const targetProject = workspaceProjects.find((project) => project.id === nextProjectId);
+        if (!targetProject) {
+            setToast({ message: 'Target folder not found', type: 'error' });
+            return;
+        }
+
+        const updated = await updateCollection(collection.id, { projectId: nextProjectId });
+        if (!updated) {
+            setToast({ message: 'Failed to move collection', type: 'error' });
+            return;
+        }
+
+        setCollections((prev) => prev.map((candidate) => (
+            candidate.id === updated.id ? updated : candidate
+        )));
+        setToast({ message: `Moved "${updated.name}" to "${targetProject.name}"`, type: 'success' });
     };
 
     const canGoBack = Boolean(selectedCollectionId);
@@ -987,11 +1107,20 @@ function App() {
         setIsCanvasTitleEditing(false);
     }, [activeCollection?.name]);
 
-    const handleCreateCollection = async (requestedNameInput = null) => {
+    const handleCreateCollection = async (projectId, requestedNameInput = null) => {
         if (!activeWorkspaceId) return;
+        if (!projectId) {
+            setToast({ message: 'Choose a folder first', type: 'error' });
+            return;
+        }
+        const targetProject = workspaceProjects.find((project) => project.id === projectId);
+        if (!targetProject) {
+            setToast({ message: 'Folder not found in this workspace', type: 'error' });
+            return;
+        }
         if (requestedNameInput !== null && !String(requestedNameInput || '').trim()) return;
 
-        const suggestedName = getDefaultCollectionName();
+        const suggestedName = getDefaultCollectionName(projectId);
         let requestedName = requestedNameInput;
         if (requestedNameInput === null) {
             try {
@@ -1004,7 +1133,7 @@ function App() {
         const finalName = String(requestedName || '').trim() || suggestedName;
 
         try {
-            const created = await createCollection(activeWorkspaceId, finalName);
+            const created = await createCollection(activeWorkspaceId, projectId, finalName);
             if (!created) throw new Error('Collection was not created.');
             setCollections((prev) => [created, ...prev.filter((collection) => collection.id !== created.id)]);
             setSelectedCollectionId(created.id);
@@ -1319,10 +1448,20 @@ function App() {
             />
             {/* Sidebar is hidden on mobile in Subframe example, but we keep it responsive or as is */}
             <Sidebar
+                projects={workspaceProjects}
                 collections={workspaceCollections}
                 selectedCollectionId={selectedCollectionId}
                 onAllItems={() => {
                     setSelectedCollectionId(null);
+                }}
+                onProjectCreate={(projectName) => {
+                    void handleCreateProject(projectName);
+                }}
+                onProjectRename={(project, nextName) => {
+                    void handleRenameProject(project, nextName);
+                }}
+                onProjectDelete={(project) => {
+                    void handleDeleteProject(project);
                 }}
                 onCollectionSelect={(collectionId) => {
                     setSelectedCollectionId(collectionId);
@@ -1373,8 +1512,11 @@ function App() {
                         setToast({ message: error?.message || 'Failed to delete collection', type: 'error' });
                     }
                 }}
-                onCreateCollection={(collectionName) => {
-                    void handleCreateCollection(collectionName);
+                onCreateCollection={(projectId, collectionName) => {
+                    void handleCreateCollection(projectId, collectionName);
+                }}
+                onCollectionMove={(collection, nextProjectId) => {
+                    void handleMoveCollectionToProject(collection, nextProjectId);
                 }}
                 activeWorkspaceId={activeWorkspaceId}
                 activeWorkspaceName={getWorkspaceName(activeWorkspaceId)}

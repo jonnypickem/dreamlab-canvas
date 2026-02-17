@@ -72,12 +72,23 @@ function workspaceFromDb(row) {
     };
 }
 
+function projectFromDb(row) {
+    if (!row) return null;
+    return {
+        id: row.id,
+        workspaceId: row.workspace_id || null,
+        name: row.name,
+        createdAt: new Date(row.created_at).getTime(),
+        updatedAt: new Date(row.updated_at).getTime(),
+    };
+}
+
 function collectionFromDb(row) {
     if (!row) return null;
     return {
         id: row.id,
         workspaceId: row.workspace_id || null,
-        projectId: null,
+        projectId: row.project_id || null,
         name: row.name,
         kind: row.kind || 'custom',
         createdAt: new Date(row.created_at).getTime(),
@@ -166,6 +177,61 @@ export async function updateWorkspace(id, updates) {
     return workspaceFromDb(data);
 }
 
+// ── Projects (Project Folders) ──────────────────────────────────────
+
+export async function getProjects() {
+    const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+    if (error) { console.error('getProjects error:', error); return []; }
+    return (data || []).map(projectFromDb);
+}
+
+export async function createProject(workspaceId, name) {
+    const userId = await getCurrentUserId();
+    if (!userId) return null;
+
+    const { data, error } = await supabase
+        .from('projects')
+        .insert({
+            user_id: userId,
+            workspace_id: workspaceId,
+            name,
+        })
+        .select()
+        .single();
+
+    if (error) { console.error('createProject error:', error); return null; }
+    return projectFromDb(data);
+}
+
+export async function updateProject(id, updates) {
+    const row = {};
+    if (updates.name !== undefined) row.name = updates.name;
+
+    const { data, error } = await supabase
+        .from('projects')
+        .update(row)
+        .eq('id', id)
+        .select()
+        .single();
+
+    if (error) { console.error('updateProject error:', error); return null; }
+    return projectFromDb(data);
+}
+
+export async function deleteProject(id) {
+    const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', id);
+
+    if (error) { console.error('deleteProject error:', error); return false; }
+    return true;
+}
+
 // ── Collections ─────────────────────────────────────────────────────
 
 export function getCollectionWorkspaceId(collection) {
@@ -183,7 +249,7 @@ export async function getCollections() {
     return (data || []).map(collectionFromDb);
 }
 
-export async function createCollection(workspaceId, name) {
+export async function createCollection(workspaceId, projectId, name) {
     const userId = await getCurrentUserId();
     if (!userId) return null;
 
@@ -192,6 +258,7 @@ export async function createCollection(workspaceId, name) {
         .insert({
             user_id: userId,
             workspace_id: workspaceId,
+            project_id: projectId || null,
             name,
             kind: 'custom',
         })
@@ -206,6 +273,7 @@ export async function updateCollection(id, updates) {
     const row = {};
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.kind !== undefined) row.kind = updates.kind;
+    if (updates.projectId !== undefined) row.project_id = updates.projectId;
 
     const { data, error } = await supabase
         .from('collections')
@@ -523,7 +591,6 @@ export async function getAllTags() {
 
 // ── Legacy compat stubs (unused but prevent import errors) ──────────
 
-export function getProjects() { return []; }
 export function getProject() { return null; }
 export function getItemsByProject() { return []; }
 export function getItemsByCollection() { return []; }
