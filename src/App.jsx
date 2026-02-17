@@ -1597,7 +1597,7 @@ function App() {
                         showDownload={hasDownloadableSelection}
                     />
                 ) : (
-                    <div className="flex items-center gap-2 rounded-full border border-solid border-neutral-border bg-white px-3 py-2.5 fixed bottom-8 left-1/2 z-10 -translate-x-1/2 shadow-sm">
+                    <div className="flex items-center gap-2 rounded-full border border-solid border-neutral-border bg-white px-3 py-2.5 absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-sm">
                         {searchExpanded ? (
                             <div className="flex items-center relative">
                                 <TextField
