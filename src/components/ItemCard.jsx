@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Link as LinkIcon, FileText, Video, Check, Palette } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
+import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 
 const getLinkTextPayload = (item) => {
     if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
@@ -17,11 +18,25 @@ const getLinkTextPayload = (item) => {
     };
 };
 
-function ItemCard({ item, onClick, isSelected = false, onSelect }) {
+function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = false, onFinishEditing }) {
     const [isVisible, setIsVisible] = useState(false);
     const [imgLoaded, setImgLoaded] = useState(false);
     const [imgError, setImgError] = useState(false);
+    const [editText, setEditText] = useState(item.content || '');
+    const editTextareaRef = useRef(null);
     const cardRef = useRef(null);
+
+    useEffect(() => {
+        if (isEditing && editTextareaRef.current) {
+            editTextareaRef.current.focus();
+            const len = editTextareaRef.current.value.length;
+            editTextareaRef.current.setSelectionRange(len, len);
+        }
+    }, [isEditing]);
+
+    useEffect(() => {
+        if (!isEditing) setEditText(item.content || '');
+    }, [item.content, isEditing]);
 
     useEffect(() => {
         const observer = new IntersectionObserver(
@@ -73,6 +88,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
     };
 
     const handleClick = (e) => {
+        if (isEditing) return;
         // Check for modifier keys for selection
         const isModifierClick = e.metaKey || e.ctrlKey || e.shiftKey;
 
@@ -245,16 +261,53 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
 
                     {/* Text Type */}
                     {item.type === 'text' && (
-                        <div className="p-5 bg-white min-h-[150px] flex flex-col items-start justify-start gap-2.5">
-                            <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-3 text-left leading-snug w-full">
-                                {heroText}
-                            </p>
-                            {supportingText ? (
-                                <p className="text-body text-[var(--ds-gray-700)] line-clamp-4 text-left leading-relaxed w-full">
-                                    {supportingText}
-                                </p>
-                            ) : null}
-                        </div>
+                        isEditing ? (
+                            <div className="p-4 bg-white min-h-[200px] flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+                                <textarea
+                                    ref={editTextareaRef}
+                                    className="w-full min-h-[100px] resize-none bg-transparent text-sm text-[var(--ds-gray-1000)] outline-none placeholder:text-zinc-300 leading-relaxed"
+                                    placeholder="Start typing... Use # for headings"
+                                    value={editText}
+                                    onChange={(e) => setEditText(e.target.value)}
+                                    onBlur={() => onFinishEditing?.(item.id, editText)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Escape') {
+                                            e.preventDefault();
+                                            onFinishEditing?.(item.id, editText);
+                                        }
+                                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                            e.preventDefault();
+                                            onFinishEditing?.(item.id, editText);
+                                        }
+                                    }}
+                                />
+                                {editText.trim() && (
+                                    <div className="border-t border-zinc-100 pt-2">
+                                        {renderMarkdownText(editText)}
+                                    </div>
+                                )}
+                                <span className="text-[11px] text-zinc-300 mt-auto">
+                                    {navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to save
+                                </span>
+                            </div>
+                        ) : (
+                            <div className="p-5 bg-white min-h-[150px] flex flex-col items-start justify-start gap-2.5">
+                                {hasMarkdownHeadings(item.content) ? (
+                                    renderMarkdownText(item.content, { clampLines: 7 })
+                                ) : (
+                                    <>
+                                        <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-3 text-left leading-snug w-full">
+                                            {heroText}
+                                        </p>
+                                        {supportingText ? (
+                                            <p className="text-body text-[var(--ds-gray-700)] line-clamp-4 text-left leading-relaxed w-full">
+                                                {supportingText}
+                                            </p>
+                                        ) : null}
+                                    </>
+                                )}
+                            </div>
+                        )
                     )}
 
                     {/* Color Swatch Type */}

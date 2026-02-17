@@ -32,6 +32,7 @@ import {
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { Palette } from 'lucide-react';
 import { getDomainDefaultLinkMode, isTextFirstDomain } from '../utils/linkDomainPolicy';
+import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 import { getLinkViewPreference, setLinkViewPreference } from '../utils/linkTextPreference';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
@@ -769,7 +770,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                         <div className="absolute inset-x-[72px] top-[80px] bottom-[84px]">
                             <div className="h-full w-full overflow-y-auto">
                                 <div className="min-h-full flex items-center justify-center">
-                                    <div className="max-w-2xl mx-auto py-4 w-full">
+                                    <div className="max-w-2xl mx-auto py-4 w-full flex flex-col gap-6">
                                         <textarea
                                             className="w-full text-lg text-neutral-700 bg-transparent border-none outline-none resize-none leading-relaxed whitespace-pre-wrap break-words min-h-[200px]"
                                             value={content}
@@ -777,9 +778,15 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                                 setContent(e.target.value);
                                                 setTextContentDirty(true);
                                             }}
-                                            placeholder="Write your note..."
+                                            placeholder="Write your note... Use # for headings"
                                             style={{ minHeight: '200px', height: 'auto' }}
                                         />
+                                        {content.trim() && hasMarkdownHeadings(content) && (
+                                            <div className="border-t border-neutral-200 pt-4">
+                                                <span className="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-3 block">Preview</span>
+                                                {renderMarkdownText(content)}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>

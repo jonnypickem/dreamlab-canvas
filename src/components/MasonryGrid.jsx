@@ -8,7 +8,9 @@ function MasonryGrid({
     onItemClick,
     zoomLevel = 2,
     selectedItems = new Set(),
-    onSelectItem
+    onSelectItem,
+    inlineEditingId = null,
+    onFinishInlineEdit
 }) {
     // zoomLevel needs to map to column counts.
     // Slider: 0 (Small items) <-> 4 (Large items)
@@ -55,6 +57,8 @@ function MasonryGrid({
                         onClick={() => onItemClick(item)}
                         isSelected={selectedItems.has(item.id)}
                         onSelect={onSelectItem}
+                        isEditing={item.id === inlineEditingId}
+                        onFinishEditing={onFinishInlineEdit}
                     />
                 </div>
             ))}

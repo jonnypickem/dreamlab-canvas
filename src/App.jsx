@@ -39,7 +39,6 @@ import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
 import MasonryGrid from './components/MasonryGrid';
 import CreateToolbar from './components/CreateToolbar';
-import NoteEditorModal from './components/NoteEditorModal';
 import CanvasDetailPanel from './components/CanvasDetailPanel';
 
 // Subframe Imports
@@ -82,8 +81,8 @@ function App() {
 
     // View Mode State
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'canvas'
-    const [showNoteEditor, setShowNoteEditor] = useState(false);
     const [canvasInlineEditId, setCanvasInlineEditId] = useState(null);
+    const [gridInlineEditId, setGridInlineEditId] = useState(null);
     const canvasViewportRef = useRef(null);
 
     // Zoom/Grid Size State (0=Small Items, 4=Large Items)
@@ -519,6 +518,31 @@ function App() {
         }
     }, [activeWorkspaceId, selectedCollectionId, getCanvasPlacement]);
 
+    const createGridNote = useCallback(async () => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+        const newItem = {
+            type: 'text',
+            content: '',
+            sourceUrl: 'note',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now(),
+        };
+        try {
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) {
+                setItems((prev) => [saved, ...prev]);
+                setGridInlineEditId(saved.id);
+            }
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to create note', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId]);
+
     // Shared image save helper — used by both paste and drag-and-drop
     const saveImageFromBlob = useCallback(async (blob) => {
         if (!activeWorkspaceId) {
@@ -907,6 +931,23 @@ function App() {
             setSelectedCollectionId(null);
         }
     };
+
+    const handleFinishGridEdit = useCallback(async (itemId, newContent) => {
+        setGridInlineEditId(null);
+        if (newContent !== undefined) {
+            const trimmed = String(newContent).trim();
+            if (!trimmed) {
+                // Empty note — delete it
+                try {
+                    await deleteItemFromDb(itemId);
+                    setItems((prev) => prev.filter((i) => i.id !== itemId));
+                } catch {}
+                return;
+            }
+            await updateItem(itemId, { content: trimmed });
+            setItems((prev) => prev.map((i) => i.id === itemId ? { ...i, content: trimmed } : i));
+        }
+    }, []);
 
     const handleOpenItemDetails = useCallback((itemOrId) => {
         const itemId = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
@@ -1512,6 +1553,8 @@ function App() {
                                         zoomLevel={zoomLevel[0]}
                                         selectedItems={selectedItems}
                                         onSelectItem={handleSelectItem}
+                                        inlineEditingId={gridInlineEditId}
+                                        onFinishInlineEdit={handleFinishGridEdit}
                                     />
                                 )}
                             </motion.div>
@@ -1563,15 +1606,6 @@ function App() {
                     )}
                 </AnimatePresence>
 
-                {/* Note Editor Modal */}
-                <AnimatePresence>
-                    {showNoteEditor && (
-                        <NoteEditorModal
-                            onSave={(text) => saveText(text, 'note')}
-                            onClose={() => setShowNoteEditor(false)}
-                        />
-                    )}
-                </AnimatePresence>
 
                 {/* Toast Notifications */}
                 <AnimatePresence>
@@ -1639,7 +1673,7 @@ function App() {
                         )}
                         <div className="w-px h-6 bg-neutral-200" />
                         <CreateToolbar
-                            onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : setShowNoteEditor(true)}
+                            onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : createGridNote()}
                             onUploadImage={(file) => saveImageFromBlob(file)}
                             onCreateLink={(url) => saveLink(url)}
                             onPasteClipboard={handlePasteClipboard}

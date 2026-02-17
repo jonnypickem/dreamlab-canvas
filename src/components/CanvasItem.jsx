@@ -3,6 +3,7 @@ import { Rnd } from 'react-rnd';
 import { Camera, Link as LinkIcon, FileText, Info, Palette } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
+import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 
 // Helper to ensure size is always a number
 const parseSize = (val, fallback) => {
@@ -405,15 +406,21 @@ const CanvasItem = ({
                                 />
                             </div>
                         ) : (
-                            <div className="w-full h-full p-5 bg-white flex flex-col items-start justify-start gap-2.5">
-                                <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-4 text-left leading-snug w-full">
-                                    {heroText}
-                                </p>
-                                {supportingText ? (
-                                    <p className="text-body text-[var(--ds-gray-700)] line-clamp-5 text-left leading-relaxed w-full">
-                                        {supportingText}
-                                    </p>
-                                ) : null}
+                            <div className="w-full h-full p-5 bg-white flex flex-col items-start justify-start gap-2.5 overflow-hidden">
+                                {hasMarkdownHeadings(item.content) ? (
+                                    renderMarkdownText(item.content, { clampLines: 9 })
+                                ) : (
+                                    <>
+                                        <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-4 text-left leading-snug w-full">
+                                            {heroText}
+                                        </p>
+                                        {supportingText ? (
+                                            <p className="text-body text-[var(--ds-gray-700)] line-clamp-5 text-left leading-relaxed w-full">
+                                                {supportingText}
+                                            </p>
+                                        ) : null}
+                                    </>
+                                )}
                             </div>
                         )
                     )}
