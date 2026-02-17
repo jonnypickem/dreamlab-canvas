@@ -974,6 +974,9 @@ function App() {
         }
         const updated = await updateCollection(activeCollection.id, { name: nextName });
         if (updated) {
+            setCollections((prev) => prev.map((collection) => (
+                collection.id === updated.id ? updated : collection
+            )));
             setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
         }
         setIsCanvasTitleEditing(false);
@@ -1003,6 +1006,7 @@ function App() {
         try {
             const created = await createCollection(activeWorkspaceId, finalName);
             if (!created) throw new Error('Collection was not created.');
+            setCollections((prev) => [created, ...prev.filter((collection) => collection.id !== created.id)]);
             setSelectedCollectionId(created.id);
             setToast({ message: `Created collection "${created.name}"`, type: 'success' });
         } catch (error) {
@@ -1330,6 +1334,9 @@ function App() {
                     if (!nextName || !nextName.trim()) return;
                     const updated = await updateCollection(collection.id, { name: nextName.trim() });
                     if (updated) {
+                        setCollections((prev) => prev.map((candidate) => (
+                            candidate.id === updated.id ? updated : candidate
+                        )));
                         setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
                     }
                 }}
@@ -1356,6 +1363,7 @@ function App() {
                         // Update local state immediately
                         const deletedIds = new Set(deletedItems.map((i) => i.id));
                         setItems((prev) => prev.filter((item) => !deletedIds.has(item.id)));
+                        setCollections((prev) => prev.filter((candidate) => candidate.id !== collection.id));
 
                         if (selectedCollectionId === collection.id) {
                             setSelectedCollectionId(null);
