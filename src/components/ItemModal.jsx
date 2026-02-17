@@ -158,7 +158,7 @@ function resolveInitialLinkViewMode(item) {
     if (item?.type !== 'link') return 'preview';
     const hasText = getLinkTextPayload(item).ready;
     const isTweetLink = item?.linkEmbed?.type === 'tweet';
-    if (isTweetLink && hasText) return 'text';
+    if (isTweetLink) return 'preview';
     const explicitMode = item?.linkViewMode;
     if (explicitMode === 'text' && hasText) return 'text';
     if (explicitMode === 'preview') return 'preview';
@@ -187,7 +187,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const [linkViewMode, setLinkViewMode] = useState(() => resolveInitialLinkViewMode(item));
     const [colorValue, setColorValue] = useState(item.type === 'color' ? item.content : '#000000');
     const [textContentDirty, setTextContentDirty] = useState(false);
-    const [tweetEmbedState, setTweetEmbedState] = useState('idle'); // idle | loading | ready | failed
+    const [tweetMediaLoaded, setTweetMediaLoaded] = useState(false);
     const [centerLinkText, setCenterLinkText] = useState(true);
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
@@ -262,7 +262,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         () => formatTextIntoParagraphs(extractedText),
         [extractedText]
     );
-    const tweetEmbedRef = useRef(null);
     const linkTextViewportRef = useRef(null);
     const linkTextContentRef = useRef(null);
 
@@ -294,90 +293,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         };
     }, [item.id, item.type, linkViewMode, linkTextReady, extractedText, extractedTitle, extractedByline, extractedSite]);
 
-    useEffect(() => {
-        if (item.type !== 'link') return;
-        if (tweetEmbedState !== 'failed') return;
-        if (!linkTextReady) return;
-        if (linkViewMode === 'text') return;
-        setAndPersistLinkViewMode('text');
-    }, [tweetEmbedState, linkTextReady, linkViewMode, item.type]);
-
-    useEffect(() => {
-        if (!tweetEmbedUrl || item.type !== 'link' || linkViewMode !== 'preview') {
-            setTweetEmbedState('idle');
-            return;
-        }
-        if (!tweetEmbedRef.current) return;
-
-        const container = tweetEmbedRef.current;
-        setTweetEmbedState('loading');
-        container.innerHTML = '';
-        const blockquote = document.createElement('blockquote');
-        blockquote.className = 'twitter-tweet';
-        const anchor = document.createElement('a');
-        anchor.href = tweetEmbedUrl;
-        blockquote.appendChild(anchor);
-        container.appendChild(blockquote);
-
-        let settled = false;
-        const markReady = () => {
-            if (!settled) {
-                settled = true;
-                setTweetEmbedState('ready');
-            }
-        };
-        const markFailed = () => {
-            if (!settled) {
-                settled = true;
-                setTweetEmbedState('failed');
-            }
-        };
-
-        const observer = new MutationObserver(() => {
-            if (container.querySelector('iframe')) {
-                markReady();
-            }
-        });
-        observer.observe(container, { childList: true, subtree: true });
-
-        const timeoutId = window.setTimeout(() => {
-            if (!container.querySelector('iframe')) {
-                markFailed();
-            } else {
-                markReady();
-            }
-        }, 3500);
-
-        const loadWidgets = () => {
-            if (window.twttr?.widgets?.load) {
-                window.twttr.widgets.load(container);
-            } else {
-                markFailed();
-            }
-        };
-
-        const existingScript = document.getElementById('dreamlab-twitter-wjs');
-        if (existingScript) {
-            loadWidgets();
-            return () => {
-                observer.disconnect();
-                window.clearTimeout(timeoutId);
-            };
-        }
-
-        const script = document.createElement('script');
-        script.id = 'dreamlab-twitter-wjs';
-        script.async = true;
-        script.src = 'https://platform.twitter.com/widgets.js';
-        script.onload = loadWidgets;
-        script.onerror = markFailed;
-        document.body.appendChild(script);
-
-        return () => {
-            observer.disconnect();
-            window.clearTimeout(timeoutId);
-        };
-    }, [tweetEmbedUrl, item.type, linkViewMode]);
 
     const setAndPersistLinkViewMode = async (nextMode) => {
         if (nextMode === 'text' && !linkTextReady) return;
@@ -743,19 +658,45 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             ) : (
                                 <div className="h-full w-full flex flex-col items-center justify-center gap-4">
                                     {tweetEmbedUrl ? (
-                                        <div className="w-full max-w-[600px] max-h-full rounded-lg border border-neutral-200 bg-white p-3 overflow-y-auto">
-                                            <div ref={tweetEmbedRef} className="w-full" />
-                                            {tweetEmbedState === 'failed' ? (
-                                                <div className="mt-3 rounded-md border border-neutral-200 bg-neutral-50 p-3 flex items-center justify-between gap-3">
-                                                    <span className="text-sm text-neutral-600">Tweet embed blocked. Open directly on X.</span>
-                                                    <button
-                                                        className="px-3 py-1.5 text-xs font-medium rounded-full bg-neutral-900 text-white hover:bg-neutral-800"
-                                                        onClick={() => window.open(item.sourceUrl, '_blank')}
-                                                    >
-                                                        Open on X
-                                                    </button>
+                                        <div className="w-full max-w-[520px] max-h-full rounded-2xl border border-neutral-200 bg-white overflow-y-auto shadow-sm">
+                                            <div className="p-5 flex flex-col gap-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <span className="font-bold text-base text-neutral-900 truncate">{item.linkEmbed?.authorName || 'Post'}</span>
+                                                        {item.linkEmbed?.authorUrl && (
+                                                            <span className="text-sm text-neutral-400 truncate">
+                                                                {(() => { try { const p = new URL(item.linkEmbed.authorUrl).pathname; const h = p.split('/').filter(Boolean)[0]; return h ? `@${h}` : ''; } catch { return ''; } })()}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <svg viewBox="0 0 24 24" className="w-5 h-5 flex-shrink-0 text-neutral-400" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                                                 </div>
-                                            ) : null}
+                                                <p className="text-base text-neutral-800 leading-relaxed whitespace-pre-line">
+                                                    {item.linkEmbed?.tweetText || item.title || item.content || 'Tweet'}
+                                                </p>
+                                            </div>
+                                            {linkThumbnailSource && (
+                                                <>
+                                                    {!tweetMediaLoaded && (
+                                                        <div className="w-full h-[300px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer" />
+                                                    )}
+                                                    <img
+                                                        src={linkThumbnailSource}
+                                                        alt="Tweet media"
+                                                        className={`w-full h-auto block ${tweetMediaLoaded ? '' : 'hidden'}`}
+                                                        onLoad={() => setTweetMediaLoaded(true)}
+                                                    />
+                                                </>
+                                            )}
+                                            <div className="px-5 py-3 border-t border-neutral-100 flex items-center justify-between">
+                                                <span className="text-xs text-neutral-400">x.com</span>
+                                                <button
+                                                    className="px-3 py-1.5 text-xs font-medium rounded-full bg-neutral-900 text-white hover:bg-neutral-800 transition-colors"
+                                                    onClick={() => window.open(item.sourceUrl, '_blank')}
+                                                >
+                                                    Open on X
+                                                </button>
+                                            </div>
                                         </div>
                                     ) : linkThumbnailSource ? (
                                         <img

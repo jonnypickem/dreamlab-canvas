@@ -333,17 +333,31 @@ const CanvasItem = ({
                                 </span>
                             </div>
                         ) : item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' ? (
-                            <div className="w-full h-full bg-white p-4 flex flex-col gap-3">
-                                <div className="flex items-center gap-2 text-xs text-neutral-500">
-                                    <span className="font-semibold text-neutral-800">X</span>
-                                    <span className="truncate">{item.linkEmbed?.authorName || domainName(item.sourceUrl)}</span>
+                            <div className="w-full h-full bg-white flex flex-col overflow-hidden">
+                                <div className="p-3 flex flex-col gap-2">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="font-bold text-xs text-neutral-900 truncate">{item.linkEmbed?.authorName || 'Post'}</span>
+                                            {item.linkEmbed?.authorUrl && (
+                                                <span className="text-[11px] text-neutral-400 truncate">
+                                                    {(() => { try { const p = new URL(item.linkEmbed.authorUrl).pathname; const h = p.split('/').filter(Boolean)[0]; return h ? `@${h}` : ''; } catch { return ''; } })()}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 flex-shrink-0 text-neutral-400" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                                    </div>
+                                    <p className="text-xs text-neutral-800 leading-relaxed line-clamp-5 text-left">
+                                        {item.linkEmbed?.tweetText || item.title || item.content || 'Tweet'}
+                                    </p>
                                 </div>
-                                <p className="text-body text-[var(--ds-gray-1000)] leading-relaxed line-clamp-6 text-left">
-                                    {item.linkEmbed?.tweetText || item.title || item.content || 'Tweet'}
-                                </p>
-                                <span className="mt-auto text-caption text-[var(--ds-gray-700)] truncate">
-                                    {domainName(item.sourceUrl)}
-                                </span>
+                                {linkThumbnailSource && (
+                                    <img
+                                        src={linkThumbnailSource}
+                                        alt="Tweet media"
+                                        className="w-full flex-1 object-cover"
+                                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                    />
+                                )}
                             </div>
                         ) : linkThumbnailSource ? (
                             <img
