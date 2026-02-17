@@ -14,8 +14,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid URL' });
   }
 
+  // For tweet URLs, fetch from fxtwitter.com to get actual media OG tags
+  const fetchUrl = rewriteTweetUrl(url);
+
   try {
-    const response = await fetch(url, {
+    const response = await fetch(fetchUrl, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -29,13 +32,25 @@ export default async function handler(req, res) {
     }
 
     const html = await response.text();
-    const metadata = parseMetadataFromHtml(html, url);
+    const metadata = parseMetadataFromHtml(html, fetchUrl);
 
     res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
     return res.status(200).json(metadata);
   } catch {
     return res.status(200).json({ title: null, image: null, description: null });
   }
+}
+
+function rewriteTweetUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    if ((host === 'x.com' || host === 'twitter.com') && /\/status\/\d+/i.test(parsed.pathname)) {
+      parsed.hostname = 'fxtwitter.com';
+      return parsed.href;
+    }
+  } catch {}
+  return url;
 }
 
 function parseMetadataFromHtml(html, url) {
