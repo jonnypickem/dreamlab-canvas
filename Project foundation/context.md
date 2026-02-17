@@ -14,10 +14,131 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Repository**: [github.com/jonnypickem/dreamlab-canvas](https://github.com/jonnypickem/dreamlab-canvas)
 
 ## Current Status
--   **Status**: Supabase Migration Complete — Cloud Storage + Auth + Extension Integration + Optimistic UI
--   **Last Major Change**: Full migration from localStorage/IndexedDB to Supabase (Auth + PostgreSQL + Storage). All CRUD operations are async via Supabase. Extension capture flow uses postMessage bridge to authenticated web app. Optimistic UI updates on all item add/delete/update operations.
+-   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
+-   **Last Major Change**: Canvas mode now supports inline note editing, viewport-aware item placement, creation toolbar (text/image/link/clipboard/color), and a floating detail side panel. Area screenshot and video recording via extension shortcuts. Thumbnail generation at save time for fast grid rendering. Invite code gating for closed alpha.
 
 ## Changelog
+
+### [0.26.0] - 2026-02-16
+#### Added
+- **Inline Canvas Notes** (`src/components/CanvasItem.jsx`, `src/components/CanvasView.jsx`, `src/App.jsx`):
+  - In canvas mode, "Text Note" creates an empty text item placed at viewport center and immediately enters inline edit mode.
+  - `CanvasItem` accepts `isEditing`/`onFinishEditing` props — renders editable `<textarea>` instead of read-only text when editing.
+  - Save on blur, Escape, or Cmd+Enter. Grid mode still uses NoteEditorModal.
+  - `canvasInlineEditId` state in App.jsx tracks which item is being inline-edited.
+
+- **Viewport-Aware Item Placement** (`src/App.jsx`, `src/components/CanvasView.jsx`):
+  - New `canvasViewportRef` exposes `{scale, positionX, positionY, containerWidth, containerHeight}` from CanvasView to App.jsx via React ref.
+  - `getCanvasPlacement(itemType)` computes viewport center in canvas coords and spirals outward to avoid overlapping existing items (20px padding).
+  - All save functions (`saveText`, `saveColor`, `saveLink`, `saveImageFromBlob`) now add `canvas: {x, y, w, h, z}` when `viewMode === 'canvas'` — items get positioned immediately.
+
+#### Fixed
+- **Collection Persistence on Tab Switch** (`src/App.jsx`):
+  - `loadData()` now only restores nav context (workspace + collection) on first load. Subsequent Realtime-triggered calls just refresh data without touching nav state.
+  - Fixes bug where switching to another tab/program and returning would reset the view to "All Items".
+- **Initialization Order** (`src/App.jsx`):
+  - Moved `getCanvasPlacement` and `createCanvasNote` before `saveImageFromBlob` to fix `ReferenceError: Cannot access before initialization` caused by `const` hoisting.
+
+### [0.25.0] - 2026-02-15
+#### Added
+- **Creation Toolbar** (`src/components/CreateToolbar.jsx`):
+  - Bottom bar creation menu with 5 tools: Text Note, Upload Image, Add Link, Paste Clipboard, Color Swatch.
+  - Link tool has inline URL input with auto-prepend `https://`. Color tool has native color picker + hex input.
+  - Floating popover UI with click-outside dismiss.
+
+- **Item Detail View Rework** (`src/components/ItemModal.jsx`, `src/components/CanvasDetailPanel.jsx`):
+  - **Two-view architecture**: Grid view opens full-screen `ItemModal`, Canvas view opens floating `CanvasDetailPanel` (360px side panel).
+  - `ItemModal` rebuilt with type-specific behaviors:
+    - Images: pan+zoom via `react-zoom-pan-pinch` with zoom controls overlay.
+    - Videos: autoplay with controls.
+    - Links: preview/text toggle with domain-aware defaults, scrollable extracted text view.
+    - Text: editable textarea with auto-save.
+    - Colors: full-screen swatch with color picker + hex editor.
+    - Type-specific copy actions (copy image, copy URL, copy text, copy hex).
+  - `CanvasDetailPanel`: animated slide-in panel (`framer-motion` spring), shows item preview + metadata + tags + workspace/collection assignment + save/delete/copy/download actions.
+  - `z-[60]` to sit above canvas zoom controls. `rounded-2xl` with `top-3 right-3 bottom-3` inset for floating card appearance.
+
+### [0.24.0] - 2026-02-15
+#### Added
+- **Canvas Position Persistence** (`src/App.jsx`, `src/components/CanvasView.jsx`):
+  - Items created in canvas mode now save their `canvas: {x, y, w, h, z}` positions to the database.
+  - Canvas items restore their saved positions on reload instead of relying solely on auto-layout.
+
+#### Fixed
+- **Full-Page Screenshot Stitching** (`background.js`):
+  - Improved frame alignment and scroll verification for more reliable full-page captures.
+
+### [0.23.0] - 2026-02-15
+#### Added
+- **Account Settings Expansion** (`src/components/SettingsModal.jsx`):
+  - Password change flow (current + new password with confirmation).
+  - Email update with Supabase re-authentication.
+  - Danger zone with account deletion.
+  - Sign out button wired up in sidebar dropdown.
+
+- **Invite Code Gating** (`src/components/AuthScreen.jsx`):
+  - Closed alpha signup requires a valid invite code.
+  - Validates against a server-side list before allowing registration.
+
+### [0.22.0] - 2026-02-14
+#### Added
+- **Area Screenshot Capture** (`area-select.js`, `background.js`):
+  - `⌥⇧A` shortcut triggers area selection overlay (IIFE, like picker.js).
+  - User draws a rectangle, screenshot is cropped from `captureVisibleTab` using OffscreenCanvas.
+  - Saved directly to Supabase via the extension bridge.
+
+- **Area Video Recording** (`area-select.js`, `background.js`, `offscreen.html`, `offscreen.js`):
+  - `⌥⇧R` shortcut triggers area video selection.
+  - Uses `getDisplayMedia` (run in page main world to bypass extension restrictions) for screen capture.
+  - Offscreen document handles canvas cropping + MediaRecorder for WebM output.
+  - Video items stored as `type: 'video'` in Supabase `videos/` folder.
+
+- **Thumbnail Generation at Save Time** (`src/utils/saveItemWithTags.js`):
+  - Images now generate a compressed thumbnail at save time for faster grid rendering.
+  - Thumbnails stored alongside full images in Supabase Storage.
+
+#### Fixed
+- **Video Upload Pipeline** (`src/utils/saveItemWithTags.js`):
+  - Video items now correctly upload to Supabase Storage and skip unnecessary image analysis/tagging.
+- **getDisplayMedia Restrictions** (`area-select.js`):
+  - Runs `getDisplayMedia` in page's main world (not extension content script) to bypass Chrome extension restrictions.
+
+### [0.21.0] - 2026-02-14
+#### Added
+- **Supabase Signed URL Caching** (`src/hooks/useResolvedImageSource.js`):
+  - Caches signed URLs to avoid redundant Supabase fetch calls on re-renders.
+  - Significant performance improvement for grid and canvas views with many images.
+
+- **Drag-and-Drop Image Upload** (`src/App.jsx`):
+  - Drop images directly onto the collection view to upload them.
+
+- **Production Proxy Endpoint** (`api/proxy.js`):
+  - Vercel serverless function for image proxying (CORS bypass) in production.
+  - Vite dev server has its own proxy plugin; production needs the serverless function.
+
+- **Arc/Dia Browser Compatibility** (`content.js`, `manifest.json`):
+  - Switched to `Option+Shift` keyboard shortcuts (`⌥⇧S`, `⌥⇧C`, `⌥⇧P`, `⌥⇧I`) for compatibility with Arc browser which blocks certain key combos.
+  - Content-script fallback for area shortcuts (Chrome limits `suggested_key` to 4 entries in manifest).
+  - Uses `event.code` instead of `event.key` for reliable macOS Alt combos.
+
+- **Loading Card Previews** (`src/App.jsx`, `src/components/ItemCard.jsx`):
+  - Pasted URLs show shimmer loading cards with domain name while OG metadata is fetched.
+  - Shimmer-to-loaded transition preserves card position (no collapse/reflow).
+
+#### Fixed
+- **Collection Cascade Delete** (`src/lib/storage.js`):
+  - Deleting a collection now properly deletes items inside it (with error checking).
+  - Updates local state via `setItems()` after DB delete.
+- **Nav State Persistence** (`src/App.jsx`):
+  - `activeWorkspaceId` + `selectedCollectionId` stored in localStorage for instant restore on page load.
+  - `navRestoredRef` guard prevents persist effect from overwriting DB context before `loadData` finishes.
+- **Tall Image Cap** (`src/components/ItemCard.jsx`):
+  - Images in masonry grid capped at `max-h-[600px]` with `object-cover object-top` to prevent full-page screenshots from exploding layout.
+- **Raw Supabase Storage Paths** (`src/hooks/useResolvedImageSource.js`, `src/components/ItemCard.jsx`):
+  - Prevents raw Supabase storage paths from being used as `<img>` src — only resolved signed URLs or http/data/blob URLs are rendered.
+- **Duplicate Command Execution** (`content.js`):
+  - Prevents duplicate shortcut execution from iframes.
+
 ### [0.20.0] - 2026-02-13
 #### Added
 - **Supabase Backend Migration** (`src/lib/supabase.js`, `src/lib/supabaseStorage.js`, `src/lib/storage.js`):

@@ -140,6 +140,19 @@ export async function saveItemWithTags(item, projectOrId = null) {
         preparedItem.type = 'video';
     }
 
+    // Color items: save directly, no media or tagging needed
+    if (preparedItem.type === 'color') {
+        const savedItem = await saveItem({
+            ...preparedItem,
+            tags: [],
+            objectiveTags: [],
+            contextTags: [],
+            intelligenceLevel: 'quick',
+            needsTagging: false,
+        });
+        return savedItem;
+    }
+
     // Video items: upload directly, skip image processing and tagging
     if (preparedItem.type === 'video') {
         if (!preparedItem.id) preparedItem.id = crypto.randomUUID();

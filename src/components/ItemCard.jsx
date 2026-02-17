@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Link as LinkIcon, FileText, Video, Check } from 'lucide-react';
+import { Camera, Link as LinkIcon, FileText, Video, Check, Palette } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
@@ -47,6 +47,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
             case 'video': return <Video size={16} className="text-white" />;
             case 'link': return <LinkIcon size={16} className="text-white" />;
             case 'text': return <FileText size={16} className="text-white" />;
+            case 'color': return <Palette size={16} className="text-white" />;
             default: return <LinkIcon size={16} className="text-white" />;
         }
     };
@@ -233,6 +234,18 @@ function ItemCard({ item, onClick, isSelected = false, onSelect }) {
                                     {supportingText}
                                 </p>
                             ) : null}
+                        </div>
+                    )}
+
+                    {/* Color Swatch Type */}
+                    {item.type === 'color' && (
+                        <div
+                            className="w-full aspect-square min-h-[150px] flex items-end justify-start p-3"
+                            style={{ backgroundColor: item.content }}
+                        >
+                            <span className="text-xs font-mono font-semibold px-2 py-1 rounded-md bg-black/20 text-white backdrop-blur-sm uppercase">
+                                {item.content}
+                            </span>
                         </div>
                     )}
                 </>

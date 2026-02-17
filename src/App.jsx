@@ -38,6 +38,9 @@ import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveA
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
 import MasonryGrid from './components/MasonryGrid';
+import CreateToolbar from './components/CreateToolbar';
+import NoteEditorModal from './components/NoteEditorModal';
+import CanvasDetailPanel from './components/CanvasDetailPanel';
 
 // Subframe Imports
 import { Button } from "./ui/components/Button";
@@ -63,7 +66,10 @@ function App() {
     });
     const navRestoredRef = useRef(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [searchExpanded, setSearchExpanded] = useState(false);
+    const searchInputRef = useRef(null);
     const [editingItem, setEditingItem] = useState(null);
+    const [detailPanelItem, setDetailPanelItem] = useState(null);
     const [tagFilter, setTagFilter] = useState(null);
 
     const [showSettings, setShowSettings] = useState(false);
@@ -76,6 +82,9 @@ function App() {
 
     // View Mode State
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'canvas'
+    const [showNoteEditor, setShowNoteEditor] = useState(false);
+    const [canvasInlineEditId, setCanvasInlineEditId] = useState(null);
+    const canvasViewportRef = useRef(null);
 
     // Zoom/Grid Size State (0=Small Items, 4=Large Items)
     // Subframe slider returns array, need to handle that
@@ -176,12 +185,17 @@ function App() {
 
 
     const loadData = async () => {
-        const [ws, c, ctx, fetchedItems] = await Promise.all([
+        const isFirstLoad = !navRestoredRef.current;
+
+        const fetches = [
             getWorkspaces(),
             getCollections(),
-            getActiveContext(),
             getItems(),
-        ]);
+        ];
+        // Only fetch active context on first load; subsequent refreshes keep current nav state
+        if (isFirstLoad) fetches.push(getActiveContext());
+
+        const [ws, c, fetchedItems, ctx] = await Promise.all(fetches);
 
         await loadPrimitiveAnalysisStore();
 
@@ -189,32 +203,34 @@ function App() {
         setWorkspaces(ws);
         setCollections(c);
 
-        // Set active context from persistence, or fallback to first workspace
-        if (ctx.workspaceId && ws.some(w => w.id === ctx.workspaceId)) {
-            setActiveWorkspaceId(ctx.workspaceId);
-            if (ctx.collectionId) {
-                const collectionIsValid = ctx.collectionId === '__unsorted__'
-                    || c.some((collection) => (
-                        collection.id === ctx.collectionId
-                        && getCollectionWorkspaceId(collection) === ctx.workspaceId
-                    ));
-                setSelectedCollectionId(collectionIsValid ? ctx.collectionId : null);
-            } else {
+        if (isFirstLoad) {
+            // Set active context from persistence, or fallback to first workspace
+            if (ctx.workspaceId && ws.some(w => w.id === ctx.workspaceId)) {
+                setActiveWorkspaceId(ctx.workspaceId);
+                if (ctx.collectionId) {
+                    const collectionIsValid = ctx.collectionId === '__unsorted__'
+                        || c.some((collection) => (
+                            collection.id === ctx.collectionId
+                            && getCollectionWorkspaceId(collection) === ctx.workspaceId
+                        ));
+                    setSelectedCollectionId(collectionIsValid ? ctx.collectionId : null);
+                } else {
+                    setSelectedCollectionId(null);
+                }
+            } else if (ws.length > 0) {
+                setActiveWorkspaceId(ws[0].id);
                 setSelectedCollectionId(null);
+            } else if (!hasLegacyData()) {
+                // No workspaces exist and no legacy data to migrate -> Create default "Dreamlab" workspace
+                const created = await createWorkspace('Dreamlab');
+                if (created) {
+                    setActiveWorkspaceId(created.id);
+                    setWorkspaces([created]);
+                }
             }
-        } else if (ws.length > 0) {
-            setActiveWorkspaceId(ws[0].id);
-            setSelectedCollectionId(null);
-        } else if (!hasLegacyData()) {
-            // No workspaces exist and no legacy data to migrate -> Create default "Dreamlab" workspace
-            const created = await createWorkspace('Dreamlab');
-            if (created) {
-                setActiveWorkspaceId(created.id);
-                setWorkspaces([created]);
-            }
-        }
 
-        navRestoredRef.current = true;
+            navRestoredRef.current = true;
+        }
     };
 
     // Auth state listener
@@ -359,7 +375,8 @@ function App() {
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                 if (!editingItem) {
                     e.preventDefault();
-                    document.querySelector('input[placeholder*="Search"]')?.focus();
+                    setSearchExpanded(true);
+                    setTimeout(() => searchInputRef.current?.focus(), 0);
                 }
             }
 
@@ -420,6 +437,88 @@ function App() {
         });
     };
 
+    const getCanvasPlacement = useCallback((itemType) => {
+        const defaultSizes = {
+            text: { w: 280, h: 160 },
+            color: { w: 160, h: 160 },
+            image: { w: 300, h: 200 },
+            video: { w: 300, h: 200 },
+            link: { w: 280, h: 160 },
+        };
+        const size = defaultSizes[itemType] || defaultSizes.text;
+        const vp = canvasViewportRef.current;
+        if (!vp || !vp.containerWidth) {
+            return { x: 120, y: 120, ...size, z: 1 };
+        }
+        const centerX = (vp.containerWidth / 2 - vp.positionX) / vp.scale;
+        const centerY = (vp.containerHeight / 2 - vp.positionY) / vp.scale;
+        const startX = Math.round(centerX - size.w / 2);
+        const startY = Math.round(centerY - size.h / 2);
+
+        const occupiedRects = items
+            .filter((it) => it.canvas?.x != null && it.canvas?.y != null)
+            .map((it) => ({
+                x: it.canvas.x,
+                y: it.canvas.y,
+                w: it.canvas.w || (defaultSizes[it.type] || defaultSizes.text).w,
+                h: it.canvas.h || (defaultSizes[it.type] || defaultSizes.text).h,
+            }));
+
+        const overlaps = (ax, ay, aw, ah) =>
+            occupiedRects.some((r) =>
+                ax < r.x + r.w + 20 && ax + aw + 20 > r.x &&
+                ay < r.y + r.h + 20 && ay + ah + 20 > r.y
+            );
+
+        if (!overlaps(startX, startY, size.w, size.h)) {
+            return { x: startX, y: startY, ...size, z: 1 };
+        }
+
+        // Spiral outward to find a free spot
+        const step = 40;
+        for (let ring = 1; ring <= 20; ring++) {
+            for (let dx = -ring; dx <= ring; dx++) {
+                for (let dy = -ring; dy <= ring; dy++) {
+                    if (Math.abs(dx) !== ring && Math.abs(dy) !== ring) continue;
+                    const cx = startX + dx * step;
+                    const cy = startY + dy * step;
+                    if (!overlaps(cx, cy, size.w, size.h)) {
+                        return { x: cx, y: cy, ...size, z: 1 };
+                    }
+                }
+            }
+        }
+
+        return { x: startX + 40, y: startY + 40, ...size, z: 1 };
+    }, [items]);
+
+    const createCanvasNote = useCallback(async () => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+        const canvas = getCanvasPlacement('text');
+        const newItem = {
+            type: 'text',
+            content: '',
+            sourceUrl: 'note',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now(),
+            canvas,
+        };
+        try {
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) {
+                setItems((prev) => [saved, ...prev]);
+                setCanvasInlineEditId(saved.id);
+            }
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to create note', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId, getCanvasPlacement]);
+
     // Shared image save helper — used by both paste and drag-and-drop
     const saveImageFromBlob = useCallback(async (blob) => {
         if (!activeWorkspaceId) {
@@ -467,7 +566,8 @@ function App() {
                 projectId: null,
                 collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
                 tags: [],
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('image') } : {}),
             };
             const saved = await saveItemWithTags(newItem, null);
             if (saved) {
@@ -482,7 +582,7 @@ function App() {
         } finally {
             URL.revokeObjectURL(blobUrl);
         }
-    }, [activeWorkspaceId, selectedCollectionId]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
 
     // Drag-and-drop file handler
     const [isDragging, setIsDragging] = useState(false);
@@ -498,24 +598,176 @@ function App() {
         }
     }, [saveImageFromBlob]);
 
-    // Clipboard Paste Listener
-    useEffect(() => {
-        const handlePaste = async (e) => {
-            // Don't interfere with inputs
-            if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) {
-                return;
+    const saveLink = useCallback(async (url) => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+
+        const tempId = crypto.randomUUID();
+        const placeholderItem = {
+            id: tempId,
+            type: 'link',
+            content: url,
+            sourceUrl: url,
+            linkViewMode: 'preview',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now(),
+            isLoading: true,
+        };
+        setItems((prev) => [placeholderItem, ...prev]);
+
+        try {
+            let ogMeta = { title: null, image: null, description: null };
+            try {
+                const res = await fetch(`/api/og?url=${encodeURIComponent(url)}`);
+                if (res.ok) ogMeta = await res.json();
+            } catch (ogErr) {
+                console.warn('OG fetch failed:', ogErr);
             }
 
-            e.preventDefault();
-            const clipboardData = e.clipboardData;
-            await processClipboard(clipboardData);
+            const newItem = {
+                id: tempId,
+                type: 'link',
+                content: url,
+                sourceUrl: url,
+                title: ogMeta.title || null,
+                description: ogMeta.description || null,
+                thumbnail: ogMeta.image || null,
+                linkViewMode: 'preview',
+                workspaceId: activeWorkspaceId,
+                projectId: null,
+                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+                createdAt: Date.now(),
+                ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('link') } : {}),
+            };
+
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) {
+                setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
+            } else {
+                setItems((prev) => prev.filter((item) => item.id !== tempId));
+            }
+            setToast({ message: 'Link saved', type: 'success' });
+        } catch (error) {
+            console.error('Save failed:', error);
+            setItems((prev) => prev.filter((item) => item.id !== tempId));
+            setToast({ message: error?.message || 'Failed to save link', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
+
+    const saveText = useCallback(async (text, source = 'clipboard') => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+
+        const newItem = {
+            type: 'text',
+            content: text,
+            sourceUrl: source,
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now(),
+            ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('text') } : {}),
+        };
+        try {
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) setItems((prev) => [saved, ...prev]);
+            setToast({ message: source === 'note' ? 'Note created' : 'Text saved', type: 'success' });
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to save text', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
+
+    const saveColor = useCallback(async (hexColor) => {
+        if (!activeWorkspaceId) {
+            setToast({ message: 'Select a workspace first', type: 'error' });
+            return;
+        }
+
+        const newItem = {
+            type: 'color',
+            content: hexColor,
+            sourceUrl: 'color-picker',
+            workspaceId: activeWorkspaceId,
+            projectId: null,
+            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            createdAt: Date.now(),
+            ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('color') } : {}),
+        };
+        try {
+            const saved = await saveItemWithTags(newItem, null);
+            if (saved) setItems((prev) => [saved, ...prev]);
+            setToast({ message: 'Color saved', type: 'success' });
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to save color', type: 'error' });
+        }
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
+
+    const handlePasteClipboard = useCallback(async () => {
+        try {
+            const clipboardItems = await navigator.clipboard.read();
+            for (const clipItem of clipboardItems) {
+                // Check for images first
+                const imageType = clipItem.types.find(t => t.startsWith('image/'));
+                if (imageType) {
+                    const blob = await clipItem.getType(imageType);
+                    await saveImageFromBlob(blob);
+                    return;
+                }
+                // Fall back to text
+                if (clipItem.types.includes('text/plain')) {
+                    const blob = await clipItem.getType('text/plain');
+                    const text = await blob.text();
+                    const trimmed = text.trim();
+                    if (!trimmed) continue;
+                    try {
+                        const url = new URL(trimmed);
+                        if (['http:', 'https:'].includes(url.protocol)) {
+                            await saveLink(trimmed);
+                            return;
+                        }
+                    } catch { }
+                    await saveText(trimmed);
+                    return;
+                }
+            }
+            setToast({ message: 'Nothing to paste', type: 'info' });
+        } catch (err) {
+            // Clipboard API may require user gesture or permission
+            setToast({ message: 'Could not read clipboard', type: 'error' });
+        }
+    }, [saveImageFromBlob, saveLink, saveText]);
+
+    // Clipboard Paste Listener
+    useEffect(() => {
+        const isURL = (text) => {
+            try {
+                const url = new URL(text);
+                return ['http:', 'https:'].includes(url.protocol);
+            } catch {
+                return false;
+            }
+        };
+
+        const saveImageFromBase64 = async (base64Data) => {
+            try {
+                const response = await fetch(base64Data);
+                const blob = await response.blob();
+                await saveImageFromBlob(blob);
+            } catch (error) {
+                setToast({ message: error?.message || 'Failed to paste image', type: 'error' });
+            }
         };
 
         const processClipboard = async (clipboardData) => {
             const items = clipboardData.items;
             const files = clipboardData.files;
 
-            // 0. Check direct clipboard files first (local disk copy/paste often lands here)
             if (files && files.length > 0) {
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
@@ -526,7 +778,6 @@ function App() {
                 }
             }
 
-            // 1. Check for direct image types (screenshots, etc.)
             for (let i = 0; i < items.length; i++) {
                 if (items[i].type.startsWith('image')) {
                     const blob = items[i].getAsFile();
@@ -535,10 +786,8 @@ function App() {
                 }
             }
 
-            // 2. Check for HTML content with embedded images
             const htmlContent = clipboardData.getData('text/html');
             if (htmlContent) {
-                // Detect Figma's proprietary format (can't be decoded in browser)
                 if (htmlContent.includes('figmeta') || htmlContent.includes('fig-kiwie')) {
                     setToast({
                         message: 'Figma uses a proprietary format. Use "Copy as PNG" or export the image first.',
@@ -547,14 +796,12 @@ function App() {
                     return;
                 }
 
-                // Try to extract base64 image from HTML
                 const base64Match = htmlContent.match(/src=["']?(data:image\/[^"'\s>]+)["']?/i);
                 if (base64Match && base64Match[1]) {
                     await saveImageFromBase64(base64Match[1]);
                     return;
                 }
 
-                // Try to extract regular image URL from HTML
                 const imgMatch = htmlContent.match(/<img[^>]+src=["']?(https?:\/\/[^"'\s>]+)["']?/i);
                 if (imgMatch && imgMatch[1]) {
                     await saveLink(imgMatch[1]);
@@ -562,7 +809,6 @@ function App() {
                 }
             }
 
-            // 3. Check for Text (URL or plain text)
             const text = clipboardData.getData('text/plain');
             if (text) {
                 if (isURL(text)) {
@@ -576,121 +822,17 @@ function App() {
             setToast({ message: 'Nothing to paste', type: 'info' });
         };
 
-        const isURL = (text) => {
-            try {
-                const url = new URL(text);
-                return ['http:', 'https:'].includes(url.protocol);
-            } catch {
-                return false;
-            }
-        };
-
-
-        const saveImageFromBase64 = async (base64Data) => {
-            if (!activeWorkspaceId) {
-                setToast({ message: 'Select a workspace first', type: 'error' });
+        const handlePaste = async (e) => {
+            if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) {
                 return;
             }
-            try {
-                const response = await fetch(base64Data);
-                const blob = await response.blob();
-                await saveImageFromBlob(blob);
-            } catch (error) {
-                setToast({ message: error?.message || 'Failed to paste image', type: 'error' });
-            }
-        };
-
-
-
-        const saveLink = async (url) => {
-            if (!activeWorkspaceId) {
-                setToast({ message: 'Select a workspace first', type: 'error' });
-                return;
-            }
-
-            // Show loading placeholder immediately
-            const tempId = crypto.randomUUID();
-            const placeholderItem = {
-                id: tempId,
-                type: 'link',
-                content: url,
-                sourceUrl: url,
-                linkViewMode: 'preview',
-                workspaceId: activeWorkspaceId,
-                projectId: null,
-                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                createdAt: Date.now(),
-                isLoading: true,
-            };
-            setItems((prev) => [placeholderItem, ...prev]);
-
-            try {
-                // Fetch OG metadata in the background
-                let ogMeta = { title: null, image: null, description: null };
-                try {
-                    const res = await fetch(`/api/og?url=${encodeURIComponent(url)}`);
-                    if (res.ok) ogMeta = await res.json();
-                } catch (ogErr) {
-                    console.warn('🔗 OG fetch failed:', ogErr);
-                }
-
-                const newItem = {
-                    id: tempId,
-                    type: 'link',
-                    content: url,
-                    sourceUrl: url,
-                    title: ogMeta.title || null,
-                    description: ogMeta.description || null,
-                    thumbnail: ogMeta.image || null,
-                    linkViewMode: 'preview',
-                    workspaceId: activeWorkspaceId,
-                    projectId: null,
-                    collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                    createdAt: Date.now(),
-                };
-
-                const saved = await saveItemWithTags(newItem, null);
-                if (saved) {
-                    setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
-                } else {
-                    setItems((prev) => prev.filter((item) => item.id !== tempId));
-                }
-                setToast({ message: 'Link saved', type: 'success' });
-            } catch (error) {
-                console.error('🔗 Save failed:', error);
-                setItems((prev) => prev.filter((item) => item.id !== tempId));
-                setToast({ message: error?.message || 'Failed to paste link', type: 'error' });
-            }
-        };
-
-        const saveText = async (text) => {
-            if (!activeWorkspaceId) {
-                setToast({ message: 'Select a workspace first', type: 'error' });
-                return;
-            }
-
-            const newItem = {
-                type: 'text',
-                content: text,
-                sourceUrl: 'clipboard',
-                workspaceId: activeWorkspaceId,
-                projectId: null,
-                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
-                createdAt: Date.now()
-            };
-            try {
-                const saved = await saveItemWithTags(newItem, null);
-                if (saved) setItems((prev) => [saved, ...prev]);
-                setToast({ message: 'Text pasted', type: 'success' });
-            } catch (error) {
-                setToast({ message: error?.message || 'Failed to paste text', type: 'error' });
-                return;
-            }
+            e.preventDefault();
+            await processClipboard(e.clipboardData);
         };
 
         document.addEventListener('paste', handlePaste);
         return () => document.removeEventListener('paste', handlePaste);
-    }, [activeWorkspaceId, selectedCollectionId, saveImageFromBlob]);
+    }, [activeWorkspaceId, saveImageFromBlob, saveLink, saveText]);
 
     const handleClear = async () => {
         try {
@@ -771,8 +913,12 @@ function App() {
         if (!itemId) return;
         const liveItem = items.find((candidate) => candidate.id === itemId);
         if (!liveItem) return;
-        setEditingItem(liveItem);
-    }, [items]);
+        if (viewMode === 'canvas') {
+            setDetailPanelItem(liveItem);
+        } else {
+            setEditingItem(liveItem);
+        }
+    }, [items, viewMode]);
 
     const handleCanvasTitleSave = useCallback(async () => {
         if (!activeCollection || !activeCollection.id || activeCollection.id === '__unsorted__') {
@@ -1318,7 +1464,29 @@ function App() {
                                     onUpdateItem={handleUpdateItem}
                                     onDeleteItem={handleDelete}
                                     onOpenItem={handleOpenItemDetails}
+                                    detailPanelItemId={detailPanelItem?.id || null}
+                                    viewportRef={canvasViewportRef}
+                                    inlineEditingId={canvasInlineEditId}
+                                    onFinishInlineEdit={() => setCanvasInlineEditId(null)}
                                 />
+                                <AnimatePresence>
+                                    {detailPanelItem && (
+                                        <CanvasDetailPanel
+                                            item={detailPanelItem}
+                                            onClose={() => setDetailPanelItem(null)}
+                                            onExpand={() => {
+                                                setEditingItem(detailPanelItem);
+                                                setDetailPanelItem(null);
+                                            }}
+                                            onUpdate={(updated) => {
+                                                handleUpdateItem(updated.id, updated);
+                                                setDetailPanelItem(updated);
+                                            }}
+                                            onDelete={handleDelete}
+                                            onToast={setToast}
+                                        />
+                                    )}
+                                </AnimatePresence>
                             </motion.div>
                         ) : (
                             <motion.div
@@ -1395,6 +1563,16 @@ function App() {
                     )}
                 </AnimatePresence>
 
+                {/* Note Editor Modal */}
+                <AnimatePresence>
+                    {showNoteEditor && (
+                        <NoteEditorModal
+                            onSave={(text) => saveText(text, 'note')}
+                            onClose={() => setShowNoteEditor(false)}
+                        />
+                    )}
+                </AnimatePresence>
+
                 {/* Toast Notifications */}
                 <AnimatePresence>
                     {toast && (
@@ -1419,27 +1597,55 @@ function App() {
                         showDownload={hasDownloadableSelection}
                     />
                 ) : (
-                    <div className="flex items-center gap-3 rounded-full border border-solid border-neutral-border bg-white px-4 py-4 fixed left-1/2 z-10 -translate-x-1/2 focus-within:shadow-[0px_0px_32px_-4px_rgba(234,88,12,0.3),0px_0px_8px_-2px_rgba(234,88,12,0.3)]" style={{ bottom: '46px' }}>
-                        <div className="flex w-96 flex-none items-center relative">
-                            <TextField
-                                className="h-auto grow shrink-0 basis-0"
-                                variant="outline"
-                                icon={<FeatherSearch />}
+                    <div className="flex items-center gap-2 rounded-full border border-solid border-neutral-border bg-white px-3 py-2.5 absolute left-1/2 z-10 -translate-x-1/2 shadow-sm" style={{ bottom: '46px' }}>
+                        {searchExpanded ? (
+                            <div className="flex items-center relative">
+                                <TextField
+                                    className="h-auto w-72"
+                                    variant="outline"
+                                    icon={<FeatherSearch />}
+                                >
+                                    <TextField.Input
+                                        ref={searchInputRef}
+                                        className="pr-8"
+                                        placeholder="Search content, URLs, or tags..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Escape') {
+                                                if (!searchQuery) setSearchExpanded(false);
+                                                else setSearchQuery('');
+                                            }
+                                        }}
+                                        onBlur={() => {
+                                            if (!searchQuery) setSearchExpanded(false);
+                                        }}
+                                    />
+                                </TextField>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => { setSearchExpanded(true); setTimeout(() => searchInputRef.current?.focus(), 0); }}
+                                className="flex items-center gap-2 h-9 px-3 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
+                                title="Search (⌘K)"
                             >
-                                <TextField.Input
-                                    className="pr-8"
-                                    placeholder="Search content, URLs, or tags..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                            </TextField>
-                            <div className="flex items-center gap-1 absolute right-[6px] pointer-events-none">
+                                <FeatherSearch className="w-[18px] h-[18px]" />
                                 <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
                                     <span className="text-caption font-caption text-subtext-color">⌘</span>
                                     <span className="text-caption font-caption text-subtext-color">K</span>
                                 </div>
-                            </div>
-                        </div>
+                            </button>
+                        )}
+                        <div className="w-px h-6 bg-neutral-200" />
+                        <CreateToolbar
+                            onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : setShowNoteEditor(true)}
+                            onUploadImage={(file) => saveImageFromBlob(file)}
+                            onCreateLink={(url) => saveLink(url)}
+                            onPasteClipboard={handlePasteClipboard}
+                            onCreateColor={(hex) => saveColor(hex)}
+                        />
+                        <div className="w-px h-6 bg-neutral-200" />
                         <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
                             <ToggleGroup.Item
                                 icon={<FeatherLayoutGrid />}

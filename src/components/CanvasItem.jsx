@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Rnd } from 'react-rnd';
-import { Camera, Link as LinkIcon, FileText, Info } from 'lucide-react';
+import { Camera, Link as LinkIcon, FileText, Info, Palette } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
@@ -38,14 +38,17 @@ const CanvasItem = ({
     initialPosition = null,
     onUpdate,
     isSelected,
+    isDetailFocused = false,
+    isEditing = false,
+    onFinishEditing,
     onSelect,
     onOpenDetails,
     scale,
     isPanMode = false
 }) => {
     // Default dimensions based on type
-    const defaultWidth = (item.type === 'image' || item.type === 'video') ? 300 : 280;
-    const defaultHeight = (item.type === 'image' || item.type === 'video') ? 200 : 160;
+    const defaultWidth = item.type === 'color' ? 160 : (item.type === 'image' || item.type === 'video') ? 300 : 280;
+    const defaultHeight = item.type === 'color' ? 160 : (item.type === 'image' || item.type === 'video') ? 200 : 160;
 
     const [position, setPosition] = useState(() => {
         const fallbackX = parseSize(initialPosition?.x, 120);
@@ -77,10 +80,25 @@ const CanvasItem = ({
             ? (resolvedVideoSource || '')
             : (showLinkAsText ? null : linkThumbnailSource);
     const hasMediaCard = item.type === 'image' || item.type === 'video' || (item.type === 'link' && !showLinkAsText && Boolean(linkThumbnailSource));
-    const isResizableCard = hasMediaCard || item.type === 'text';
+    const isResizableCard = hasMediaCard || item.type === 'text' || item.type === 'color';
     const hasAutoSizedFromMediaRef = useRef(false);
     const suppressClickRef = useRef(false);
     const dragStateRef = useRef({ startX: 0, startY: 0, moved: false });
+    const [editText, setEditText] = useState(item.content || '');
+    const editTextareaRef = useRef(null);
+
+    useEffect(() => {
+        if (isEditing && editTextareaRef.current) {
+            editTextareaRef.current.focus();
+            // Place cursor at end
+            const len = editTextareaRef.current.value.length;
+            editTextareaRef.current.setSelectionRange(len, len);
+        }
+    }, [isEditing]);
+
+    useEffect(() => {
+        if (!isEditing) setEditText(item.content || '');
+    }, [item.content, isEditing]);
 
     // Debounce save
     const timeoutRef = useRef(null);
@@ -175,6 +193,7 @@ const CanvasItem = ({
             case 'image': return <Camera className="w-4 h-4" />;
             case 'text': return <FileText className="w-4 h-4" />;
             case 'link': return <LinkIcon className="w-4 h-4" />;
+            case 'color': return <Palette className="w-4 h-4" />;
             default: return <LinkIcon className="w-4 h-4" />;
         }
     };
@@ -225,9 +244,9 @@ const CanvasItem = ({
             onDragStop={handleDragStop}
             onResizeStop={handleResizeStop}
             scale={scale}
-            style={{ zIndex: isSelected ? 1000 : (item.canvas?.z || 1) }}
+            style={{ zIndex: isDetailFocused ? 999 : isSelected ? 1000 : (item.canvas?.z || 1) }}
             className={`group canvas-item-root ${isSelected ? 'z-50' : ''}`}
-            disableDragging={isPanMode}
+            disableDragging={isPanMode || isEditing}
             cancel=".canvas-item-no-drag, a, button, input, textarea, select"
             enableResizing={!isPanMode && isResizableCard}
             lockAspectRatio={lockAspectRatio}
@@ -236,9 +255,11 @@ const CanvasItem = ({
         >
             <div
                 className={`group relative flex h-full w-full flex-col overflow-hidden rounded-lg bg-white shadow-sm transition-all duration-200
-                    ${isSelected
-                        ? 'border-2 border-orange-600'
-                        : 'border border-[var(--ds-gray-200)] hover:border-orange-600 hover:shadow-md'
+                    ${isDetailFocused
+                        ? 'border-2 border-orange-500 ring-2 ring-orange-400/40 ring-offset-2 shadow-lg'
+                        : isSelected
+                            ? 'border-2 border-orange-600'
+                            : 'border border-[var(--ds-gray-200)] hover:border-orange-600 hover:shadow-md'
                     }
                 `}
                 onClick={handleCardClick}
@@ -348,15 +369,49 @@ const CanvasItem = ({
                     )}
 
                     {item.type === 'text' && (
-                        <div className="w-full h-full p-5 bg-white flex flex-col items-start justify-start gap-2.5">
-                            <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-4 text-left leading-snug w-full">
-                                {heroText}
-                            </p>
-                            {supportingText ? (
-                                <p className="text-body text-[var(--ds-gray-700)] line-clamp-5 text-left leading-relaxed w-full">
-                                    {supportingText}
+                        isEditing ? (
+                            <div className="w-full h-full p-5 bg-white flex flex-col">
+                                <textarea
+                                    ref={editTextareaRef}
+                                    className="canvas-item-no-drag w-full h-full resize-none bg-transparent text-heading-2 font-medium text-[var(--ds-gray-1000)] leading-snug outline-none placeholder:text-zinc-300"
+                                    placeholder="Start typing..."
+                                    value={editText}
+                                    onChange={(e) => setEditText(e.target.value)}
+                                    onBlur={() => onFinishEditing?.(item.id, editText)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Escape') {
+                                            e.preventDefault();
+                                            onFinishEditing?.(item.id, editText);
+                                        }
+                                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                            e.preventDefault();
+                                            onFinishEditing?.(item.id, editText);
+                                        }
+                                    }}
+                                />
+                            </div>
+                        ) : (
+                            <div className="w-full h-full p-5 bg-white flex flex-col items-start justify-start gap-2.5">
+                                <p className="text-heading-2 font-medium text-[var(--ds-gray-1000)] line-clamp-4 text-left leading-snug w-full">
+                                    {heroText}
                                 </p>
-                            ) : null}
+                                {supportingText ? (
+                                    <p className="text-body text-[var(--ds-gray-700)] line-clamp-5 text-left leading-relaxed w-full">
+                                        {supportingText}
+                                    </p>
+                                ) : null}
+                            </div>
+                        )
+                    )}
+
+                    {item.type === 'color' && (
+                        <div
+                            className="w-full h-full flex items-end justify-start p-3"
+                            style={{ backgroundColor: item.content }}
+                        >
+                            <span className="text-xs font-mono font-semibold px-2 py-1 rounded-md bg-black/20 text-white backdrop-blur-sm uppercase">
+                                {item.content}
+                            </span>
                         </div>
                     )}
                 </div>
