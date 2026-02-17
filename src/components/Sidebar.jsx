@@ -32,6 +32,7 @@ export default function Sidebar({
     onCollectionDelete,
     onCreateCollection,
     onCollectionMove,
+    onCollectionReorder,
     activeWorkspaceId,
     activeWorkspaceName,
     onOpenSettings,
@@ -48,6 +49,9 @@ export default function Sidebar({
     const [editingCollectionName, setEditingCollectionName] = useState('');
     const [collapsedProjects, setCollapsedProjects] = useState({});
     const [isUngroupedCollapsed, setIsUngroupedCollapsed] = useState(false);
+    const [draggingCollectionId, setDraggingCollectionId] = useState(null);
+    const [dropTarget, setDropTarget] = useState(null);
+    const [projectDropTarget, setProjectDropTarget] = useState(null);
 
     useEffect(() => {
         setCollapsedProjects((prev) => {
@@ -62,6 +66,12 @@ export default function Sidebar({
     }, [projects]);
 
     const groupedCollections = useMemo(() => {
+        const sortCollections = (list) => list.sort((a, b) => {
+            const aOrder = Number.isFinite(Number(a?.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
+            const bOrder = Number.isFinite(Number(b?.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
+            if (aOrder !== bOrder) return aOrder - bOrder;
+            return (a.createdAt || 0) - (b.createdAt || 0);
+        });
         const map = new Map();
         projects.forEach((project) => map.set(project.id, []));
         const ungrouped = [];
@@ -75,9 +85,9 @@ export default function Sidebar({
         });
 
         for (const [, entries] of map) {
-            entries.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+            sortCollections(entries);
         }
-        ungrouped.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+        sortCollections(ungrouped);
 
         return { map, ungrouped };
     }, [projects, collections]);
@@ -166,6 +176,90 @@ export default function Sidebar({
         if (!lockScroll) return;
         event.preventDefault();
         event.stopPropagation();
+    };
+
+    const clearDragState = () => {
+        setDraggingCollectionId(null);
+        setDropTarget(null);
+        setProjectDropTarget(null);
+    };
+
+    const handleCollectionDragStart = (event, collection) => {
+        setDraggingCollectionId(collection.id);
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', collection.id);
+    };
+
+    const handleCollectionDragEnd = () => {
+        clearDragState();
+    };
+
+    const handleCollectionDragOver = (event, collection, projectId) => {
+        if (!draggingCollectionId || draggingCollectionId === collection.id) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        const position = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+        setDropTarget({
+            collectionId: collection.id,
+            projectId: projectId || null,
+            position,
+        });
+        setProjectDropTarget(null);
+        event.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleCollectionDrop = (event, collection, projectId) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const sourceCollectionId = draggingCollectionId || event.dataTransfer.getData('text/plain');
+        if (!sourceCollectionId || sourceCollectionId === collection.id) {
+            clearDragState();
+            return;
+        }
+
+        const rect = event.currentTarget.getBoundingClientRect();
+        const position = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+
+        if (onCollectionReorder) {
+            onCollectionReorder({
+                collectionId: sourceCollectionId,
+                targetCollectionId: collection.id,
+                targetProjectId: projectId || null,
+                position,
+            });
+        }
+
+        clearDragState();
+    };
+
+    const handleProjectDragOver = (event, projectId) => {
+        if (!draggingCollectionId) return;
+        event.preventDefault();
+        setProjectDropTarget(projectId);
+        setDropTarget(null);
+        event.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleProjectDrop = (event, projectId) => {
+        if (!draggingCollectionId) return;
+        event.preventDefault();
+        const sourceCollectionId = draggingCollectionId || event.dataTransfer.getData('text/plain');
+        if (!sourceCollectionId) {
+            clearDragState();
+            return;
+        }
+
+        if (onCollectionReorder) {
+            onCollectionReorder({
+                collectionId: sourceCollectionId,
+                targetCollectionId: null,
+                targetProjectId: projectId,
+                position: 'after',
+            });
+        }
+
+        clearDragState();
     };
 
     return (
@@ -294,7 +388,12 @@ export default function Sidebar({
                             const moveTargets = projects.filter((candidate) => candidate.id !== project.id);
 
                             return (
-                                <div key={project.id} className="flex w-full flex-col gap-1">
+                                <div
+                                    key={project.id}
+                                    className={`flex w-full flex-col gap-1 rounded-xl ${draggingCollectionId && projectDropTarget === project.id ? 'bg-orange-50/70' : ''}`}
+                                    onDragOver={(event) => handleProjectDragOver(event, project.id)}
+                                    onDrop={(event) => handleProjectDrop(event, project.id)}
+                                >
                                     <div className="group relative flex h-10 w-full items-center">
                                         {editingProjectId === project.id ? (
                                             <input
@@ -417,8 +516,29 @@ export default function Sidebar({
                                                     <p className="text-[12px] text-neutral-400">No collections</p>
                                                 </div>
                                             ) : (
-                                                projectCollections.map((collection) => (
-                                                    <div key={collection.id} className="group relative flex h-10 w-full items-center pl-6">
+                                                projectCollections.map((collection) => {
+                                                    const isDropBefore = dropTarget?.collectionId === collection.id
+                                                        && dropTarget?.projectId === project.id
+                                                        && dropTarget?.position === 'before';
+                                                    const isDropAfter = dropTarget?.collectionId === collection.id
+                                                        && dropTarget?.projectId === project.id
+                                                        && dropTarget?.position === 'after';
+
+                                                    return (
+                                                    <div
+                                                        key={collection.id}
+                                                        className="group relative flex h-10 w-full items-center pl-6"
+                                                        draggable={editingCollectionId !== collection.id}
+                                                        onDragStart={(event) => handleCollectionDragStart(event, collection)}
+                                                        onDragEnd={handleCollectionDragEnd}
+                                                        onDragOver={(event) => handleCollectionDragOver(event, collection, project.id)}
+                                                        onDrop={(event) => handleCollectionDrop(event, collection, project.id)}
+                                                        style={isDropBefore
+                                                            ? { boxShadow: 'inset 0 2px 0 #EA580C' }
+                                                            : isDropAfter
+                                                                ? { boxShadow: 'inset 0 -2px 0 #EA580C' }
+                                                                : undefined}
+                                                    >
                                                         {editingCollectionId === collection.id ? (
                                                             <input
                                                                 autoFocus
@@ -506,7 +626,8 @@ export default function Sidebar({
                                                             </>
                                                         )}
                                                     </div>
-                                                ))
+                                                    );
+                                                })
                                             )}
                                         </>
                                     )}
@@ -516,7 +637,11 @@ export default function Sidebar({
                     )}
 
                     {groupedCollections.ungrouped.length > 0 && (
-                        <div className="flex w-full flex-col gap-1 pt-1">
+                        <div
+                            className={`flex w-full flex-col gap-1 pt-1 rounded-xl ${draggingCollectionId && projectDropTarget === null ? 'bg-orange-50/70' : ''}`}
+                            onDragOver={(event) => handleProjectDragOver(event, null)}
+                            onDrop={(event) => handleProjectDrop(event, null)}
+                        >
                             <button
                                 type="button"
                                 className="h-10 w-full rounded-full border border-transparent px-3.5 text-left text-body font-body text-subtext-color transition-colors hover:bg-neutral-100 hover:text-default-font"
@@ -533,8 +658,29 @@ export default function Sidebar({
                                     <span className="text-[11px] text-neutral-400">{groupedCollections.ungrouped.length}</span>
                                 </span>
                             </button>
-                            {!isUngroupedCollapsed && groupedCollections.ungrouped.map((collection) => (
-                                <div key={collection.id} className="group relative flex h-10 w-full items-center pl-6">
+                            {!isUngroupedCollapsed && groupedCollections.ungrouped.map((collection) => {
+                                const isDropBefore = dropTarget?.collectionId === collection.id
+                                    && dropTarget?.projectId === null
+                                    && dropTarget?.position === 'before';
+                                const isDropAfter = dropTarget?.collectionId === collection.id
+                                    && dropTarget?.projectId === null
+                                    && dropTarget?.position === 'after';
+
+                                return (
+                                <div
+                                    key={collection.id}
+                                    className="group relative flex h-10 w-full items-center pl-6"
+                                    draggable={editingCollectionId !== collection.id}
+                                    onDragStart={(event) => handleCollectionDragStart(event, collection)}
+                                    onDragEnd={handleCollectionDragEnd}
+                                    onDragOver={(event) => handleCollectionDragOver(event, collection, null)}
+                                    onDrop={(event) => handleCollectionDrop(event, collection, null)}
+                                    style={isDropBefore
+                                        ? { boxShadow: 'inset 0 2px 0 #EA580C' }
+                                        : isDropAfter
+                                            ? { boxShadow: 'inset 0 -2px 0 #EA580C' }
+                                            : undefined}
+                                >
                                     {editingCollectionId === collection.id ? (
                                         <input
                                             autoFocus
@@ -622,7 +768,8 @@ export default function Sidebar({
                                         </>
                                     )}
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </ChatChannelsMenu.Folder>

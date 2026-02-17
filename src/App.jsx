@@ -55,6 +55,103 @@ import * as SubframeCore from "@subframe/core";
 import { FeatherChevronLeft, FeatherChevronRight, FeatherLayoutGrid, FeatherSquare, FeatherSearch } from "@subframe/core";
 
 const STAGE_A_AUTO_BACKFILL_ENABLED = true;
+const COLLECTION_SORT_STEP = 1000;
+
+function getCollectionSortOrder(collection) {
+    const order = Number(collection?.sortOrder);
+    return Number.isFinite(order) ? order : Number.MAX_SAFE_INTEGER;
+}
+
+function sortCollectionsForOrder(collectionList) {
+    return [...collectionList].sort((a, b) => {
+        const byOrder = getCollectionSortOrder(a) - getCollectionSortOrder(b);
+        if (byOrder !== 0) return byOrder;
+        return (a.createdAt || 0) - (b.createdAt || 0);
+    });
+}
+
+function normalizeProjectId(projectId) {
+    return projectId || null;
+}
+
+function computeCollectionReorder(allCollections, {
+    collectionId,
+    targetCollectionId = null,
+    targetProjectId = null,
+    position = 'before',
+}) {
+    const moving = allCollections.find((collection) => collection.id === collectionId);
+    if (!moving) return { nextCollections: allCollections, changes: [] };
+    if (targetCollectionId === moving.id) return { nextCollections: allCollections, changes: [] };
+
+    const sourceProjectId = normalizeProjectId(moving.projectId);
+    const destinationProjectId = targetProjectId !== undefined
+        ? normalizeProjectId(targetProjectId)
+        : sourceProjectId;
+
+    const withoutMoving = allCollections.filter((collection) => collection.id !== moving.id);
+    const targetCollection = targetCollectionId
+        ? withoutMoving.find((collection) => collection.id === targetCollectionId)
+        : null;
+    if (targetCollectionId && !targetCollection) {
+        return { nextCollections: allCollections, changes: [] };
+    }
+
+    const destinationCollections = sortCollectionsForOrder(
+        withoutMoving.filter((collection) => normalizeProjectId(collection.projectId) === destinationProjectId)
+    );
+
+    let insertIndex = destinationCollections.length;
+    if (targetCollection) {
+        const targetIndex = destinationCollections.findIndex((collection) => collection.id === targetCollection.id);
+        if (targetIndex >= 0) {
+            insertIndex = position === 'after' ? targetIndex + 1 : targetIndex;
+        }
+    }
+
+    destinationCollections.splice(insertIndex, 0, { ...moving, projectId: destinationProjectId });
+
+    const projectsToReindex = new Set([sourceProjectId, destinationProjectId]);
+    const nextById = new Map();
+    const changes = [];
+
+    projectsToReindex.forEach((projectId) => {
+        const orderedCollections = projectId === destinationProjectId
+            ? destinationCollections
+            : sortCollectionsForOrder(
+                withoutMoving.filter((collection) => normalizeProjectId(collection.projectId) === projectId)
+            );
+
+        orderedCollections.forEach((collection, index) => {
+            const nextSortOrder = (index + 1) * COLLECTION_SORT_STEP;
+            const currentSortOrder = Number.isFinite(Number(collection.sortOrder))
+                ? Number(collection.sortOrder)
+                : null;
+            const currentProjectId = normalizeProjectId(collection.projectId);
+
+            if (currentSortOrder !== nextSortOrder || currentProjectId !== projectId) {
+                const nextCollection = {
+                    ...collection,
+                    projectId,
+                    sortOrder: nextSortOrder,
+                };
+                nextById.set(collection.id, nextCollection);
+                changes.push({
+                    id: collection.id,
+                    projectId,
+                    sortOrder: nextSortOrder,
+                });
+            }
+        });
+    });
+
+    if (changes.length === 0) return { nextCollections: allCollections, changes: [] };
+
+    const nextCollections = allCollections.map((collection) => (
+        nextById.get(collection.id) || collection
+    ));
+    return { nextCollections, changes };
+}
 
 function App() {
     const [user, setUser] = useState(undefined); // undefined = loading, null = no auth
@@ -110,9 +207,9 @@ function App() {
 
     const workspaceCollections = useMemo(() => {
         if (!activeWorkspaceId) return [];
-        return collections
-            .filter((collection) => getCollectionWorkspaceId(collection) === activeWorkspaceId)
-            .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+        return sortCollectionsForOrder(
+            collections.filter((collection) => getCollectionWorkspaceId(collection) === activeWorkspaceId)
+        );
     }, [collections, activeWorkspaceId]);
 
     const workspaceProjects = useMemo(() => {
@@ -1016,24 +1113,62 @@ function App() {
         setToast({ message: `Deleted folder "${project.name}"`, type: 'success' });
     };
 
+    const handleCollectionReorder = async ({
+        collectionId,
+        targetCollectionId = null,
+        targetProjectId = null,
+        position = 'before',
+    }) => {
+        const { nextCollections, changes } = computeCollectionReorder(collections, {
+            collectionId,
+            targetCollectionId,
+            targetProjectId,
+            position,
+        });
+        if (!changes.length) return;
+        setCollections(nextCollections);
+
+        try {
+            const persisted = await Promise.all(
+                changes.map((change) => (
+                    updateCollection(change.id, {
+                        projectId: change.projectId,
+                        sortOrder: change.sortOrder,
+                    })
+                ))
+            );
+            const persistedById = new Map(
+                persisted
+                    .filter(Boolean)
+                    .map((collection) => [collection.id, collection])
+            );
+            if (persistedById.size > 0) {
+                setCollections((prev) => prev.map((collection) => (
+                    persistedById.get(collection.id) || collection
+                )));
+            }
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to reorder collections', type: 'error' });
+            await loadData();
+        }
+    };
+
     const handleMoveCollectionToProject = async (collection, nextProjectId) => {
-        if (!collection?.id || !nextProjectId || collection.projectId === nextProjectId) return;
+        if (!collection?.id || !nextProjectId) return;
+        if (collection.projectId === nextProjectId) return;
         const targetProject = workspaceProjects.find((project) => project.id === nextProjectId);
         if (!targetProject) {
             setToast({ message: 'Target folder not found', type: 'error' });
             return;
         }
 
-        const updated = await updateCollection(collection.id, { projectId: nextProjectId });
-        if (!updated) {
-            setToast({ message: 'Failed to move collection', type: 'error' });
-            return;
-        }
-
-        setCollections((prev) => prev.map((candidate) => (
-            candidate.id === updated.id ? updated : candidate
-        )));
-        setToast({ message: `Moved "${updated.name}" to "${targetProject.name}"`, type: 'success' });
+        await handleCollectionReorder({
+            collectionId: collection.id,
+            targetProjectId: nextProjectId,
+            targetCollectionId: null,
+            position: 'after',
+        });
+        setToast({ message: `Moved "${collection.name}" to "${targetProject.name}"`, type: 'success' });
     };
 
     const canGoBack = Boolean(selectedCollectionId);
@@ -1133,7 +1268,17 @@ function App() {
         const finalName = String(requestedName || '').trim() || suggestedName;
 
         try {
-            const created = await createCollection(activeWorkspaceId, projectId, finalName);
+            const maxSortOrder = workspaceCollections
+                .filter((collection) => collection.projectId === projectId)
+                .reduce((max, collection) => (
+                    Math.max(max, Number.isFinite(Number(collection.sortOrder)) ? Number(collection.sortOrder) : 0)
+                ), 0);
+            const created = await createCollection(
+                activeWorkspaceId,
+                projectId,
+                finalName,
+                maxSortOrder + COLLECTION_SORT_STEP
+            );
             if (!created) throw new Error('Collection was not created.');
             setCollections((prev) => [created, ...prev.filter((collection) => collection.id !== created.id)]);
             setSelectedCollectionId(created.id);
@@ -1517,6 +1662,9 @@ function App() {
                 }}
                 onCollectionMove={(collection, nextProjectId) => {
                     void handleMoveCollectionToProject(collection, nextProjectId);
+                }}
+                onCollectionReorder={(payload) => {
+                    void handleCollectionReorder(payload);
                 }}
                 activeWorkspaceId={activeWorkspaceId}
                 activeWorkspaceName={getWorkspaceName(activeWorkspaceId)}

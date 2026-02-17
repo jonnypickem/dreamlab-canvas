@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS collections (
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
     project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+    sort_order BIGINT,
     name TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'custom',
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -50,6 +51,9 @@ CREATE TABLE IF NOT EXISTS collections (
 -- Ensure existing installs gain project_id + FK (idempotent)
 ALTER TABLE collections
     ADD COLUMN IF NOT EXISTS project_id UUID;
+
+ALTER TABLE collections
+    ADD COLUMN IF NOT EXISTS sort_order BIGINT;
 
 DO $$
 BEGIN
@@ -212,6 +216,22 @@ FROM general_projects gp
 WHERE c.project_id IS NULL
   AND c.workspace_id IS NOT NULL
   AND c.workspace_id = gp.workspace_id;
+
+-- Backfill collection sort order within each workspace/project
+WITH ordered_collections AS (
+    SELECT
+        id,
+        ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, project_id
+            ORDER BY created_at ASC, id ASC
+        ) AS sort_rank
+    FROM collections
+)
+UPDATE collections c
+SET sort_order = ordered_collections.sort_rank * 1000
+FROM ordered_collections
+WHERE c.id = ordered_collections.id
+  AND c.sort_order IS NULL;
 
 -- =============================================================
 -- Triggers

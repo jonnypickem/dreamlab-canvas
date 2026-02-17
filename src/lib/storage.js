@@ -89,6 +89,7 @@ function collectionFromDb(row) {
         id: row.id,
         workspaceId: row.workspace_id || null,
         projectId: row.project_id || null,
+        sortOrder: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : null,
         name: row.name,
         kind: row.kind || 'custom',
         createdAt: new Date(row.created_at).getTime(),
@@ -249,7 +250,7 @@ export async function getCollections() {
     return (data || []).map(collectionFromDb);
 }
 
-export async function createCollection(workspaceId, projectId, name) {
+export async function createCollection(workspaceId, projectId, name, sortOrder = null) {
     const userId = await getCurrentUserId();
     if (!userId) return null;
 
@@ -259,6 +260,7 @@ export async function createCollection(workspaceId, projectId, name) {
             user_id: userId,
             workspace_id: workspaceId,
             project_id: projectId || null,
+            sort_order: sortOrder,
             name,
             kind: 'custom',
         })
@@ -274,6 +276,7 @@ export async function updateCollection(id, updates) {
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.kind !== undefined) row.kind = updates.kind;
     if (updates.projectId !== undefined) row.project_id = updates.projectId;
+    if (updates.sortOrder !== undefined) row.sort_order = updates.sortOrder;
 
     const { data, error } = await supabase
         .from('collections')
