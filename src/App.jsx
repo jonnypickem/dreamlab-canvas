@@ -66,6 +66,8 @@ function App() {
     });
     const navRestoredRef = useRef(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [searchExpanded, setSearchExpanded] = useState(false);
+    const searchInputRef = useRef(null);
     const [editingItem, setEditingItem] = useState(null);
     const [detailPanelItem, setDetailPanelItem] = useState(null);
     const [tagFilter, setTagFilter] = useState(null);
@@ -373,7 +375,8 @@ function App() {
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                 if (!editingItem) {
                     e.preventDefault();
-                    document.querySelector('input[placeholder*="Search"]')?.focus();
+                    setSearchExpanded(true);
+                    setTimeout(() => searchInputRef.current?.focus(), 0);
                 }
             }
 
@@ -1594,27 +1597,47 @@ function App() {
                         showDownload={hasDownloadableSelection}
                     />
                 ) : (
-                    <div className="flex items-center gap-3 rounded-full border border-solid border-neutral-border bg-white px-4 py-4 fixed bottom-8 left-1/2 z-10 -translate-x-1/2 focus-within:shadow-[0px_0px_32px_-4px_rgba(234,88,12,0.3),0px_0px_8px_-2px_rgba(234,88,12,0.3)]">
-                        <div className="flex w-96 flex-none items-center relative">
-                            <TextField
-                                className="h-auto grow shrink-0 basis-0"
-                                variant="outline"
-                                icon={<FeatherSearch />}
+                    <div className="flex items-center gap-2 rounded-full border border-solid border-neutral-border bg-white px-3 py-2.5 fixed bottom-8 left-1/2 z-10 -translate-x-1/2 shadow-sm">
+                        {searchExpanded ? (
+                            <div className="flex items-center relative">
+                                <TextField
+                                    className="h-auto w-72"
+                                    variant="outline"
+                                    icon={<FeatherSearch />}
+                                >
+                                    <TextField.Input
+                                        ref={searchInputRef}
+                                        className="pr-8"
+                                        placeholder="Search content, URLs, or tags..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Escape') {
+                                                if (!searchQuery) setSearchExpanded(false);
+                                                else setSearchQuery('');
+                                            }
+                                        }}
+                                        onBlur={() => {
+                                            if (!searchQuery) setSearchExpanded(false);
+                                        }}
+                                    />
+                                </TextField>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => { setSearchExpanded(true); setTimeout(() => searchInputRef.current?.focus(), 0); }}
+                                className="flex items-center gap-2 h-9 px-3 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
+                                title="Search (⌘K)"
                             >
-                                <TextField.Input
-                                    className="pr-8"
-                                    placeholder="Search content, URLs, or tags..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                            </TextField>
-                            <div className="flex items-center gap-1 absolute right-[6px] pointer-events-none">
+                                <FeatherSearch className="w-[18px] h-[18px]" />
                                 <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
                                     <span className="text-caption font-caption text-subtext-color">⌘</span>
                                     <span className="text-caption font-caption text-subtext-color">K</span>
                                 </div>
-                            </div>
-                        </div>
+                            </button>
+                        )}
+                        <div className="w-px h-6 bg-neutral-200" />
                         <CreateToolbar
                             onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : setShowNoteEditor(true)}
                             onUploadImage={(file) => saveImageFromBlob(file)}
@@ -1622,6 +1645,7 @@ function App() {
                             onPasteClipboard={handlePasteClipboard}
                             onCreateColor={(hex) => saveColor(hex)}
                         />
+                        <div className="w-px h-6 bg-neutral-200" />
                         <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
                             <ToggleGroup.Item
                                 icon={<FeatherLayoutGrid />}
