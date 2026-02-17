@@ -4,6 +4,7 @@ import { Camera, Link as LinkIcon, FileText, Info, Palette } from 'lucide-react'
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
+import BlockEditor from './BlockEditor';
 
 // Helper to ensure size is always a number
 const parseSize = (val, fallback) => {
@@ -86,16 +87,6 @@ const CanvasItem = ({
     const suppressClickRef = useRef(false);
     const dragStateRef = useRef({ startX: 0, startY: 0, moved: false });
     const [editText, setEditText] = useState(item.content || '');
-    const editTextareaRef = useRef(null);
-
-    useEffect(() => {
-        if (isEditing && editTextareaRef.current) {
-            editTextareaRef.current.focus();
-            // Place cursor at end
-            const len = editTextareaRef.current.value.length;
-            editTextareaRef.current.setSelectionRange(len, len);
-        }
-    }, [isEditing]);
 
     useEffect(() => {
         if (!isEditing) setEditText(item.content || '');
@@ -386,23 +377,14 @@ const CanvasItem = ({
                     {item.type === 'text' && (
                         isEditing ? (
                             <div className="w-full h-full p-5 bg-white flex flex-col">
-                                <textarea
-                                    ref={editTextareaRef}
-                                    className="canvas-item-no-drag w-full h-full resize-none bg-transparent text-heading-2 font-medium text-[var(--ds-gray-1000)] leading-snug outline-none placeholder:text-zinc-300"
-                                    placeholder="Start typing..."
+                                <BlockEditor
                                     value={editText}
-                                    onChange={(e) => setEditText(e.target.value)}
+                                    onChange={setEditText}
                                     onBlur={() => onFinishEditing?.(item.id, editText)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Escape') {
-                                            e.preventDefault();
-                                            onFinishEditing?.(item.id, editText);
-                                        }
-                                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                                            e.preventDefault();
-                                            onFinishEditing?.(item.id, editText);
-                                        }
-                                    }}
+                                    onSubmit={() => onFinishEditing?.(item.id, editText)}
+                                    placeholder="Start typing..."
+                                    className="canvas-item-no-drag w-full h-full"
+                                    autoFocus
                                 />
                             </div>
                         ) : (

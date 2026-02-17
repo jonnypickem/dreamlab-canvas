@@ -5,6 +5,7 @@ import { updateItem, getCollections, getCollectionWorkspaceId } from '../lib/sto
 import { fetchImageViaProxy } from '../utils/imageProxy';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
+import BlockEditor from './BlockEditor';
 
 const uniqueTags = (tags = []) => [...new Set((tags || []).filter(Boolean))];
 
@@ -344,18 +345,12 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
                 {/* Editable text content for notes */}
                 {item.type === 'text' && (
                     <div className="flex flex-col gap-2">
-                        <textarea
+                        <BlockEditor
                             value={content}
-                            onChange={(e) => setContent(e.target.value)}
-                            className="w-full text-sm text-neutral-700 bg-neutral-50 border border-neutral-200 rounded-md p-3 outline-none resize-none min-h-[100px] leading-relaxed"
+                            onChange={setContent}
                             placeholder="Write your note... Use # for headings"
+                            className="w-full text-sm bg-neutral-50 border border-neutral-200 rounded-md p-3 min-h-[100px]"
                         />
-                        {content.trim() && hasMarkdownHeadings(content) && (
-                            <div className="border border-neutral-200 rounded-md p-3 bg-white">
-                                <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-2 block">Preview</span>
-                                {renderMarkdownText(content)}
-                            </div>
-                        )}
                     </div>
                 )}
 
