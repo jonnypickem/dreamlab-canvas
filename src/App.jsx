@@ -42,6 +42,7 @@ import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveA
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
 import MasonryGrid from './components/MasonryGrid';
+import SortableGrid from './components/SortableGrid';
 import CreateToolbar from './components/CreateToolbar';
 import CanvasDetailPanel from './components/CanvasDetailPanel';
 
@@ -56,6 +57,7 @@ import { FeatherChevronLeft, FeatherChevronRight, FeatherLayoutGrid, FeatherSqua
 
 const STAGE_A_AUTO_BACKFILL_ENABLED = true;
 const COLLECTION_SORT_STEP = 1000;
+const ITEM_SORT_STEP = 1000;
 
 function getCollectionSortOrder(collection) {
     const order = Number(collection?.sortOrder);
@@ -72,6 +74,38 @@ function sortCollectionsForOrder(collectionList) {
 
 function normalizeProjectId(projectId) {
     return projectId || null;
+}
+
+function getItemSortOrder(item) {
+    const order = Number(item?.sortOrder);
+    return Number.isFinite(order) ? order : null;
+}
+
+function compareItemsForDisplay(a, b) {
+    const aOrder = getItemSortOrder(a);
+    const bOrder = getItemSortOrder(b);
+
+    if (aOrder !== null || bOrder !== null) {
+        if (aOrder === null) return 1;
+        if (bOrder === null) return -1;
+        if (aOrder !== bOrder) return bOrder - aOrder;
+    }
+
+    const aCreated = Number(a?.createdAt || a?.timestamp || 0);
+    const bCreated = Number(b?.createdAt || b?.timestamp || 0);
+    if (aCreated !== bCreated) return bCreated - aCreated;
+
+    return String(b?.id || '').localeCompare(String(a?.id || ''));
+}
+
+function moveArrayItem(list, fromIndex, toIndex) {
+    if (!Array.isArray(list)) return [];
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= list.length || toIndex >= list.length) return list;
+    if (fromIndex === toIndex) return list;
+    const next = [...list];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    return next;
 }
 
 function computeCollectionReorder(allCollections, {
@@ -185,7 +219,12 @@ function App() {
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'canvas'
     const [canvasInlineEditId, setCanvasInlineEditId] = useState(null);
     const [gridInlineEditId, setGridInlineEditId] = useState(null);
+    const [isGridReorderMode, setIsGridReorderMode] = useState(false);
+    const [reorderDraftIds, setReorderDraftIds] = useState([]);
+    const [isSavingReorder, setIsSavingReorder] = useState(false);
     const canvasViewportRef = useRef(null);
+    const reorderSnapshotRef = useRef(null);
+    const suppressItemsRealtimeUntilRef = useRef(0);
 
     // Zoom/Grid Size State (0=Small Items, 4=Large Items)
     // Subframe slider returns array, need to handle that
@@ -262,9 +301,42 @@ function App() {
         return matchesWorkspace && matchesCollection && matchesSearch && matchesTag;
     }), [items, searchQuery, activeWorkspaceId, selectedCollectionId, tagFilter]);
 
-    const scopedImageItems = useMemo(
-        () => filteredItems.filter((item) => item.type === 'image'),
+    const orderedFilteredItems = useMemo(
+        () => [...filteredItems].sort(compareItemsForDisplay),
         [filteredItems]
+    );
+
+    const hasActiveGridFilters = Boolean(searchQuery.trim() || tagFilter);
+    const hasConcreteCollectionSelection = Boolean(selectedCollectionId && selectedCollectionId !== '__unsorted__');
+    const canUseGridReorder = viewMode === 'grid'
+        && hasConcreteCollectionSelection
+        && !hasActiveGridFilters;
+
+    const displayGridItems = useMemo(() => {
+        if (!isGridReorderMode) return orderedFilteredItems;
+
+        const byId = new Map(orderedFilteredItems.map((item) => [item.id, item]));
+        const seen = new Set();
+        const ordered = [];
+
+        reorderDraftIds.forEach((id) => {
+            const item = byId.get(id);
+            if (!item) return;
+            ordered.push(item);
+            seen.add(id);
+        });
+
+        orderedFilteredItems.forEach((item) => {
+            if (seen.has(item.id)) return;
+            ordered.push(item);
+        });
+
+        return ordered;
+    }, [isGridReorderMode, orderedFilteredItems, reorderDraftIds]);
+
+    const scopedImageItems = useMemo(
+        () => orderedFilteredItems.filter((item) => item.type === 'image'),
+        [orderedFilteredItems]
     );
 
     const analysisBackfillCandidates = useMemo(() => {
@@ -385,7 +457,10 @@ function App() {
         // Subscribe to Supabase Realtime for live updates
         const channel = supabase
             .channel('dreamlab-changes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => loadData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
+                if (Date.now() < suppressItemsRealtimeUntilRef.current) return;
+                loadData();
+            })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'workspaces' }, () => loadData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => loadData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'collections' }, () => loadData())
@@ -407,10 +482,13 @@ function App() {
                 const { item, responseChannel } = event.data;
                 console.log('[ExtBridge] Received DREAMLAB_SAVE_ITEM', { type: item?.type, sourceUrl: item?.sourceUrl?.slice(0, 60), hasContent: !!item?.content });
                 try {
+                    const targetCollectionId = item.collectionId || (selectedCollectionId === '__unsorted__' ? null : selectedCollectionId);
+                    const sortOrder = item.sortOrder ?? getNextCollectionItemSortOrder(targetCollectionId);
                     const saved = await saveItemWithTags({
                         ...item,
                         workspaceId: item.workspaceId || activeWorkspaceId,
-                        collectionId: item.collectionId || (selectedCollectionId === '__unsorted__' ? null : selectedCollectionId),
+                        collectionId: targetCollectionId,
+                        sortOrder,
                     }, null);
                     console.log('[ExtBridge] Save succeeded', saved?.id);
                     if (saved) {
@@ -443,7 +521,7 @@ function App() {
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [user, activeWorkspaceId, selectedCollectionId, workspaces, projects, collections]);
+    }, [user, activeWorkspaceId, selectedCollectionId, workspaces, projects, collections, getNextCollectionItemSortOrder]);
 
     useEffect(() => {
         if (!selectedCollectionId || selectedCollectionId === '__unsorted__') {
@@ -497,9 +575,9 @@ function App() {
             }
 
             // Cmd+A to Select All (only if not in input)
-            if ((e.metaKey || e.ctrlKey) && e.key === 'a' && !isInInput && !editingItem) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'a' && !isInInput && !editingItem && !isGridReorderMode) {
                 e.preventDefault();
-                const allIds = new Set(filteredItems.map(item => item.id));
+                const allIds = new Set(displayGridItems.map(item => item.id));
                 setSelectedItems(allIds);
                 setToast({ message: `Selected ${allIds.size} items`, type: 'info' });
             }
@@ -517,7 +595,18 @@ function App() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [editingItem, filteredItems, selectedItems]);
+    }, [editingItem, displayGridItems, selectedItems, isGridReorderMode]);
+
+    const getNextCollectionItemSortOrder = useCallback((collectionId) => {
+        if (!collectionId) return null;
+        const maxSortOrder = items
+            .filter((item) => item.collectionId === collectionId)
+            .reduce((max, item) => {
+                const order = getItemSortOrder(item);
+                return order === null ? max : Math.max(max, order);
+            }, 0);
+        return maxSortOrder + ITEM_SORT_STEP;
+    }, [items]);
 
     // Image utility helpers — used by paste and drag-and-drop
     const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
@@ -613,6 +702,8 @@ function App() {
             setToast({ message: 'Select a workspace first', type: 'error' });
             return;
         }
+        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const sortOrder = getNextCollectionItemSortOrder(targetCollectionId);
         const canvas = getCanvasPlacement('text');
         const newItem = {
             type: 'text',
@@ -620,7 +711,8 @@ function App() {
             sourceUrl: 'note',
             workspaceId: activeWorkspaceId,
             projectId: null,
-            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            collectionId: targetCollectionId,
+            sortOrder,
             createdAt: Date.now(),
             canvas,
         };
@@ -633,20 +725,23 @@ function App() {
         } catch (error) {
             setToast({ message: error?.message || 'Failed to create note', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, getCanvasPlacement]);
+    }, [activeWorkspaceId, selectedCollectionId, getCanvasPlacement, getNextCollectionItemSortOrder]);
 
     const createGridNote = useCallback(async () => {
         if (!activeWorkspaceId) {
             setToast({ message: 'Select a workspace first', type: 'error' });
             return;
         }
+        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const sortOrder = getNextCollectionItemSortOrder(targetCollectionId);
         const newItem = {
             type: 'text',
             content: '',
             sourceUrl: 'note',
             workspaceId: activeWorkspaceId,
             projectId: null,
-            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            collectionId: targetCollectionId,
+            sortOrder,
             createdAt: Date.now(),
         };
         try {
@@ -658,7 +753,7 @@ function App() {
         } catch (error) {
             setToast({ message: error?.message || 'Failed to create note', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId]);
+    }, [activeWorkspaceId, selectedCollectionId, getNextCollectionItemSortOrder]);
 
     // Shared image save helper — used by both paste and drag-and-drop
     const saveImageFromBlob = useCallback(async (blob) => {
@@ -674,6 +769,8 @@ function App() {
 
         const tempId = crypto.randomUUID();
         const blobUrl = URL.createObjectURL(blob);
+        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const nextSortOrder = getNextCollectionItemSortOrder(targetCollectionId);
         const placeholderItem = {
             id: tempId,
             type: 'image',
@@ -681,7 +778,8 @@ function App() {
             sourceUrl: blob.name || 'clipboard',
             workspaceId: activeWorkspaceId,
             projectId: null,
-            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            collectionId: targetCollectionId,
+            sortOrder: nextSortOrder,
             tags: [],
             createdAt: Date.now(),
             isLoading: true,
@@ -705,7 +803,8 @@ function App() {
                 sourceUrl: blob.name || 'clipboard',
                 workspaceId: activeWorkspaceId,
                 projectId: null,
-                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+                collectionId: targetCollectionId,
+                sortOrder: nextSortOrder,
                 tags: [],
                 createdAt: Date.now(),
                 ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('image') } : {}),
@@ -723,7 +822,7 @@ function App() {
         } finally {
             URL.revokeObjectURL(blobUrl);
         }
-    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder]);
 
     // Drag-and-drop file handler
     const [isDragging, setIsDragging] = useState(false);
@@ -746,6 +845,8 @@ function App() {
         }
 
         const tempId = crypto.randomUUID();
+        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const nextSortOrder = getNextCollectionItemSortOrder(targetCollectionId);
         const placeholderItem = {
             id: tempId,
             type: 'link',
@@ -754,7 +855,8 @@ function App() {
             linkViewMode: 'preview',
             workspaceId: activeWorkspaceId,
             projectId: null,
-            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            collectionId: targetCollectionId,
+            sortOrder: nextSortOrder,
             createdAt: Date.now(),
             isLoading: true,
         };
@@ -780,7 +882,8 @@ function App() {
                 linkViewMode: 'preview',
                 workspaceId: activeWorkspaceId,
                 projectId: null,
-                collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+                collectionId: targetCollectionId,
+                sortOrder: nextSortOrder,
                 createdAt: Date.now(),
                 ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('link') } : {}),
             };
@@ -797,13 +900,15 @@ function App() {
             setItems((prev) => prev.filter((item) => item.id !== tempId));
             setToast({ message: error?.message || 'Failed to save link', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder]);
 
     const saveText = useCallback(async (text, source = 'clipboard') => {
         if (!activeWorkspaceId) {
             setToast({ message: 'Select a workspace first', type: 'error' });
             return;
         }
+        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const sortOrder = getNextCollectionItemSortOrder(targetCollectionId);
 
         const newItem = {
             type: 'text',
@@ -811,7 +916,8 @@ function App() {
             sourceUrl: source,
             workspaceId: activeWorkspaceId,
             projectId: null,
-            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            collectionId: targetCollectionId,
+            sortOrder,
             createdAt: Date.now(),
             ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('text') } : {}),
         };
@@ -822,13 +928,15 @@ function App() {
         } catch (error) {
             setToast({ message: error?.message || 'Failed to save text', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder]);
 
     const saveColor = useCallback(async (hexColor) => {
         if (!activeWorkspaceId) {
             setToast({ message: 'Select a workspace first', type: 'error' });
             return;
         }
+        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const sortOrder = getNextCollectionItemSortOrder(targetCollectionId);
 
         const newItem = {
             type: 'color',
@@ -836,7 +944,8 @@ function App() {
             sourceUrl: 'color-picker',
             workspaceId: activeWorkspaceId,
             projectId: null,
-            collectionId: selectedCollectionId === '__unsorted__' ? null : selectedCollectionId,
+            collectionId: targetCollectionId,
+            sortOrder,
             createdAt: Date.now(),
             ...(viewMode === 'canvas' ? { canvas: getCanvasPlacement('color') } : {}),
         };
@@ -847,7 +956,7 @@ function App() {
         } catch (error) {
             setToast({ message: error?.message || 'Failed to save color', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement]);
+    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder]);
 
     const handlePasteClipboard = useCallback(async () => {
         try {
@@ -1205,6 +1314,7 @@ function App() {
     }, []);
 
     const handleOpenItemDetails = useCallback((itemOrId) => {
+        if (isGridReorderMode) return;
         const itemId = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
         if (!itemId) return;
         const liveItem = items.find((candidate) => candidate.id === itemId);
@@ -1214,7 +1324,7 @@ function App() {
         } else {
             setEditingItem(liveItem);
         }
-    }, [items, viewMode]);
+    }, [items, viewMode, isGridReorderMode]);
 
     const handleCanvasTitleSave = useCallback(async () => {
         if (!activeCollection || !activeCollection.id || activeCollection.id === '__unsorted__') {
@@ -1290,12 +1400,13 @@ function App() {
 
     // Selection Handlers
     const handleSelectItem = useCallback((itemId, modifiers) => {
+        if (isGridReorderMode) return;
         setSelectedItems(prevSelected => {
             const newSelected = new Set(prevSelected);
 
             if (modifiers.shiftKey && lastSelectedItemId) {
                 // Range selection
-                const itemIds = filteredItems.map(item => item.id);
+                const itemIds = displayGridItems.map(item => item.id);
                 const lastIndex = itemIds.indexOf(lastSelectedItemId);
                 const currentIndex = itemIds.indexOf(itemId);
 
@@ -1329,12 +1440,190 @@ function App() {
         });
 
         setLastSelectedItemId(itemId);
-    }, [filteredItems, lastSelectedItemId]);
+    }, [displayGridItems, isGridReorderMode, lastSelectedItemId]);
 
     const clearSelection = useCallback(() => {
         setSelectedItems(new Set());
         setLastSelectedItemId(null);
     }, []);
+
+    useEffect(() => {
+        if (!isGridReorderMode) return;
+        if (canUseGridReorder) return;
+        setIsGridReorderMode(false);
+        setReorderDraftIds([]);
+        setIsSavingReorder(false);
+        reorderSnapshotRef.current = null;
+    }, [isGridReorderMode, canUseGridReorder]);
+
+    useEffect(() => {
+        if (!isGridReorderMode) return;
+        const liveIds = orderedFilteredItems.map((item) => item.id);
+        setReorderDraftIds((prev) => {
+            if (prev.length === 0) return liveIds;
+            const liveSet = new Set(liveIds);
+            const prevSet = new Set(prev);
+            const next = prev.filter((id) => liveSet.has(id));
+            liveIds.forEach((id) => {
+                if (!prevSet.has(id)) next.push(id);
+            });
+            return next;
+        });
+    }, [isGridReorderMode, orderedFilteredItems]);
+
+    const handleStartGridReorder = useCallback(() => {
+        if (viewMode !== 'grid') {
+            setToast({ message: 'Switch to grid view to reorder items', type: 'error' });
+            return;
+        }
+        if (!hasConcreteCollectionSelection) {
+            setToast({ message: 'Select a collection to reorder items', type: 'error' });
+            return;
+        }
+        if (hasActiveGridFilters) {
+            setToast({ message: 'Clear search and tag filters before reordering', type: 'error' });
+            return;
+        }
+
+        const initialIds = orderedFilteredItems.map((item) => item.id);
+        if (initialIds.length < 2) {
+            setToast({ message: 'Need at least two items to reorder', type: 'info' });
+            return;
+        }
+
+        setEditingItem(null);
+        setDetailPanelItem(null);
+        setGridInlineEditId(null);
+        setCanvasInlineEditId(null);
+        setSearchExpanded(false);
+        clearSelection();
+        reorderSnapshotRef.current = {
+            itemsSnapshot: items,
+            draftIds: initialIds,
+            collectionId: selectedCollectionId,
+        };
+        setIsSavingReorder(false);
+        setReorderDraftIds(initialIds);
+        setIsGridReorderMode(true);
+        setToast({ message: 'Reorder mode enabled', type: 'info' });
+    }, [
+        viewMode,
+        hasConcreteCollectionSelection,
+        hasActiveGridFilters,
+        orderedFilteredItems,
+        clearSelection,
+        items,
+        selectedCollectionId,
+    ]);
+
+    const handleGridReorderDragEnd = useCallback((activeId, overId) => {
+        if (!isGridReorderMode) return;
+        if (!activeId || !overId || activeId === overId) return;
+        setReorderDraftIds((prev) => {
+            const oldIndex = prev.indexOf(activeId);
+            const newIndex = prev.indexOf(overId);
+            if (oldIndex < 0 || newIndex < 0) return prev;
+            return moveArrayItem(prev, oldIndex, newIndex);
+        });
+    }, [isGridReorderMode]);
+
+    const handleCancelGridReorder = useCallback(() => {
+        const snapshot = reorderSnapshotRef.current;
+        if (snapshot?.itemsSnapshot) {
+            setItems(snapshot.itemsSnapshot);
+        }
+        setIsGridReorderMode(false);
+        setIsSavingReorder(false);
+        setReorderDraftIds([]);
+        reorderSnapshotRef.current = null;
+    }, []);
+
+    const handleSaveGridReorder = useCallback(async () => {
+        if (!isGridReorderMode || isSavingReorder) return;
+        if (!selectedCollectionId || selectedCollectionId === '__unsorted__') {
+            setToast({ message: 'Select a concrete collection before saving reorder', type: 'error' });
+            return;
+        }
+
+        const snapshot = reorderSnapshotRef.current;
+        const collectionItems = items.filter((item) => item.collectionId === selectedCollectionId);
+        if (collectionItems.length === 0) {
+            setIsGridReorderMode(false);
+            setReorderDraftIds([]);
+            reorderSnapshotRef.current = null;
+            return;
+        }
+
+        const collectionItemSet = new Set(collectionItems.map((item) => item.id));
+        const orderedIds = [];
+        reorderDraftIds.forEach((id) => {
+            if (collectionItemSet.has(id)) orderedIds.push(id);
+        });
+
+        const presentIds = new Set(orderedIds);
+        [...collectionItems].sort(compareItemsForDisplay).forEach((item) => {
+            if (presentIds.has(item.id)) return;
+            orderedIds.push(item.id);
+        });
+
+        const currentById = new Map(collectionItems.map((item) => [item.id, item]));
+        const nextUpdates = orderedIds.map((id, index) => ({
+            id,
+            sortOrder: (orderedIds.length - index) * ITEM_SORT_STEP,
+        })).filter((entry) => {
+            const current = currentById.get(entry.id);
+            return getItemSortOrder(current) !== entry.sortOrder;
+        });
+
+        if (nextUpdates.length === 0) {
+            setIsGridReorderMode(false);
+            setReorderDraftIds([]);
+            reorderSnapshotRef.current = null;
+            setToast({ message: 'Order unchanged', type: 'info' });
+            return;
+        }
+
+        const updateById = new Map(nextUpdates.map((entry) => [entry.id, entry.sortOrder]));
+        setIsSavingReorder(true);
+        setItems((prev) => prev.map((item) => (
+            updateById.has(item.id)
+                ? { ...item, sortOrder: updateById.get(item.id) }
+                : item
+        )));
+        suppressItemsRealtimeUntilRef.current = Date.now() + 1800;
+
+        try {
+            const persisted = await Promise.all(
+                nextUpdates.map(async (entry) => {
+                    const updated = await updateItem(entry.id, { sortOrder: entry.sortOrder });
+                    if (!updated) {
+                        throw new Error(`Failed to persist order for item ${entry.id}`);
+                    }
+                    return updated;
+                })
+            );
+
+            const persistedById = new Map(persisted.map((item) => [item.id, item]));
+            setItems((prev) => prev.map((item) => (
+                persistedById.get(item.id) || item
+            )));
+
+            setIsGridReorderMode(false);
+            setReorderDraftIds([]);
+            reorderSnapshotRef.current = null;
+            setToast({ message: 'Collection order updated', type: 'success' });
+        } catch (error) {
+            if (snapshot?.itemsSnapshot) {
+                setItems(snapshot.itemsSnapshot);
+            }
+            if (snapshot?.draftIds) {
+                setReorderDraftIds(snapshot.draftIds);
+            }
+            setToast({ message: error?.message || 'Failed to save reordered items', type: 'error' });
+        } finally {
+            setIsSavingReorder(false);
+        }
+    }, [isGridReorderMode, isSavingReorder, selectedCollectionId, items, reorderDraftIds]);
 
     const safeExportFilename = useCallback((value) => String(value || 'selection')
         .normalize('NFKD')
@@ -1735,6 +2024,37 @@ function App() {
                                         onValueChange={(val) => setZoomLevel(val)}
                                     />
                                 </div>
+                                <div className="flex items-center gap-2">
+                                    {isGridReorderMode ? (
+                                        <>
+                                            <Badge variant="neutral">Reorder mode</Badge>
+                                            <Button
+                                                variant="neutral-secondary"
+                                                size="small"
+                                                onClick={handleCancelGridReorder}
+                                                disabled={isSavingReorder}
+                                            >
+                                                Cancel
+                                            </Button>
+                                            <Button
+                                                variant="brand-primary"
+                                                size="small"
+                                                onClick={() => { void handleSaveGridReorder(); }}
+                                                disabled={isSavingReorder}
+                                            >
+                                                {isSavingReorder ? 'Saving...' : 'Done'}
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <Button
+                                            variant="neutral-secondary"
+                                            size="small"
+                                            onClick={handleStartGridReorder}
+                                        >
+                                            Reorder
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         {tagFilter && (
@@ -1799,7 +2119,7 @@ function App() {
                                     </div>
                                 </div>
                                 <CanvasView
-                                    items={filteredItems}
+                                    items={orderedFilteredItems}
                                     onUpdateItem={handleUpdateItem}
                                     onDeleteItem={handleDelete}
                                     onOpenItem={handleOpenItemDetails}
@@ -1836,7 +2156,7 @@ function App() {
                                 transition={{ duration: 0.2 }}
                                 className="w-full h-full"
                             >
-                                {filteredItems.length === 0 ? (
+                                {displayGridItems.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center w-full h-64 border border-dashed border-neutral-border rounded-lg bg-neutral-50">
                                         <div className="bg-neutral-100 p-3 rounded-full mb-3">
                                             <FeatherSearch className="text-neutral-400 w-6 h-6" />
@@ -1844,9 +2164,15 @@ function App() {
                                         <span className="text-body-bold font-body-bold text-default-font">Nothing here yet</span>
                                         <span className="text-caption font-caption text-subtext-color mt-1">Start capturing inspiration.</span>
                                     </div>
+                                ) : isGridReorderMode ? (
+                                    <SortableGrid
+                                        items={displayGridItems}
+                                        zoomLevel={zoomLevel[0]}
+                                        onReorder={handleGridReorderDragEnd}
+                                    />
                                 ) : (
                                     <MasonryGrid
-                                        items={filteredItems}
+                                        items={orderedFilteredItems}
                                         onItemClick={handleOpenItemDetails}
                                         zoomLevel={zoomLevel[0]}
                                         selectedItems={selectedItems}
@@ -1874,19 +2200,19 @@ function App() {
                             }}
                             onDelete={handleDelete}
                             onNext={() => {
-                                const currentIndex = filteredItems.findIndex(i => i.id === editingItem.id);
-                                if (currentIndex < filteredItems.length - 1) {
-                                    setEditingItem(filteredItems[currentIndex + 1]);
+                                const currentIndex = orderedFilteredItems.findIndex(i => i.id === editingItem.id);
+                                if (currentIndex < orderedFilteredItems.length - 1) {
+                                    setEditingItem(orderedFilteredItems[currentIndex + 1]);
                                 }
                             }}
                             onPrev={() => {
-                                const currentIndex = filteredItems.findIndex(i => i.id === editingItem.id);
+                                const currentIndex = orderedFilteredItems.findIndex(i => i.id === editingItem.id);
                                 if (currentIndex > 0) {
-                                    setEditingItem(filteredItems[currentIndex - 1]);
+                                    setEditingItem(orderedFilteredItems[currentIndex - 1]);
                                 }
                             }}
-                            hasNext={filteredItems.findIndex(i => i.id === editingItem.id) < filteredItems.length - 1}
-                            hasPrev={filteredItems.findIndex(i => i.id === editingItem.id) > 0}
+                            hasNext={orderedFilteredItems.findIndex(i => i.id === editingItem.id) < orderedFilteredItems.length - 1}
+                            hasPrev={orderedFilteredItems.findIndex(i => i.id === editingItem.id) > 0}
                         />
                     )}
                 </AnimatePresence>
@@ -1917,7 +2243,7 @@ function App() {
                 </AnimatePresence>
 
                 {/* Floating Bottom Bar: Search or Selection Toolbar */}
-                {selectedItems.size > 0 ? (
+                {selectedItems.size > 0 && !isGridReorderMode ? (
                     <SelectionToolbar
                         selectedCount={selectedItems.size}
                         onCopy={handleCopySelection}
@@ -1930,61 +2256,69 @@ function App() {
                     />
                 ) : (
                     <div className="flex items-center gap-2 rounded-full border border-solid border-neutral-border bg-white px-3 py-2.5 absolute bottom-[46px] left-1/2 z-10 -translate-x-1/2 shadow-sm">
-                        {searchExpanded ? (
-                            <div className="flex items-center relative">
-                                <TextField
-                                    className="h-auto w-72"
-                                    variant="outline"
-                                    icon={<FeatherSearch />}
-                                >
-                                    <TextField.Input
-                                        ref={searchInputRef}
-                                        className="pr-8"
-                                        placeholder="Search content, URLs, or tags..."
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        autoFocus
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Escape') {
-                                                if (!searchQuery) setSearchExpanded(false);
-                                                else setSearchQuery('');
-                                            }
-                                        }}
-                                        onBlur={() => {
-                                            if (!searchQuery) setSearchExpanded(false);
-                                        }}
-                                    />
-                                </TextField>
-                            </div>
+                        {isGridReorderMode ? (
+                            <span className="px-2 text-caption font-caption text-subtext-color">
+                                Drag cards to reorder. Use Done to save or Cancel to discard.
+                            </span>
                         ) : (
-                            <button
-                                onClick={() => { setSearchExpanded(true); setTimeout(() => searchInputRef.current?.focus(), 0); }}
-                                className="flex items-center gap-2 h-9 px-3 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
-                                title="Search (⌘K)"
-                            >
-                                <FeatherSearch className="w-[18px] h-[18px]" />
-                                <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
-                                    <span className="text-caption font-caption text-subtext-color">⌘</span>
-                                    <span className="text-caption font-caption text-subtext-color">K</span>
-                                </div>
-                            </button>
+                            <>
+                                {searchExpanded ? (
+                                    <div className="flex items-center relative">
+                                        <TextField
+                                            className="h-auto w-72"
+                                            variant="outline"
+                                            icon={<FeatherSearch />}
+                                        >
+                                            <TextField.Input
+                                                ref={searchInputRef}
+                                                className="pr-8"
+                                                placeholder="Search content, URLs, or tags..."
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                autoFocus
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Escape') {
+                                                        if (!searchQuery) setSearchExpanded(false);
+                                                        else setSearchQuery('');
+                                                    }
+                                                }}
+                                                onBlur={() => {
+                                                    if (!searchQuery) setSearchExpanded(false);
+                                                }}
+                                            />
+                                        </TextField>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={() => { setSearchExpanded(true); setTimeout(() => searchInputRef.current?.focus(), 0); }}
+                                        className="flex items-center gap-2 h-9 px-3 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
+                                        title="Search (⌘K)"
+                                    >
+                                        <FeatherSearch className="w-[18px] h-[18px]" />
+                                        <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
+                                            <span className="text-caption font-caption text-subtext-color">⌘</span>
+                                            <span className="text-caption font-caption text-subtext-color">K</span>
+                                        </div>
+                                    </button>
+                                )}
+                                <div className="w-px h-6 bg-neutral-200" />
+                                <CreateToolbar
+                                    onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : createGridNote()}
+                                    onUploadImage={(file) => saveImageFromBlob(file)}
+                                    onCreateLink={(url) => saveLink(url)}
+                                    onPasteClipboard={handlePasteClipboard}
+                                    onCreateColor={(hex) => saveColor(hex)}
+                                />
+                                <div className="w-px h-6 bg-neutral-200" />
+                                <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
+                                    <ToggleGroup.Item
+                                        icon={<FeatherLayoutGrid />}
+                                        value="grid"
+                                    />
+                                    <ToggleGroup.Item icon={<FeatherSquare />} value="canvas" />
+                                </ToggleGroup>
+                            </>
                         )}
-                        <div className="w-px h-6 bg-neutral-200" />
-                        <CreateToolbar
-                            onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : createGridNote()}
-                            onUploadImage={(file) => saveImageFromBlob(file)}
-                            onCreateLink={(url) => saveLink(url)}
-                            onPasteClipboard={handlePasteClipboard}
-                            onCreateColor={(hex) => saveColor(hex)}
-                        />
-                        <div className="w-px h-6 bg-neutral-200" />
-                        <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
-                            <ToggleGroup.Item
-                                icon={<FeatherLayoutGrid />}
-                                value="grid"
-                            />
-                            <ToggleGroup.Item icon={<FeatherSquare />} value="canvas" />
-                        </ToggleGroup>
                     </div>
                 )}
             </main>

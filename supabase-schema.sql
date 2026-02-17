@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS items (
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     workspace_id UUID REFERENCES workspaces(id) ON DELETE SET NULL,
     collection_id UUID REFERENCES collections(id) ON DELETE SET NULL,
+    sort_order BIGINT,
     type TEXT NOT NULL,
     content TEXT NOT NULL,
     title TEXT,
@@ -99,6 +100,9 @@ CREATE TABLE IF NOT EXISTS items (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE items
+    ADD COLUMN IF NOT EXISTS sort_order BIGINT;
 
 -- 7. Primitive Analysis Cache
 CREATE TABLE IF NOT EXISTS primitive_analysis (
@@ -132,6 +136,7 @@ CREATE INDEX IF NOT EXISTS idx_collections_project ON collections(project_id);
 CREATE INDEX IF NOT EXISTS idx_items_user ON items(user_id);
 CREATE INDEX IF NOT EXISTS idx_items_workspace ON items(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_items_collection ON items(collection_id);
+CREATE INDEX IF NOT EXISTS idx_items_collection_sort ON items(collection_id, sort_order DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_items_tags ON items USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_primitive_hash ON primitive_analysis(user_id, image_hash);
@@ -232,6 +237,24 @@ SET sort_order = ordered_collections.sort_rank * 1000
 FROM ordered_collections
 WHERE c.id = ordered_collections.id
   AND c.sort_order IS NULL;
+
+-- Backfill item sort order within each collection.
+-- Existing visual default is newest-first (created_at DESC, id DESC).
+WITH ordered_items AS (
+    SELECT
+        id,
+        ROW_NUMBER() OVER (
+            PARTITION BY collection_id
+            ORDER BY created_at DESC, id DESC
+        ) AS sort_rank
+    FROM items
+    WHERE collection_id IS NOT NULL
+)
+UPDATE items i
+SET sort_order = ordered_items.sort_rank * 1000
+FROM ordered_items
+WHERE i.id = ordered_items.id
+  AND i.sort_order IS NULL;
 
 -- =============================================================
 -- Triggers

@@ -16,6 +16,7 @@ function itemFromDb(row) {
         workspaceId: row.workspace_id || null,
         projectId: null,
         collectionId: row.collection_id || null,
+        sortOrder: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : null,
         contentStorage: row.content_storage || null,
         thumbnail: row.thumbnail || null,
         thumbnailStorage: row.thumbnail_storage || null,
@@ -44,6 +45,7 @@ function itemToDb(item, userId) {
     if (item.sourceUrl !== undefined) row.source_url = item.sourceUrl;
     if (item.workspaceId !== undefined) row.workspace_id = item.workspaceId;
     if (item.collectionId !== undefined) row.collection_id = item.collectionId;
+    if (item.sortOrder !== undefined) row.sort_order = item.sortOrder;
     if (item.contentStorage !== undefined) row.content_storage = item.contentStorage;
     if (item.thumbnail !== undefined) row.thumbnail = item.thumbnail;
     if (item.thumbnailStorage !== undefined) row.thumbnail_storage = item.thumbnailStorage;
@@ -368,6 +370,7 @@ export async function updateItem(id, updates) {
     if (updates.sourceUrl !== undefined) row.source_url = updates.sourceUrl;
     if (updates.workspaceId !== undefined) row.workspace_id = updates.workspaceId;
     if (updates.collectionId !== undefined) row.collection_id = updates.collectionId;
+    if (updates.sortOrder !== undefined) row.sort_order = updates.sortOrder;
     if (updates.contentStorage !== undefined) row.content_storage = updates.contentStorage;
     if (updates.thumbnail !== undefined) row.thumbnail = updates.thumbnail;
     if (updates.thumbnailStorage !== undefined) row.thumbnail_storage = updates.thumbnailStorage;
