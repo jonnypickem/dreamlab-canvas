@@ -249,10 +249,14 @@ function executeScriptFn(tabId, func, args = []) {
   });
 }
 
-const CAPTURE_VISIBLE_TAB_MIN_INTERVAL_MS = 650;
-const CAPTURE_VISIBLE_TAB_MAX_RETRIES = 5;
-const CAPTURE_VISIBLE_TAB_BACKOFF_BASE_MS = 450;
+const CAPTURE_VISIBLE_TAB_MIN_INTERVAL_BASE_MS = 1100;
+const CAPTURE_VISIBLE_TAB_MIN_INTERVAL_MAX_MS = 2600;
+const CAPTURE_VISIBLE_TAB_RATE_LIMIT_COOLDOWN_MS = 2600;
+const CAPTURE_VISIBLE_TAB_MAX_RETRIES = 8;
+const CAPTURE_VISIBLE_TAB_BACKOFF_BASE_MS = 900;
 let lastCaptureVisibleTabCallAt = 0;
+let captureVisibleTabMinIntervalMs = CAPTURE_VISIBLE_TAB_MIN_INTERVAL_BASE_MS;
+let captureVisibleTabBlockedUntil = 0;
 let captureVisibleTabQueue = Promise.resolve();
 
 function isCaptureVisibleTabRateLimitError(error) {
@@ -266,11 +270,33 @@ function isCaptureVisibleTabRateLimitError(error) {
 }
 
 async function waitForCaptureVisibleTabSlot() {
+  const blockWaitMs = Math.max(0, captureVisibleTabBlockedUntil - Date.now());
   const elapsed = Date.now() - lastCaptureVisibleTabCallAt;
-  const waitMs = Math.max(0, CAPTURE_VISIBLE_TAB_MIN_INTERVAL_MS - elapsed);
+  const cadenceWaitMs = Math.max(0, captureVisibleTabMinIntervalMs - elapsed);
+  const waitMs = Math.max(blockWaitMs, cadenceWaitMs);
   if (waitMs > 0) {
     await wait(waitMs);
   }
+}
+
+function onCaptureVisibleTabSuccess() {
+  captureVisibleTabBlockedUntil = 0;
+  captureVisibleTabMinIntervalMs = Math.max(
+    CAPTURE_VISIBLE_TAB_MIN_INTERVAL_BASE_MS,
+    captureVisibleTabMinIntervalMs - 120
+  );
+}
+
+function onCaptureVisibleTabRateLimited(attempt) {
+  const severity = Math.max(1, Number(attempt) + 1);
+  captureVisibleTabMinIntervalMs = Math.min(
+    CAPTURE_VISIBLE_TAB_MIN_INTERVAL_MAX_MS,
+    captureVisibleTabMinIntervalMs + (220 * severity)
+  );
+  captureVisibleTabBlockedUntil = Math.max(
+    captureVisibleTabBlockedUntil,
+    Date.now() + CAPTURE_VISIBLE_TAB_RATE_LIMIT_COOLDOWN_MS
+  );
 }
 
 function captureVisibleTabRaw(windowId, options = { format: 'png' }) {
@@ -297,11 +323,14 @@ function captureVisibleTab(windowId, options = { format: 'png' }) {
       lastCaptureVisibleTabCallAt = Date.now();
 
       try {
-        return await captureVisibleTabRaw(windowId, options);
+        const dataUrl = await captureVisibleTabRaw(windowId, options);
+        onCaptureVisibleTabSuccess();
+        return dataUrl;
       } catch (error) {
         if (!isCaptureVisibleTabRateLimitError(error) || attempt === CAPTURE_VISIBLE_TAB_MAX_RETRIES) {
           throw error;
         }
+        onCaptureVisibleTabRateLimited(attempt);
         const backoff = CAPTURE_VISIBLE_TAB_BACKOFF_BASE_MS * (attempt + 1);
         await wait(backoff);
       }
