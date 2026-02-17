@@ -216,6 +216,33 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         setTextContentDirty(false);
     }, [item]);
 
+    // Auto-refresh tweet thumbnails via fxtwitter proxy
+    useEffect(() => {
+        if (item.type !== 'link') return;
+        if (item.linkEmbed?.type !== 'tweet') return;
+        const sourceUrl = item.sourceUrl || item.content;
+        if (!sourceUrl) return;
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const resp = await fetch(`/api/og?url=${encodeURIComponent(sourceUrl)}`);
+                if (cancelled || !resp.ok) return;
+                const ogData = await resp.json();
+                if (cancelled) return;
+                const newImage = ogData?.image;
+                if (!newImage) return;
+                // Skip if thumbnail already matches
+                if (item.thumbnail === newImage) return;
+                // Skip generic X branding images (abs.twimg.com hosts branding, pbs.twimg.com hosts real media)
+                if (newImage.includes('abs.twimg.com')) return;
+                const updated = await updateItem(item.id, { thumbnail: newImage });
+                if (!cancelled && updated && onUpdate) onUpdate(updated);
+            } catch {}
+        })();
+        return () => { cancelled = true; };
+    }, [item.id]);
+
     // Keyboard Navigation
     useEffect(() => {
         const handleKeyDown = (e) => {
