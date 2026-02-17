@@ -708,10 +708,10 @@ function App() {
             setItems((prev) => prev.filter((item) => item.id !== id));
             // Clean up storage media if it was a Supabase path
             if (removedItem?.content && !removedItem.content.startsWith('data:') && !removedItem.content.startsWith('http')) {
-                void deleteMedia(removedItem.content).catch(() => {});
+                void deleteMedia(removedItem.content).catch(() => { });
             }
             if (removedItem?.thumbnail && !removedItem.thumbnail.startsWith('data:') && !removedItem.thumbnail.startsWith('http')) {
-                void deleteMedia(removedItem.thumbnail).catch(() => {});
+                void deleteMedia(removedItem.thumbnail).catch(() => { });
             }
         } catch (err) {
             console.error('handleDelete failed:', err);
@@ -912,10 +912,10 @@ function App() {
             await Promise.all(removedItems.map(async (item) => {
                 await deleteItemFromDb(item.id);
                 if (item.content && !item.content.startsWith('data:') && !item.content.startsWith('http')) {
-                    void deleteMedia(item.content).catch(() => {});
+                    void deleteMedia(item.content).catch(() => { });
                 }
                 if (item.thumbnail && !item.thumbnail.startsWith('data:') && !item.thumbnail.startsWith('http')) {
-                    void deleteMedia(item.thumbnail).catch(() => {});
+                    void deleteMedia(item.thumbnail).catch(() => { });
                 }
             }));
             setItems((prev) => prev.filter((item) => !selectedItems.has(item.id)));
@@ -1159,10 +1159,10 @@ function App() {
                         // Clean up media files in storage
                         for (const item of deletedItems) {
                             if (item.content && !item.content.startsWith('data:') && !item.content.startsWith('http')) {
-                                void deleteMedia(item.content).catch(() => {});
+                                void deleteMedia(item.content).catch(() => { });
                             }
                             if (item.thumbnail && !item.thumbnail.startsWith('data:') && !item.thumbnail.startsWith('http')) {
-                                void deleteMedia(item.thumbnail).catch(() => {});
+                                void deleteMedia(item.thumbnail).catch(() => { });
                             }
                         }
 
@@ -1419,7 +1419,7 @@ function App() {
                         showDownload={hasDownloadableSelection}
                     />
                 ) : (
-                    <div className="flex items-center gap-3 rounded-full border border-solid border-neutral-border bg-white px-4 py-4 fixed bottom-8 left-1/2 z-10 -translate-x-1/2 focus-within:shadow-[0px_0px_32px_-4px_rgba(234,88,12,0.3),0px_0px_8px_-2px_rgba(234,88,12,0.3)]">
+                    <div className="flex items-center gap-3 rounded-full border border-solid border-neutral-border bg-white px-4 py-4 fixed left-1/2 z-10 -translate-x-1/2 focus-within:shadow-[0px_0px_32px_-4px_rgba(234,88,12,0.3),0px_0px_8px_-2px_rgba(234,88,12,0.3)]" style={{ bottom: '46px' }}>
                         <div className="flex w-96 flex-none items-center relative">
                             <TextField
                                 className="h-auto grow shrink-0 basis-0"
