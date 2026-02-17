@@ -16,18 +16,23 @@ export default async function handler(req, res) {
 
   // For tweet URLs, fetch from fxtwitter.com to get actual media OG tags
   const fetchUrl = rewriteTweetUrl(url);
+  const isFxTwitter = fetchUrl !== url;
 
   try {
     const response = await fetch(fetchUrl, {
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        // fxtwitter requires a bot-like UA to return OG tags (redirects to x.com with browser UA)
+        'User-Agent': isFxTwitter
+          ? 'Dreamlab/1.0 (compatible; bot)'
+          : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: 'text/html,application/xhtml+xml',
       },
+      redirect: isFxTwitter ? 'manual' : 'follow',
       signal: AbortSignal.timeout(8000),
     });
 
-    if (!response.ok) {
+    // fxtwitter returns 200 with OG tags in body, but check for non-ok non-redirect
+    if (!response.ok && !(isFxTwitter && response.status >= 300 && response.status < 400)) {
       return res.status(200).json({ title: null, image: null, description: null });
     }
 

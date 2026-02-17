@@ -36,15 +36,31 @@ function imageProxyPlugin() {
           }
 
           try {
-            const response = await fetch(targetUrl, {
+            // For tweet URLs, use fxtwitter.com to get actual media OG tags
+            let fetchUrl = targetUrl
+            let isFxTwitter = false
+            try {
+              const p = new URL(targetUrl)
+              const h = p.hostname.toLowerCase().replace(/^www\./, '')
+              if ((h === 'x.com' || h === 'twitter.com') && /\/status\/\d+/i.test(p.pathname)) {
+                p.hostname = 'fxtwitter.com'
+                fetchUrl = p.href
+                isFxTwitter = true
+              }
+            } catch {}
+
+            const response = await fetch(fetchUrl, {
               headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': isFxTwitter
+                  ? 'Dreamlab/1.0 (compatible; bot)'
+                  : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml',
               },
+              redirect: isFxTwitter ? 'manual' : 'follow',
               signal: AbortSignal.timeout(8000),
             })
 
-            if (!response.ok) {
+            if (!response.ok && !(isFxTwitter && response.status >= 300 && response.status < 400)) {
               res.statusCode = 200
               res.setHeader('Content-Type', 'application/json')
               res.end(JSON.stringify({ title: null, image: null, description: null }))
