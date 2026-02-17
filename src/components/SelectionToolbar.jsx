@@ -13,7 +13,7 @@ export function SelectionToolbar({
     showDownload = true
 }) {
     return (
-        <div className="flex items-center justify-between rounded-full border border-solid border-neutral-border bg-white px-6 py-4 shadow-lg absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
+        <div className="flex items-center justify-between rounded-full border border-solid border-neutral-border bg-white px-6 py-4 shadow-lg absolute left-1/2 -translate-x-1/2 z-10" style={{ bottom: '46px' }}>
             <span className="text-body-bold font-body-bold text-default-font">
                 {selectedCount} item{selectedCount !== 1 ? 's' : ''} selected
             </span>
