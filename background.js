@@ -249,7 +249,31 @@ function executeScriptFn(tabId, func, args = []) {
   });
 }
 
-function captureVisibleTab(windowId, options = { format: 'png' }) {
+const CAPTURE_VISIBLE_TAB_MIN_INTERVAL_MS = 650;
+const CAPTURE_VISIBLE_TAB_MAX_RETRIES = 5;
+const CAPTURE_VISIBLE_TAB_BACKOFF_BASE_MS = 450;
+let lastCaptureVisibleTabCallAt = 0;
+let captureVisibleTabQueue = Promise.resolve();
+
+function isCaptureVisibleTabRateLimitError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes('max_capture_visible_tab_calls_per_second')
+    || message.includes('exceeds')
+    || message.includes('calls_per_second')
+    || (message.includes('capturevisibletab') && message.includes('quota'))
+  );
+}
+
+async function waitForCaptureVisibleTabSlot() {
+  const elapsed = Date.now() - lastCaptureVisibleTabCallAt;
+  const waitMs = Math.max(0, CAPTURE_VISIBLE_TAB_MIN_INTERVAL_MS - elapsed);
+  if (waitMs > 0) {
+    await wait(waitMs);
+  }
+}
+
+function captureVisibleTabRaw(windowId, options = { format: 'png' }) {
   return new Promise((resolve, reject) => {
     chrome.tabs.captureVisibleTab(windowId, options, (dataUrl) => {
       if (chrome.runtime.lastError) {
@@ -263,6 +287,34 @@ function captureVisibleTab(windowId, options = { format: 'png' }) {
       resolve(dataUrl);
     });
   });
+}
+
+function captureVisibleTab(windowId, options = { format: 'png' }) {
+  const runCapture = async () => {
+    let attempt = 0;
+    while (attempt <= CAPTURE_VISIBLE_TAB_MAX_RETRIES) {
+      await waitForCaptureVisibleTabSlot();
+      lastCaptureVisibleTabCallAt = Date.now();
+
+      try {
+        return await captureVisibleTabRaw(windowId, options);
+      } catch (error) {
+        if (!isCaptureVisibleTabRateLimitError(error) || attempt === CAPTURE_VISIBLE_TAB_MAX_RETRIES) {
+          throw error;
+        }
+        const backoff = CAPTURE_VISIBLE_TAB_BACKOFF_BASE_MS * (attempt + 1);
+        await wait(backoff);
+      }
+      attempt += 1;
+    }
+
+    throw new Error('captureVisibleTab failed after retries.');
+  };
+
+  const operation = captureVisibleTabQueue.then(runCapture, runCapture);
+  // Keep queue alive even when an individual operation fails.
+  captureVisibleTabQueue = operation.catch(() => {});
+  return operation;
 }
 
 function wait(ms) {
@@ -359,13 +411,15 @@ function estimateDataUrlBytes(dataUrl) {
   return Math.ceil((base64Part.length * 3) / 4);
 }
 
-function buildVerticalCaptureOffsets(totalHeight, viewportHeight) {
+function buildVerticalCaptureOffsets(totalHeight, viewportHeight, overlapPx = 120) {
   const safeTotalHeight = Math.max(0, Math.floor(Number(totalHeight) || 0));
   const safeViewportHeight = Math.max(1, Math.floor(Number(viewportHeight) || 1));
+  const safeOverlap = Math.max(0, Math.min(safeViewportHeight - 1, Math.floor(Number(overlapPx) || 0)));
+  const step = Math.max(1, safeViewportHeight - safeOverlap);
   const maxStart = Math.max(0, safeTotalHeight - safeViewportHeight);
   const offsets = [];
 
-  for (let y = 0; y <= maxStart; y += safeViewportHeight) {
+  for (let y = 0; y <= maxStart; y += step) {
     offsets.push(y);
   }
 
@@ -374,6 +428,18 @@ function buildVerticalCaptureOffsets(totalHeight, viewportHeight) {
   }
 
   return [...new Set(offsets)];
+}
+
+function calculateMedian(values = []) {
+  const numeric = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+
+  if (numeric.length === 0) return 0;
+  const middle = Math.floor(numeric.length / 2);
+  if (numeric.length % 2 === 1) return numeric[middle];
+  return (numeric[middle - 1] + numeric[middle]) / 2;
 }
 
 function arrayBufferToBase64(buffer) {
@@ -584,11 +650,32 @@ async function hideFixedElements(tabId) {
   try {
     await executeScriptFn(tabId, () => {
       const ATTR = 'data-dreamlab-hidden-fixed';
+      const viewportWidth = Math.max(1, window.innerWidth || document.documentElement?.clientWidth || 1);
+      const viewportHeight = Math.max(1, window.innerHeight || document.documentElement?.clientHeight || 1);
+      const viewportArea = viewportWidth * viewportHeight;
       const all = document.querySelectorAll('*');
       for (let i = 0; i < all.length; i++) {
         const el = all[i];
+        if (el === document.documentElement || el === document.body) continue;
         const style = window.getComputedStyle(el);
         if (style.position === 'fixed' || style.position === 'sticky') {
+          const rect = el.getBoundingClientRect();
+          if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+
+          // Ignore off-screen fixed/sticky elements.
+          if (
+            rect.bottom <= 0
+            || rect.top >= viewportHeight
+            || rect.right <= 0
+            || rect.left >= viewportWidth
+          ) {
+            continue;
+          }
+
+          // Guardrail: large fixed containers are often the actual app shell.
+          const elementArea = rect.width * rect.height;
+          if (elementArea >= viewportArea * 0.85) continue;
+
           el.setAttribute(ATTR, el.style.visibility || '');
           el.style.visibility = 'hidden';
         }
@@ -624,29 +711,36 @@ async function captureFullPageScreenshot(tab) {
   const metrics = await executeScriptFn(
     tab.id,
     () => {
+      const root = document.scrollingElement || document.documentElement;
       const doc = document.documentElement;
       const body = document.body;
+      const viewportWidth = window.innerWidth || doc.clientWidth || root?.clientWidth || 0;
+      const viewportHeight = window.innerHeight || doc.clientHeight || root?.clientHeight || 0;
+      const totalHeight = Math.max(
+        root?.scrollHeight || 0,
+        doc.scrollHeight || 0,
+        doc.offsetHeight || 0,
+        doc.clientHeight || 0,
+        body?.scrollHeight || 0,
+        body?.offsetHeight || 0
+      );
       return {
         scrollX: window.scrollX || window.pageXOffset || 0,
-        scrollY: window.scrollY || window.pageYOffset || 0,
-        viewportWidth: window.innerWidth || doc.clientWidth || 0,
-        viewportHeight: window.innerHeight || doc.clientHeight || 0,
-        totalHeight: Math.max(
-          doc.scrollHeight || 0,
-          doc.offsetHeight || 0,
-          doc.clientHeight || 0,
-          body?.scrollHeight || 0,
-          body?.offsetHeight || 0
-        ),
+        scrollY: window.scrollY || window.pageYOffset || root?.scrollTop || 0,
+        viewportWidth,
+        viewportHeight,
+        totalHeight,
+        maxScrollY: Math.max(0, totalHeight - viewportHeight),
       };
     }
   );
 
+  const viewportWidth = Math.max(1, Math.floor(Number(metrics?.viewportWidth) || 1));
   const viewportHeight = Math.max(1, Math.floor(Number(metrics?.viewportHeight) || 1));
-  const totalHeight = Math.max(viewportHeight, Math.floor(Number(metrics?.totalHeight) || viewportHeight));
+  let totalHeight = Math.max(viewportHeight, Math.floor(Number(metrics?.totalHeight) || viewportHeight));
   const scrollX = Math.floor(Number(metrics?.scrollX) || 0);
   const scrollY = Math.floor(Number(metrics?.scrollY) || 0);
-  const offsets = buildVerticalCaptureOffsets(totalHeight, viewportHeight);
+  let offsets = buildVerticalCaptureOffsets(totalHeight, viewportHeight, 120);
 
   // Hide fixed/sticky elements (headers, navbars, cookie banners) so they
   // don't repeat in every captured viewport frame.
@@ -654,24 +748,73 @@ async function captureFullPageScreenshot(tab) {
 
   const captures = [];
   try {
-    for (const offsetY of offsets) {
-      // Scroll and verify we actually reached the target position.
-      const actualY = await executeScriptFn(
+    for (let index = 0; index < offsets.length; index += 1) {
+      const offsetY = offsets[index];
+
+      // Scroll and wait for layout to settle before capture.
+      const settled = await executeScriptFn(
         tab.id,
-        (x, y) => {
+        async (x, y) => {
+          const root = document.scrollingElement || document.documentElement;
+          if (root && typeof root.scrollTo === 'function') {
+            root.scrollTo({ left: x, top: y, behavior: 'instant' });
+          }
           window.scrollTo(x, y);
-          return window.scrollY || window.pageYOffset || 0;
+
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+          const doc = document.documentElement;
+          const body = document.body;
+          const viewportWidth = window.innerWidth || doc.clientWidth || root?.clientWidth || 0;
+          const viewportHeight = window.innerHeight || doc.clientHeight || root?.clientHeight || 0;
+          const totalHeight = Math.max(
+            root?.scrollHeight || 0,
+            doc.scrollHeight || 0,
+            doc.offsetHeight || 0,
+            doc.clientHeight || 0,
+            body?.scrollHeight || 0,
+            body?.offsetHeight || 0
+          );
+
+          return {
+            scrollY: window.scrollY || window.pageYOffset || root?.scrollTop || 0,
+            viewportWidth,
+            viewportHeight,
+            totalHeight,
+            maxScrollY: Math.max(0, totalHeight - viewportHeight),
+          };
         },
         [scrollX, offsetY]
       );
-      // Wait for rendering to settle (lazy images, animations, repaints).
-      await wait(300);
+      // Extra settle for lazy-loaded media and repaints.
+      await wait(220);
 
       const dataUrl = await captureVisibleTab(tab.windowId, { format: 'png' });
+      const actualY = Math.floor(Number(settled?.scrollY) || offsetY);
+      const frameViewportHeight = Math.max(1, Math.floor(Number(settled?.viewportHeight) || viewportHeight));
+      const frameViewportWidth = Math.max(1, Math.floor(Number(settled?.viewportWidth) || viewportWidth));
+      const frameTotalHeight = Math.max(frameViewportHeight, Math.floor(Number(settled?.totalHeight) || totalHeight));
+
       captures.push({
-        offsetY: Math.floor(Number(actualY) || offsetY),
+        offsetY: actualY,
+        viewportHeight: frameViewportHeight,
+        viewportWidth: frameViewportWidth,
+        totalHeight: frameTotalHeight,
         dataUrl,
       });
+
+      // Some pages grow while scrolling (lazy loading / infinite sections).
+      if (frameTotalHeight > totalHeight + 8) {
+        totalHeight = frameTotalHeight;
+        const extended = buildVerticalCaptureOffsets(totalHeight, viewportHeight, 120);
+        const known = new Set(offsets);
+        for (const value of extended) {
+          if (value > offsetY && !known.has(value)) {
+            offsets.push(value);
+          }
+        }
+        offsets = offsets.sort((a, b) => a - b);
+      }
     }
   } finally {
     await restoreFixedElements(tab.id);
@@ -686,33 +829,56 @@ async function captureFullPageScreenshot(tab) {
     throw new Error('No capture frames were generated.');
   }
 
-  // Deduplicate frames that landed on the same scroll position.
-  const seen = new Set();
-  const uniqueCaptures = captures.filter((frame) => {
-    if (seen.has(frame.offsetY)) return false;
-    seen.add(frame.offsetY);
-    return true;
-  });
+  // Sort + deduplicate near-identical offsets.
+  const sortedCaptures = [...captures].sort((a, b) => a.offsetY - b.offsetY);
+  const uniqueCaptures = [];
+  for (const frame of sortedCaptures) {
+    const previous = uniqueCaptures[uniqueCaptures.length - 1];
+    if (previous && Math.abs(frame.offsetY - previous.offsetY) <= 2) {
+      uniqueCaptures[uniqueCaptures.length - 1] = frame;
+      continue;
+    }
+    uniqueCaptures.push(frame);
+  }
 
   const bitmaps = [];
   for (const frame of uniqueCaptures) {
     const response = await fetch(frame.dataUrl);
     const blob = await response.blob();
     const bitmap = await createImageBitmap(blob);
-    bitmaps.push({ offsetY: frame.offsetY, bitmap });
+    const frameViewportHeight = Math.max(1, Number(frame.viewportHeight) || viewportHeight);
+    const frameViewportWidth = Math.max(1, Number(frame.viewportWidth) || viewportWidth);
+    const scaleX = bitmap.width / frameViewportWidth;
+    const scaleY = bitmap.height / frameViewportHeight;
+    bitmaps.push({
+      ...frame,
+      bitmap,
+      viewportHeight: frameViewportHeight,
+      viewportWidth: frameViewportWidth,
+      scaleX: Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1,
+      scaleY: Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1,
+    });
   }
 
   try {
     const firstBitmap = bitmaps[0].bitmap;
-    const dpr = firstBitmap.width / Math.max(1, Number(metrics?.viewportWidth) || 1);
-    const maxCanvasArea = 180_000_000;
-    const targetHeightPx = Math.max(firstBitmap.height, Math.round(totalHeight * dpr));
-    const targetWidthPx = firstBitmap.width;
-    const area = targetWidthPx * targetHeightPx;
-    const scale = area > maxCanvasArea ? Math.sqrt(maxCanvasArea / area) : 1;
+    const referenceScaleX = calculateMedian(bitmaps.map((frame) => frame.scaleX)) || bitmaps[0].scaleX || 1;
+    const referenceScaleY = calculateMedian(bitmaps.map((frame) => frame.scaleY)) || bitmaps[0].scaleY || 1;
+    const observedCssHeight = Math.max(
+      totalHeight,
+      viewportHeight,
+      ...bitmaps.map((frame) => frame.offsetY + frame.viewportHeight)
+    );
+    const maxFrameWidth = Math.max(...bitmaps.map((frame) => frame.bitmap.width));
+    const targetWidthPx = Math.max(maxFrameWidth, Math.round(viewportWidth * referenceScaleX));
+    const targetHeightPx = Math.max(firstBitmap.height, Math.round(observedCssHeight * referenceScaleY));
 
-    const canvasWidth = Math.max(1, Math.round(targetWidthPx * scale));
-    const canvasHeight = Math.max(1, Math.round(targetHeightPx * scale));
+    const maxCanvasArea = 180_000_000;
+    const area = targetWidthPx * targetHeightPx;
+    const outputScale = area > maxCanvasArea ? Math.sqrt(maxCanvasArea / area) : 1;
+
+    const canvasWidth = Math.max(1, Math.round(targetWidthPx * outputScale));
+    const canvasHeight = Math.max(1, Math.round(targetHeightPx * outputScale));
     const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
     const context = canvas.getContext('2d');
 
@@ -720,24 +886,46 @@ async function captureFullPageScreenshot(tab) {
       throw new Error('Could not initialize capture canvas.');
     }
 
-    for (let i = 0; i < bitmaps.length; i++) {
-      const frame = bitmaps[i];
-      const destinationY = Math.round(frame.offsetY * dpr * scale);
-      if (destinationY >= canvasHeight) continue;
+    // Use white background so any unavoidable unpainted pixels are not black.
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvasWidth, canvasHeight);
 
-      // For the last frame, align it to the canvas bottom to avoid a gap.
-      const isLast = i === bitmaps.length - 1;
-      const finalDestY = isLast
-        ? Math.max(destinationY, canvasHeight - Math.round(frame.bitmap.height * scale))
-        : destinationY;
+    const cssToOutputYPx = referenceScaleY * outputScale;
+    const maxCanvasCssBottom = canvasHeight / Math.max(0.0001, cssToOutputYPx);
+    let paintedUntilCss = 0;
 
-      const remainingHeight = canvasHeight - finalDestY;
-      const drawHeight = Math.min(Math.round(frame.bitmap.height * scale), remainingHeight);
-      const sourceHeight = Math.max(1, Math.round(drawHeight / scale));
+    for (const frame of bitmaps) {
+      const frameTopCss = Math.max(0, Number(frame.offsetY) || 0);
+      const frameBottomCss = frameTopCss + frame.viewportHeight;
+      let drawTopCss = Math.max(frameTopCss, paintedUntilCss);
+      let drawBottomCss = Math.min(frameBottomCss, maxCanvasCssBottom);
 
-      // For the last frame, read from the bottom of the bitmap (the new content),
-      // not the top (which overlaps with the previous frame).
-      const sourceY = isLast ? frame.bitmap.height - sourceHeight : 0;
+      if (drawBottomCss <= drawTopCss) continue;
+
+      const sourceTopCss = drawTopCss - frameTopCss;
+      const sourceHeightCss = drawBottomCss - drawTopCss;
+
+      const sourceY = Math.max(0, Math.round(sourceTopCss * frame.scaleY));
+      let sourceHeight = Math.max(1, Math.round(sourceHeightCss * frame.scaleY));
+      if (sourceY + sourceHeight > frame.bitmap.height) {
+        sourceHeight = Math.max(1, frame.bitmap.height - sourceY);
+      }
+
+      const destinationY = Math.max(0, Math.round(drawTopCss * cssToOutputYPx));
+      let destinationHeight = Math.max(
+        1,
+        Math.round((sourceHeight / Math.max(0.0001, frame.scaleY)) * cssToOutputYPx)
+      );
+      if (destinationY + destinationHeight > canvasHeight) {
+        destinationHeight = Math.max(1, canvasHeight - destinationY);
+        const maxSourceHeight = Math.max(
+          1,
+          Math.round((destinationHeight / Math.max(0.0001, cssToOutputYPx)) * frame.scaleY)
+        );
+        sourceHeight = Math.max(1, Math.min(sourceHeight, maxSourceHeight, frame.bitmap.height - sourceY));
+      }
+
+      if (destinationY >= canvasHeight || destinationHeight <= 0) continue;
 
       context.drawImage(
         frame.bitmap,
@@ -746,10 +934,12 @@ async function captureFullPageScreenshot(tab) {
         frame.bitmap.width,
         sourceHeight,
         0,
-        finalDestY,
+        destinationY,
         canvasWidth,
-        drawHeight
+        destinationHeight
       );
+
+      paintedUntilCss = Math.max(paintedUntilCss, drawBottomCss);
     }
 
     const stitchedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.86 });
