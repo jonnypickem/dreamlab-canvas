@@ -471,6 +471,17 @@ function App() {
         };
     }, [user]);
 
+    const getNextCollectionItemSortOrder = useCallback((collectionId) => {
+        if (!collectionId) return null;
+        const maxSortOrder = items
+            .filter((item) => item.collectionId === collectionId)
+            .reduce((max, item) => {
+                const order = getItemSortOrder(item);
+                return order === null ? max : Math.max(max, order);
+            }, 0);
+        return maxSortOrder + ITEM_SORT_STEP;
+    }, [items]);
+
     // Extension bridge: listen for postMessage from content.js
     useEffect(() => {
         if (!user) return;
@@ -596,17 +607,6 @@ function App() {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [editingItem, displayGridItems, selectedItems, isGridReorderMode]);
-
-    const getNextCollectionItemSortOrder = useCallback((collectionId) => {
-        if (!collectionId) return null;
-        const maxSortOrder = items
-            .filter((item) => item.collectionId === collectionId)
-            .reduce((max, item) => {
-                const order = getItemSortOrder(item);
-                return order === null ? max : Math.max(max, order);
-            }, 0);
-        return maxSortOrder + ITEM_SORT_STEP;
-    }, [items]);
 
     // Image utility helpers — used by paste and drag-and-drop
     const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
