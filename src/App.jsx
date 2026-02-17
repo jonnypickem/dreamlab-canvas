@@ -187,6 +187,13 @@ function computeCollectionReorder(allCollections, {
     return { nextCollections, changes };
 }
 
+function isFileDragEvent(event) {
+    const dataTransfer = event?.dataTransfer;
+    if (!dataTransfer) return false;
+    const types = Array.from(dataTransfer.types || []);
+    return types.includes('Files');
+}
+
 function App() {
     const [user, setUser] = useState(undefined); // undefined = loading, null = no auth
     const [items, setItems] = useState([]);
@@ -828,6 +835,7 @@ function App() {
     const [isDragging, setIsDragging] = useState(false);
 
     const handleFileDrop = useCallback(async (e) => {
+        if (!isFileDragEvent(e)) return;
         e.preventDefault();
         setIsDragging(false);
         const files = Array.from(e.dataTransfer.files);
@@ -837,6 +845,18 @@ function App() {
             }
         }
     }, [saveImageFromBlob]);
+
+    const handleMainDragOver = useCallback((e) => {
+        if (isGridReorderMode || !isFileDragEvent(e)) return;
+        e.preventDefault();
+        setIsDragging(true);
+    }, [isGridReorderMode]);
+
+    const handleMainDragLeave = useCallback((e) => {
+        if (!isDragging) return;
+        if (e.currentTarget.contains(e.relatedTarget)) return;
+        setIsDragging(false);
+    }, [isDragging]);
 
     const saveLink = useCallback(async (url) => {
         if (!activeWorkspaceId) {
@@ -1964,8 +1984,8 @@ function App() {
 
             <main
                 className="flex grow shrink basis-0 min-w-0 flex-col items-start self-stretch overflow-hidden relative bg-white"
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragging(false); }}
+                onDragOver={handleMainDragOver}
+                onDragLeave={handleMainDragLeave}
                 onDrop={handleFileDrop}
             >
                 {isDragging && (
