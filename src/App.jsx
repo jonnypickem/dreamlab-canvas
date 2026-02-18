@@ -226,12 +226,12 @@ function App() {
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'canvas'
     const [canvasInlineEditId, setCanvasInlineEditId] = useState(null);
     const [gridInlineEditId, setGridInlineEditId] = useState(null);
-    const [isGridReorderMode, setIsGridReorderMode] = useState(false);
     const [reorderDraftIds, setReorderDraftIds] = useState([]);
-    const [isSavingReorder, setIsSavingReorder] = useState(false);
     const canvasViewportRef = useRef(null);
-    const reorderSnapshotRef = useRef(null);
     const suppressItemsRealtimeUntilRef = useRef(0);
+    const reorderPersistTokenRef = useRef(0);
+    const reorderDraftIdsRef = useRef([]);
+    const itemsRef = useRef([]);
 
     // Zoom/Grid Size State (0=Small Items, 4=Large Items)
     // Subframe slider returns array, need to handle that
@@ -294,6 +294,10 @@ function App() {
         [items, activeWorkspaceId]
     );
 
+    useEffect(() => {
+        itemsRef.current = items;
+    }, [items]);
+
     const filteredItems = useMemo(() => items.filter((item) => {
         const matchesWorkspace = !activeWorkspaceId || item.workspaceId === activeWorkspaceId;
         const matchesCollection = !selectedCollectionId
@@ -320,7 +324,7 @@ function App() {
         && !hasActiveGridFilters;
 
     const displayGridItems = useMemo(() => {
-        if (!isGridReorderMode) return orderedFilteredItems;
+        if (!canUseGridReorder || reorderDraftIds.length === 0) return orderedFilteredItems;
 
         const byId = new Map(orderedFilteredItems.map((item) => [item.id, item]));
         const seen = new Set();
@@ -339,7 +343,7 @@ function App() {
         });
 
         return ordered;
-    }, [isGridReorderMode, orderedFilteredItems, reorderDraftIds]);
+    }, [canUseGridReorder, orderedFilteredItems, reorderDraftIds]);
 
     const scopedImageItems = useMemo(
         () => orderedFilteredItems.filter((item) => item.type === 'image'),
@@ -593,7 +597,7 @@ function App() {
             }
 
             // Cmd+A to Select All (only if not in input)
-            if ((e.metaKey || e.ctrlKey) && e.key === 'a' && !isInInput && !editingItem && !isGridReorderMode) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'a' && !isInInput && !editingItem) {
                 e.preventDefault();
                 const allIds = new Set(displayGridItems.map(item => item.id));
                 setSelectedItems(allIds);
@@ -613,7 +617,7 @@ function App() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [editingItem, displayGridItems, selectedItems, isGridReorderMode]);
+    }, [editingItem, displayGridItems, selectedItems]);
 
     // Image utility helpers — used by paste and drag-and-drop
     const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
@@ -847,10 +851,10 @@ function App() {
     }, [saveImageFromBlob]);
 
     const handleMainDragOver = useCallback((e) => {
-        if (isGridReorderMode || !isFileDragEvent(e)) return;
+        if (!isFileDragEvent(e)) return;
         e.preventDefault();
         setIsDragging(true);
-    }, [isGridReorderMode]);
+    }, []);
 
     const handleMainDragLeave = useCallback((e) => {
         if (!isDragging) return;
@@ -1334,7 +1338,6 @@ function App() {
     }, []);
 
     const handleOpenItemDetails = useCallback((itemOrId) => {
-        if (isGridReorderMode) return;
         const itemId = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
         if (!itemId) return;
         const liveItem = items.find((candidate) => candidate.id === itemId);
@@ -1344,7 +1347,7 @@ function App() {
         } else {
             setEditingItem(liveItem);
         }
-    }, [items, viewMode, isGridReorderMode]);
+    }, [items, viewMode]);
 
     const handleCanvasTitleSave = useCallback(async () => {
         if (!activeCollection || !activeCollection.id || activeCollection.id === '__unsorted__') {
@@ -1420,7 +1423,6 @@ function App() {
 
     // Selection Handlers
     const handleSelectItem = useCallback((itemId, modifiers) => {
-        if (isGridReorderMode) return;
         setSelectedItems(prevSelected => {
             const newSelected = new Set(prevSelected);
 
@@ -1460,7 +1462,7 @@ function App() {
         });
 
         setLastSelectedItemId(itemId);
-    }, [displayGridItems, isGridReorderMode, lastSelectedItemId]);
+    }, [displayGridItems, lastSelectedItemId]);
 
     const clearSelection = useCallback(() => {
         setSelectedItems(new Set());
@@ -1468,16 +1470,11 @@ function App() {
     }, []);
 
     useEffect(() => {
-        if (!isGridReorderMode) return;
-        if (canUseGridReorder) return;
-        setIsGridReorderMode(false);
-        setReorderDraftIds([]);
-        setIsSavingReorder(false);
-        reorderSnapshotRef.current = null;
-    }, [isGridReorderMode, canUseGridReorder]);
-
-    useEffect(() => {
-        if (!isGridReorderMode) return;
+        if (!canUseGridReorder) {
+            setReorderDraftIds((prev) => (prev.length === 0 ? prev : []));
+            reorderDraftIdsRef.current = [];
+            return;
+        }
         const liveIds = orderedFilteredItems.map((item) => item.id);
         setReorderDraftIds((prev) => {
             if (prev.length === 0) return liveIds;
@@ -1487,163 +1484,111 @@ function App() {
             liveIds.forEach((id) => {
                 if (!prevSet.has(id)) next.push(id);
             });
-            return next;
+            const unchanged = next.length === prev.length && next.every((id, index) => id === prev[index]);
+            return unchanged ? prev : next;
         });
-    }, [isGridReorderMode, orderedFilteredItems]);
+    }, [canUseGridReorder, orderedFilteredItems]);
 
-    const handleStartGridReorder = useCallback(() => {
-        if (viewMode !== 'grid') {
-            setToast({ message: 'Switch to grid view to reorder items', type: 'error' });
-            return;
-        }
-        if (!hasConcreteCollectionSelection) {
-            setToast({ message: 'Select a collection to reorder items', type: 'error' });
-            return;
-        }
-        if (hasActiveGridFilters) {
-            setToast({ message: 'Clear search and tag filters before reordering', type: 'error' });
-            return;
-        }
+    useEffect(() => {
+        reorderDraftIdsRef.current = reorderDraftIds;
+    }, [reorderDraftIds]);
 
-        const initialIds = orderedFilteredItems.map((item) => item.id);
-        if (initialIds.length < 2) {
-            setToast({ message: 'Need at least two items to reorder', type: 'info' });
-            return;
-        }
-
-        setEditingItem(null);
-        setDetailPanelItem(null);
-        setGridInlineEditId(null);
-        setCanvasInlineEditId(null);
-        setSearchExpanded(false);
-        clearSelection();
-        reorderSnapshotRef.current = {
-            itemsSnapshot: items,
-            draftIds: initialIds,
-            collectionId: selectedCollectionId,
-        };
-        setIsSavingReorder(false);
-        setReorderDraftIds(initialIds);
-        setIsGridReorderMode(true);
-        setToast({ message: 'Reorder mode enabled', type: 'info' });
-    }, [
-        viewMode,
-        hasConcreteCollectionSelection,
-        hasActiveGridFilters,
-        orderedFilteredItems,
-        clearSelection,
-        items,
-        selectedCollectionId,
-    ]);
-
-    const handleGridReorderDragEnd = useCallback((activeId, overId) => {
-        if (!isGridReorderMode) return;
+    const getNextDraftOrder = useCallback((activeId, overId) => {
         if (!activeId || !overId || activeId === overId) return;
-        setReorderDraftIds((prev) => {
-            const oldIndex = prev.indexOf(activeId);
-            const newIndex = prev.indexOf(overId);
-            if (oldIndex < 0 || newIndex < 0) return prev;
-            return moveArrayItem(prev, oldIndex, newIndex);
-        });
-    }, [isGridReorderMode]);
+        const baseIds = reorderDraftIdsRef.current.length > 0
+            ? reorderDraftIdsRef.current
+            : orderedFilteredItems.map((item) => item.id);
+        const oldIndex = baseIds.indexOf(activeId);
+        const newIndex = baseIds.indexOf(overId);
+        if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+        return moveArrayItem(baseIds, oldIndex, newIndex);
+    }, [orderedFilteredItems]);
 
-    const handleCancelGridReorder = useCallback(() => {
-        const snapshot = reorderSnapshotRef.current;
-        if (snapshot?.itemsSnapshot) {
-            setItems(snapshot.itemsSnapshot);
-        }
-        setIsGridReorderMode(false);
-        setIsSavingReorder(false);
-        setReorderDraftIds([]);
-        reorderSnapshotRef.current = null;
-    }, []);
+    const handleGridReorderPreview = useCallback((activeId, overId) => {
+        if (!canUseGridReorder) return null;
+        const nextOrder = getNextDraftOrder(activeId, overId);
+        if (!nextOrder) return null;
+        reorderDraftIdsRef.current = nextOrder;
+        setReorderDraftIds(nextOrder);
+        return nextOrder;
+    }, [canUseGridReorder, getNextDraftOrder]);
 
-    const handleSaveGridReorder = useCallback(async () => {
-        if (!isGridReorderMode || isSavingReorder) return;
-        if (!selectedCollectionId || selectedCollectionId === '__unsorted__') {
-            setToast({ message: 'Select a concrete collection before saving reorder', type: 'error' });
-            return;
-        }
+    const persistGridReorder = useCallback(async (nextOrder) => {
+        if (!selectedCollectionId || selectedCollectionId === '__unsorted__') return;
+        if (!Array.isArray(nextOrder) || nextOrder.length === 0) return;
 
-        const snapshot = reorderSnapshotRef.current;
-        const collectionItems = items.filter((item) => item.collectionId === selectedCollectionId);
-        if (collectionItems.length === 0) {
-            setIsGridReorderMode(false);
-            setReorderDraftIds([]);
-            reorderSnapshotRef.current = null;
-            return;
-        }
+        const currentItems = itemsRef.current;
+        const collectionItems = currentItems.filter((item) => item.collectionId === selectedCollectionId);
+        if (collectionItems.length === 0) return;
 
         const collectionItemSet = new Set(collectionItems.map((item) => item.id));
-        const orderedIds = [];
-        reorderDraftIds.forEach((id) => {
-            if (collectionItemSet.has(id)) orderedIds.push(id);
-        });
-
+        const orderedIds = nextOrder.filter((id) => collectionItemSet.has(id));
         const presentIds = new Set(orderedIds);
+
         [...collectionItems].sort(compareItemsForDisplay).forEach((item) => {
             if (presentIds.has(item.id)) return;
             orderedIds.push(item.id);
         });
 
         const currentById = new Map(collectionItems.map((item) => [item.id, item]));
-        const nextUpdates = orderedIds.map((id, index) => ({
-            id,
-            sortOrder: (orderedIds.length - index) * ITEM_SORT_STEP,
-        })).filter((entry) => {
-            const current = currentById.get(entry.id);
-            return getItemSortOrder(current) !== entry.sortOrder;
+        const updates = orderedIds
+            .map((id, index) => ({
+                id,
+                sortOrder: (orderedIds.length - index) * ITEM_SORT_STEP,
+            }))
+            .filter((entry) => getItemSortOrder(currentById.get(entry.id)) !== entry.sortOrder);
+
+        if (updates.length === 0) return;
+
+        const requestToken = reorderPersistTokenRef.current + 1;
+        reorderPersistTokenRef.current = requestToken;
+        const snapshot = currentItems;
+        const sortOrderById = new Map(updates.map((entry) => [entry.id, entry.sortOrder]));
+
+        setItems((prev) => {
+            const next = prev.map((item) => (
+                sortOrderById.has(item.id)
+                    ? { ...item, sortOrder: sortOrderById.get(item.id) }
+                    : item
+            ));
+            itemsRef.current = next;
+            return next;
         });
 
-        if (nextUpdates.length === 0) {
-            setIsGridReorderMode(false);
-            setReorderDraftIds([]);
-            reorderSnapshotRef.current = null;
-            setToast({ message: 'Order unchanged', type: 'info' });
-            return;
-        }
-
-        const updateById = new Map(nextUpdates.map((entry) => [entry.id, entry.sortOrder]));
-        setIsSavingReorder(true);
-        setItems((prev) => prev.map((item) => (
-            updateById.has(item.id)
-                ? { ...item, sortOrder: updateById.get(item.id) }
-                : item
-        )));
         suppressItemsRealtimeUntilRef.current = Date.now() + 1800;
 
         try {
             const persisted = await Promise.all(
-                nextUpdates.map(async (entry) => {
+                updates.map(async (entry) => {
                     const updated = await updateItem(entry.id, { sortOrder: entry.sortOrder });
-                    if (!updated) {
-                        throw new Error(`Failed to persist order for item ${entry.id}`);
-                    }
+                    if (!updated) throw new Error(`Failed to persist order for item ${entry.id}`);
                     return updated;
                 })
             );
 
+            if (requestToken !== reorderPersistTokenRef.current) return;
             const persistedById = new Map(persisted.map((item) => [item.id, item]));
-            setItems((prev) => prev.map((item) => (
-                persistedById.get(item.id) || item
-            )));
-
-            setIsGridReorderMode(false);
-            setReorderDraftIds([]);
-            reorderSnapshotRef.current = null;
-            setToast({ message: 'Collection order updated', type: 'success' });
+            setItems((prev) => {
+                const next = prev.map((item) => persistedById.get(item.id) || item);
+                itemsRef.current = next;
+                return next;
+            });
         } catch (error) {
-            if (snapshot?.itemsSnapshot) {
-                setItems(snapshot.itemsSnapshot);
-            }
-            if (snapshot?.draftIds) {
-                setReorderDraftIds(snapshot.draftIds);
-            }
-            setToast({ message: error?.message || 'Failed to save reordered items', type: 'error' });
-        } finally {
-            setIsSavingReorder(false);
+            if (requestToken !== reorderPersistTokenRef.current) return;
+            setItems(snapshot);
+            itemsRef.current = snapshot;
+            setToast({ message: error?.message || 'Failed to reorder items', type: 'error' });
         }
-    }, [isGridReorderMode, isSavingReorder, selectedCollectionId, items, reorderDraftIds]);
+    }, [selectedCollectionId]);
+
+    const handleGridReorderCommit = useCallback(() => {
+        if (!canUseGridReorder) return;
+        const nextOrder = reorderDraftIdsRef.current.length > 0
+            ? reorderDraftIdsRef.current
+            : orderedFilteredItems.map((item) => item.id);
+        if (nextOrder.length === 0) return;
+        void persistGridReorder(nextOrder);
+    }, [canUseGridReorder, orderedFilteredItems, persistGridReorder]);
 
     const safeExportFilename = useCallback((value) => String(value || 'selection')
         .normalize('NFKD')
@@ -2044,37 +1989,7 @@ function App() {
                                         onValueChange={(val) => setZoomLevel(val)}
                                     />
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    {isGridReorderMode ? (
-                                        <>
-                                            <Badge variant="neutral">Reorder mode</Badge>
-                                            <Button
-                                                variant="neutral-secondary"
-                                                size="small"
-                                                onClick={handleCancelGridReorder}
-                                                disabled={isSavingReorder}
-                                            >
-                                                Cancel
-                                            </Button>
-                                            <Button
-                                                variant="brand-primary"
-                                                size="small"
-                                                onClick={() => { void handleSaveGridReorder(); }}
-                                                disabled={isSavingReorder}
-                                            >
-                                                {isSavingReorder ? 'Saving...' : 'Done'}
-                                            </Button>
-                                        </>
-                                    ) : (
-                                        <Button
-                                            variant="neutral-secondary"
-                                            size="small"
-                                            onClick={handleStartGridReorder}
-                                        >
-                                            Reorder
-                                        </Button>
-                                    )}
-                                </div>
+                                {canUseGridReorder ? <Badge variant="neutral">Drag to reorder</Badge> : null}
                             </div>
                         </div>
                         {tagFilter && (
@@ -2184,11 +2099,18 @@ function App() {
                                         <span className="text-body-bold font-body-bold text-default-font">Nothing here yet</span>
                                         <span className="text-caption font-caption text-subtext-color mt-1">Start capturing inspiration.</span>
                                     </div>
-                                ) : isGridReorderMode ? (
+                                ) : canUseGridReorder ? (
                                     <SortableGrid
                                         items={displayGridItems}
                                         zoomLevel={zoomLevel[0]}
-                                        onReorder={handleGridReorderDragEnd}
+                                        enableReorder={canUseGridReorder}
+                                        onReorderPreview={handleGridReorderPreview}
+                                        onReorderCommit={handleGridReorderCommit}
+                                        onItemClick={handleOpenItemDetails}
+                                        selectedItems={selectedItems}
+                                        onSelectItem={handleSelectItem}
+                                        inlineEditingId={gridInlineEditId}
+                                        onFinishInlineEdit={handleFinishGridEdit}
                                     />
                                 ) : (
                                     <MasonryGrid
@@ -2263,7 +2185,7 @@ function App() {
                 </AnimatePresence>
 
                 {/* Floating Bottom Bar: Search or Selection Toolbar */}
-                {selectedItems.size > 0 && !isGridReorderMode ? (
+                {selectedItems.size > 0 ? (
                     <SelectionToolbar
                         selectedCount={selectedItems.size}
                         onCopy={handleCopySelection}
@@ -2276,69 +2198,63 @@ function App() {
                     />
                 ) : (
                     <div className="flex items-center gap-2 rounded-full border border-solid border-neutral-border bg-white px-3 py-2.5 absolute bottom-[46px] left-1/2 z-10 -translate-x-1/2 shadow-sm">
-                        {isGridReorderMode ? (
-                            <span className="px-2 text-caption font-caption text-subtext-color">
-                                Drag cards to reorder. Use Done to save or Cancel to discard.
-                            </span>
-                        ) : (
-                            <>
-                                {searchExpanded ? (
-                                    <div className="flex items-center relative">
-                                        <TextField
-                                            className="h-auto w-72"
-                                            variant="outline"
-                                            icon={<FeatherSearch />}
-                                        >
-                                            <TextField.Input
-                                                ref={searchInputRef}
-                                                className="pr-8"
-                                                placeholder="Search content, URLs, or tags..."
-                                                value={searchQuery}
-                                                onChange={(e) => setSearchQuery(e.target.value)}
-                                                autoFocus
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Escape') {
-                                                        if (!searchQuery) setSearchExpanded(false);
-                                                        else setSearchQuery('');
-                                                    }
-                                                }}
-                                                onBlur={() => {
-                                                    if (!searchQuery) setSearchExpanded(false);
-                                                }}
-                                            />
-                                        </TextField>
-                                    </div>
-                                ) : (
-                                    <button
-                                        onClick={() => { setSearchExpanded(true); setTimeout(() => searchInputRef.current?.focus(), 0); }}
-                                        className="flex items-center gap-2 h-9 px-3 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
-                                        title="Search (⌘K)"
+                        <>
+                            {searchExpanded ? (
+                                <div className="flex items-center relative">
+                                    <TextField
+                                        className="h-auto w-72"
+                                        variant="outline"
+                                        icon={<FeatherSearch />}
                                     >
-                                        <FeatherSearch className="w-[18px] h-[18px]" />
-                                        <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
-                                            <span className="text-caption font-caption text-subtext-color">⌘</span>
-                                            <span className="text-caption font-caption text-subtext-color">K</span>
-                                        </div>
-                                    </button>
-                                )}
-                                <div className="w-px h-6 bg-neutral-200" />
-                                <CreateToolbar
-                                    onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : createGridNote()}
-                                    onUploadImage={(file) => saveImageFromBlob(file)}
-                                    onCreateLink={(url) => saveLink(url)}
-                                    onPasteClipboard={handlePasteClipboard}
-                                    onCreateColor={(hex) => saveColor(hex)}
+                                        <TextField.Input
+                                            ref={searchInputRef}
+                                            className="pr-8"
+                                            placeholder="Search content, URLs, or tags..."
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            autoFocus
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Escape') {
+                                                    if (!searchQuery) setSearchExpanded(false);
+                                                    else setSearchQuery('');
+                                                }
+                                            }}
+                                            onBlur={() => {
+                                                if (!searchQuery) setSearchExpanded(false);
+                                            }}
+                                        />
+                                    </TextField>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => { setSearchExpanded(true); setTimeout(() => searchInputRef.current?.focus(), 0); }}
+                                    className="flex items-center gap-2 h-9 px-3 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
+                                    title="Search (⌘K)"
+                                >
+                                    <FeatherSearch className="w-[18px] h-[18px]" />
+                                    <div className="flex items-center gap-0.5 rounded-md border border-solid border-neutral-200 bg-neutral-100 px-1.5 py-0.5">
+                                        <span className="text-caption font-caption text-subtext-color">⌘</span>
+                                        <span className="text-caption font-caption text-subtext-color">K</span>
+                                    </div>
+                                </button>
+                            )}
+                            <div className="w-px h-6 bg-neutral-200" />
+                            <CreateToolbar
+                                onCreateNote={() => viewMode === 'canvas' ? createCanvasNote() : createGridNote()}
+                                onUploadImage={(file) => saveImageFromBlob(file)}
+                                onCreateLink={(url) => saveLink(url)}
+                                onPasteClipboard={handlePasteClipboard}
+                                onCreateColor={(hex) => saveColor(hex)}
+                            />
+                            <div className="w-px h-6 bg-neutral-200" />
+                            <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
+                                <ToggleGroup.Item
+                                    icon={<FeatherLayoutGrid />}
+                                    value="grid"
                                 />
-                                <div className="w-px h-6 bg-neutral-200" />
-                                <ToggleGroup value={viewMode} onValueChange={(value) => value && setViewMode(value)}>
-                                    <ToggleGroup.Item
-                                        icon={<FeatherLayoutGrid />}
-                                        value="grid"
-                                    />
-                                    <ToggleGroup.Item icon={<FeatherSquare />} value="canvas" />
-                                </ToggleGroup>
-                            </>
-                        )}
+                                <ToggleGroup.Item icon={<FeatherSquare />} value="canvas" />
+                            </ToggleGroup>
+                        </>
                     </div>
                 )}
             </main>
