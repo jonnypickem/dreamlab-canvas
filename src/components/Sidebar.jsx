@@ -8,6 +8,7 @@ import { TextField } from '../ui/components/TextField';
 import { getEntityColorToken, getEntityIconComponent } from '../utils/entityStyles';
 import * as SubframeCore from "@subframe/core";
 import {
+    FeatherChevronDown,
     FeatherChevronRight,
     FeatherSearch,
     FeatherLayoutGrid,
