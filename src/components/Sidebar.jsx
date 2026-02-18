@@ -22,9 +22,30 @@ import {
 
 const UNGROUPED_COLLECTION_COMPOSER_ID = '__ungrouped__';
 
+function formatShortcutPart(part) {
+    const normalized = String(part || '').trim();
+    const lower = normalized.toLowerCase();
+    if (lower === 'command' || lower === 'cmd') return '⌘';
+    if (lower === 'ctrl' || lower === 'control') return 'Ctrl';
+    if (lower === 'alt' || lower === 'option') return '⌥';
+    if (lower === 'shift') return '⇧';
+    if (lower === 'up') return '↑';
+    if (lower === 'down') return '↓';
+    if (lower === 'left') return '←';
+    if (lower === 'right') return '→';
+    return normalized.length === 1 ? normalized.toUpperCase() : normalized;
+}
+
+function splitShortcutParts(shortcut) {
+    const raw = String(shortcut || '').trim();
+    if (!raw) return [];
+    return raw.split('+').map(formatShortcutPart).filter(Boolean);
+}
+
 export default function Sidebar({
     projects = [],
     collections = [],
+    extensionShortcuts = [],
     selectedCollectionId = null,
     selectedProjectId = null,
     onAllItems,
@@ -330,6 +351,11 @@ export default function Sidebar({
             <span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-full border ${colorToken.bgClass} ${colorToken.borderClass}`} />
         );
     };
+
+    const shortcutRows = useMemo(
+        () => (Array.isArray(extensionShortcuts) ? extensionShortcuts : []),
+        [extensionShortcuts]
+    );
 
     return (
         <aside
@@ -836,6 +862,37 @@ export default function Sidebar({
                     </div>
                 </div>
             </ChatChannelsMenu>
+            <div className="w-full border-t border-neutral-200/80 pt-3">
+                <div className="px-3.5 pb-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Shortcuts</span>
+                </div>
+                <div className="flex w-full flex-col gap-1 px-2">
+                    {shortcutRows.length === 0 ? (
+                        <div className="px-2 py-1 text-[11px] text-neutral-400">Extension shortcuts unavailable</div>
+                    ) : shortcutRows.map((entry) => {
+                        const parts = splitShortcutParts(entry.shortcut);
+                        return (
+                            <div key={entry.command} className="flex items-center justify-between rounded-lg px-2 py-1 hover:bg-neutral-100">
+                                <span className="truncate pr-2 text-[11px] font-medium text-neutral-600">{entry.label}</span>
+                                <div className="flex items-center gap-1">
+                                    {parts.length > 0 ? parts.map((part, index) => (
+                                        <kbd
+                                            key={`${entry.command}-${part}-${index}`}
+                                            className="inline-flex min-w-[18px] items-center justify-center rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500"
+                                        >
+                                            {part}
+                                        </kbd>
+                                    )) : (
+                                        <kbd className="inline-flex min-w-[18px] items-center justify-center rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-neutral-400">
+                                            Unassigned
+                                        </kbd>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
         </aside>
     );
 }

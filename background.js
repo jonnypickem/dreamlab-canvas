@@ -26,7 +26,48 @@ const ACTIONS = {
   getMultiSelectState: 'getMultiSelectState',
   scanSourceImages: 'scanSourceImages',
   executeCommand: 'executeCommand',
+  getShortcutBindings: 'getShortcutBindings',
 };
+
+const COMMAND_ACTIONS = [
+  {
+    command: 'save-page',
+    label: 'Save Page',
+    description: 'Save current page to Dreamlab',
+  },
+  {
+    command: 'capture-visible',
+    label: 'Image Selector',
+    description: 'Open image capture review',
+  },
+  {
+    command: 'capture-full-page',
+    label: 'Full Page Screenshot',
+    description: 'Capture full page screenshot',
+  },
+  {
+    command: 'smart-picker',
+    label: 'Smart Picker',
+    description: 'Pick an image or background from page',
+  },
+  {
+    command: 'pick-color',
+    label: 'Color Eyedropper',
+    description: 'Pick a color from the current page',
+  },
+  {
+    command: 'area-select',
+    label: 'Area Screenshot',
+    description: 'Capture a selected area screenshot',
+  },
+  {
+    command: 'area-record',
+    label: 'Area Record',
+    description: 'Record a selected area',
+  },
+];
+
+const VALID_COMMAND_SET = new Set(COMMAND_ACTIONS.map((entry) => entry.command));
 
 const CONTENT_ACTIONS = {
   saveItem: 'SAVE_ITEM',
@@ -200,9 +241,14 @@ function createTab(createProperties) {
   });
 }
 
-function sendTabMessage(tabId, message) {
+function sendTabMessage(tabId, message, options = {}) {
+  const sendOptions = {};
+  if (Number.isInteger(options?.frameId)) {
+    sendOptions.frameId = options.frameId;
+  }
+
   return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
+    chrome.tabs.sendMessage(tabId, message, sendOptions, (response) => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
         return;
@@ -401,6 +447,41 @@ function isUnsupportedCaptureUrl(url) {
   if (value.startsWith('view-source:')) return true;
   if (/^https:\/\/chromewebstore\.google\.com\//i.test(value)) return true;
   return false;
+}
+
+function isLikelyTrackingOrAssetUrl(url) {
+  if (!url) return true;
+  const value = String(url).toLowerCase();
+  if (!/^https?:\/\//i.test(value)) return true;
+
+  try {
+    const parsed = new URL(value);
+    const pathname = parsed.pathname || '';
+    const host = parsed.hostname || '';
+
+    if (/\.(gif|png|jpe?g|webp|avif|svg|ico|css|js|mjs|json|xml|txt|map)(?:$|\?)/i.test(pathname)) return true;
+    if (/\/(web-)?pixels?\b/i.test(pathname)) return true;
+    if (/\/(beacon|collect|analytics|track|tracking|events?)\b/i.test(pathname)) return true;
+    if (/(doubleclick|googletagmanager|google-analytics|segment|hotjar|mixpanel|amplitude|sentry|cdn-cgi)\./i.test(host)) {
+      return true;
+    }
+  } catch {
+    if (/(web-)?pixels?|beacon|collect|analytics|tracking|doubleclick|googletagmanager/i.test(value)) return true;
+  }
+
+  return false;
+}
+
+async function getCaptureFallbackTabs(excludeTabId = null) {
+  const tabs = await queryTabs({ currentWindow: true });
+  return tabs
+    .filter((tab) => {
+      if (!tab?.id || tab.id === excludeTabId) return false;
+      if (!tab.url || isUnsupportedCaptureUrl(tab.url)) return false;
+      if (isDreamlabUrl(tab.url)) return false;
+      return /^https?:\/\//i.test(tab.url);
+    })
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
 }
 
 function isStorageQuotaErrorMessage(message) {
@@ -992,9 +1073,9 @@ function isMissingReceiverError(error) {
   return /receiving end does not exist/i.test(message);
 }
 
-async function sendTabMessageWithBridge(tabId, message) {
+async function sendTabMessageWithBridge(tabId, message, options = {}) {
   try {
-    return await sendTabMessage(tabId, message);
+    return await sendTabMessage(tabId, message, options);
   } catch (error) {
     if (!isMissingReceiverError(error)) {
       throw error;
@@ -1003,7 +1084,7 @@ async function sendTabMessageWithBridge(tabId, message) {
     // Content scripts can be absent on existing tabs after extension reload/update.
     await executeScript(tabId, ['content.js']);
     await wait(60);
-    return await sendTabMessage(tabId, message);
+    return await sendTabMessage(tabId, message, options);
   }
 }
 
@@ -1106,7 +1187,7 @@ async function getDreamlabDestinationSummary(targetTabId = null) {
 
     const response = await sendTabMessageWithBridge(destinationTab.id, {
       action: CONTENT_ACTIONS.getOrgData,
-    });
+    }, { frameId: 0 });
 
     if (!response || response.success !== true) return 'active context';
 
@@ -1901,13 +1982,20 @@ async function requestImageScan(tabId, scope = 'visible') {
   const response = await sendTabMessageWithBridge(tabId, {
     action: CONTENT_ACTIONS.scanPageImages,
     scope,
-  });
+  }, { frameId: 0 });
 
   if (!response || response.success !== true) {
     throw new Error(response?.error || 'Could not scan images on this page.');
   }
 
   return response;
+}
+
+function normalizeScanImages(scan) {
+  const visibleImages = Array.isArray(scan?.visibleImages) ? scan.visibleImages : [];
+  const allImages = Array.isArray(scan?.images) ? scan.images : [];
+  const totalCount = Number(scan?.totalCount || (allImages.length || visibleImages.length || 0));
+  return { visibleImages, allImages, totalCount };
 }
 
 async function openMultiSelectWindow({ sourceTabId, sourceUrl, visibleImages, totalImagesCount }) {
@@ -1958,7 +2046,7 @@ async function saveItemToWebApp(item, options = {}) {
   const response = await sendTabMessageWithBridge(targetTab.id, {
     action: CONTENT_ACTIONS.saveItem,
     item,
-  });
+  }, { frameId: 0 });
 
   if (!response || response.success !== true) {
     throw new Error(response?.error || 'Failed to save to Dreamlab web app.');
@@ -2097,12 +2185,52 @@ async function executeCommandFromTab(command, tabId) {
 
   if (command === 'capture-visible') {
     if (!tab?.id) return;
-    const scan = await requestImageScan(tab.id, 'visible_with_total');
+
+    let chosenTab = tab;
+    let chosenScan = null;
+    let chosenScanImages = { visibleImages: [], allImages: [], totalCount: 0 };
+
+    try {
+      chosenScan = await requestImageScan(tab.id, 'all');
+      chosenScanImages = normalizeScanImages(chosenScan);
+    } catch {
+      // Try fallback tabs below.
+    }
+
+    const shouldTryFallbackTabs = !chosenScan
+      || chosenScanImages.allImages.length === 0
+      || isLikelyTrackingOrAssetUrl(chosenScan.sourceUrl || tab.url || '');
+
+    if (shouldTryFallbackTabs) {
+      const fallbackTabs = await getCaptureFallbackTabs(tab.id);
+      const maxCandidates = 6;
+
+      for (const candidate of fallbackTabs.slice(0, maxCandidates)) {
+        try {
+          const candidateScan = await requestImageScan(candidate.id, 'all');
+          const candidateImages = normalizeScanImages(candidateScan);
+          if (candidateImages.allImages.length > chosenScanImages.allImages.length) {
+            chosenTab = candidate;
+            chosenScan = candidateScan;
+            chosenScanImages = candidateImages;
+          }
+
+          const hasGoodCoverage = candidateImages.allImages.length >= 12;
+          const looksLikePage = !isLikelyTrackingOrAssetUrl(candidateScan.sourceUrl || candidate.url || '');
+          if (hasGoodCoverage && looksLikePage) break;
+        } catch {
+          // Keep trying next candidates.
+        }
+      }
+    }
+
+    const allImages = chosenScanImages.allImages;
+    const totalCount = chosenScanImages.totalCount || allImages.length;
     await openMultiSelectWindow({
-      sourceTabId: tab.id,
-      sourceUrl: scan.sourceUrl || tab.url || '',
-      visibleImages: scan.visibleImages || [],
-      totalImagesCount: scan.totalCount || 0,
+      sourceTabId: chosenTab.id,
+      sourceUrl: chosenScan?.sourceUrl || chosenTab.url || '',
+      visibleImages: allImages,
+      totalImagesCount: totalCount,
     });
     return;
   }
@@ -2254,6 +2382,111 @@ async function executeCommandFromTab(command, tabId) {
     return;
   }
 
+  if (command === 'pick-color') {
+    if (!tab?.id) return;
+    if (isUnsupportedCaptureUrl(tab.url)) {
+      await showInPageToast(tab.id, {
+        message: 'Color eyedropper is not available on this page.',
+        type: 'error',
+        durationMs: 4200,
+      });
+      return;
+    }
+
+    try {
+      const result = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN',
+        func: async () => {
+          if (typeof window.EyeDropper !== 'function') {
+            return { success: false, error: 'EyeDropper API is not supported in this browser.' };
+          }
+          try {
+            const picker = new window.EyeDropper();
+            const picked = await picker.open();
+            return { success: true, color: picked?.sRGBHex || null };
+          } catch (error) {
+            if (error?.name === 'AbortError') {
+              return { success: false, cancelled: true, error: 'Color picking cancelled.' };
+            }
+            return { success: false, error: error?.message || 'Color picking failed.' };
+          }
+        },
+      });
+
+      const payload = result?.[0]?.result || {};
+      if (payload.cancelled) {
+        await showInPageToast(tab.id, {
+          message: 'Color pick cancelled.',
+          type: 'info',
+          durationMs: 2200,
+        });
+        return;
+      }
+      if (!payload.success) {
+        await showInPageToast(tab.id, {
+          message: payload.error || 'Could not pick color on this page.',
+          type: 'error',
+          durationMs: 4200,
+        });
+        return;
+      }
+
+      const hex = String(payload.color || '').trim().toUpperCase();
+      if (!/^#[0-9A-F]{6}$/.test(hex)) {
+        await showInPageToast(tab.id, {
+          message: 'Picked color was invalid.',
+          type: 'error',
+          durationMs: 3600,
+        });
+        return;
+      }
+
+      const destinationTab = await ensureDreamlabTab();
+      const colorItem = {
+        type: 'color',
+        content: hex,
+        title: `Color ${hex}`,
+        description: `Picked with eyedropper from ${tab.title || 'page'}`,
+        sourceUrl: tab.url || '',
+        metadata: {
+          captureType: 'eyedropper',
+          pickedHex: hex,
+        },
+        timestamp: Date.now(),
+      };
+
+      const saveResult = await queuePendingAndTrySave(colorItem, {
+        targetTabId: destinationTab?.id || null,
+        skipPendingStorage: true,
+      });
+
+      if (saveResult.success) {
+        const dest = await getDreamlabDestinationSummary(
+          saveResult.targetTabId || destinationTab?.id || null
+        );
+        await showInPageToast(tab.id, {
+          message: `Saved ${hex} to ${dest}.`,
+          type: 'success',
+          durationMs: 3200,
+        });
+      } else {
+        await showInPageToast(tab.id, {
+          message: `Saved ${hex} as pending. Open popup to retry.`,
+          type: 'error',
+          durationMs: 4200,
+        });
+      }
+    } catch (error) {
+      await showInPageToast(tab.id, {
+        message: error?.message || 'Color eyedropper failed.',
+        type: 'error',
+        durationMs: 4200,
+      });
+    }
+    return;
+  }
+
   if (command === 'area-select' || command === 'area-record') {
     if (!tab?.id) return;
     if (isUnsupportedCaptureUrl(tab.url)) {
@@ -2275,6 +2508,25 @@ async function executeCommandFromTab(command, tabId) {
       files: ['area-select.js'],
     });
   }
+}
+
+async function getShortcutBindings() {
+  let commands = [];
+  try {
+    commands = await chrome.commands.getAll();
+  } catch {
+    commands = [];
+  }
+  const commandByName = new Map((commands || []).map((command) => [command.name, command]));
+  return COMMAND_ACTIONS.map((entry) => {
+    const runtimeCommand = commandByName.get(entry.command);
+    return {
+      command: entry.command,
+      label: entry.label,
+      description: runtimeCommand?.description || entry.description,
+      shortcut: runtimeCommand?.shortcut || '',
+    };
+  });
 }
 
 // Debounce map to prevent duplicate execution when both chrome.commands
@@ -2476,7 +2728,7 @@ async function handleRuntimeMessage(request, sender) {
 
     case ACTIONS.getDreamlabOrgData: {
       const tab = await getPreferredDreamlabTab();
-      const response = await sendTabMessageWithBridge(tab.id, { action: CONTENT_ACTIONS.getOrgData });
+      const response = await sendTabMessageWithBridge(tab.id, { action: CONTENT_ACTIONS.getOrgData }, { frameId: 0 });
       if (!response || response.success !== true) {
         return { success: false, error: response?.error || 'Could not load Dreamlab organization data.' };
       }
@@ -2497,8 +2749,7 @@ async function handleRuntimeMessage(request, sender) {
     }
 
     case ACTIONS.executeCommand: {
-      const validCommands = ['save-page', 'capture-visible', 'capture-full-page', 'smart-picker', 'area-select', 'area-record'];
-      if (!validCommands.includes(request.command)) {
+      if (!VALID_COMMAND_SET.has(request.command)) {
         return { success: false, error: 'Unknown command.' };
       }
       await dispatchCommand({
@@ -2509,6 +2760,11 @@ async function handleRuntimeMessage(request, sender) {
       return { success: true };
     }
 
+    case ACTIONS.getShortcutBindings: {
+      const shortcuts = await getShortcutBindings();
+      return { success: true, shortcuts };
+    }
+
     case ACTIONS.scanSourceImages: {
       const stored = await getStorage(STORAGE_KEYS.multiSelectState);
       const sourceTabId = request.sourceTabId || stored?.[STORAGE_KEYS.multiSelectState]?.sourceTabId;
@@ -2516,14 +2772,36 @@ async function handleRuntimeMessage(request, sender) {
         return { success: false, error: 'Source tab is not available.' };
       }
 
-      const scan = await requestImageScan(sourceTabId, request.scope || 'visible');
+      const requestedScope = request.scope || 'visible';
+      let scan = await requestImageScan(sourceTabId, requestedScope);
+      let { visibleImages, allImages, totalCount } = normalizeScanImages(scan);
+
+      const shouldFallbackToAll = (requestedScope === 'visible' || requestedScope === 'visible_with_total')
+        && visibleImages.length === 0
+        && totalCount === 0;
+
+      if (shouldFallbackToAll) {
+        try {
+          const fallbackScan = await requestImageScan(sourceTabId, 'all');
+          const fallback = normalizeScanImages(fallbackScan);
+          if (fallback.allImages.length > 0) {
+            scan = fallbackScan;
+            allImages = fallback.allImages;
+            visibleImages = fallback.allImages;
+            totalCount = fallback.totalCount || fallback.allImages.length;
+          }
+        } catch {
+          // Keep original scan result if fallback fails.
+        }
+      }
+
       return {
         success: true,
         sourceTabId,
         sourceUrl: scan.sourceUrl || stored?.[STORAGE_KEYS.multiSelectState]?.sourceUrl || '',
-        images: scan.images || [],
-        visibleImages: scan.visibleImages || [],
-        totalCount: Number(scan.totalCount || 0),
+        images: allImages,
+        visibleImages,
+        totalCount,
       };
     }
 

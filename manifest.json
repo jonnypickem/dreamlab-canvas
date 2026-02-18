@@ -70,6 +70,27 @@
                 "mac": "Alt+Shift+I"
             },
             "description": "Pick an image or background from page"
+        },
+        "pick-color": {
+            "suggested_key": {
+                "default": "Alt+Shift+K",
+                "mac": "Alt+Shift+K"
+            },
+            "description": "Pick a color from the current page"
+        },
+        "area-select": {
+            "suggested_key": {
+                "default": "Alt+Shift+A",
+                "mac": "Alt+Shift+A"
+            },
+            "description": "Capture a selected area screenshot"
+        },
+        "area-record": {
+            "suggested_key": {
+                "default": "Alt+Shift+R",
+                "mac": "Alt+Shift+R"
+            },
+            "description": "Record a selected area"
         }
     }
 }

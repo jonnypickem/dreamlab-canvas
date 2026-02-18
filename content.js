@@ -24,6 +24,8 @@ const ACTIONS = {
 
 const BACKGROUND_ACTIONS = {
   openMultiSelect: 'openMultiSelect',
+  getShortcutBindings: 'getShortcutBindings',
+  executeCommand: 'executeCommand',
 };
 
 const MEDIA_DB_NAME = 'dreamlab_media_db';
@@ -323,6 +325,70 @@ function getOrgData() {
   });
 }
 
+function getShortcutBindingsFromExtension() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: BACKGROUND_ACTIONS.getShortcutBindings }, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ success: false, error: chrome.runtime.lastError.message || 'Could not load shortcuts.' });
+        return;
+      }
+      resolve(response || { success: false, error: 'Could not load shortcuts.' });
+    });
+  });
+}
+
+function executeShortcutCommand(command) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({
+      action: BACKGROUND_ACTIONS.executeCommand,
+      command,
+      origin: 'webapp-bridge',
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ success: false, error: chrome.runtime.lastError.message || 'Command failed.' });
+        return;
+      }
+      resolve(response || { success: false, error: 'Command failed.' });
+    });
+  });
+}
+
+if (isDreamlabApp()) {
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const payload = event.data || {};
+    const responseChannel = String(payload.responseChannel || '');
+    if (!responseChannel) return;
+
+    if (payload.type === 'DREAMLAB_GET_SHORTCUTS') {
+      getShortcutBindingsFromExtension()
+        .then((response) => {
+          window.postMessage({ type: responseChannel, payload: response }, '*');
+        })
+        .catch((error) => {
+          window.postMessage({
+            type: responseChannel,
+            payload: { success: false, error: error?.message || 'Could not load shortcuts.' },
+          }, '*');
+        });
+      return;
+    }
+
+    if (payload.type === 'DREAMLAB_EXECUTE_SHORTCUT') {
+      executeShortcutCommand(payload.command)
+        .then((response) => {
+          window.postMessage({ type: responseChannel, payload: response }, '*');
+        })
+        .catch((error) => {
+          window.postMessage({
+            type: responseChannel,
+            payload: { success: false, error: error?.message || 'Command failed.' },
+          }, '*');
+        });
+    }
+  });
+}
+
 function triggerMultiSelect() {
   const visibleImages = getVisibleImages();
   const totalImages = getAllImages().length;
@@ -343,34 +409,106 @@ function triggerMultiSelect() {
 }
 
 function scanPageImages(scope = 'visible') {
-  if (scope === 'all') {
-    const images = getAllImages();
-    return {
-      success: true,
-      images,
-      totalCount: images.length,
-      sourceUrl: window.location.href,
+  async function getAllImagesWithScroll() {
+    const seen = new Set();
+    const merged = [];
+
+    const appendUnique = (images) => {
+      (Array.isArray(images) ? images : []).forEach((image) => {
+        const src = String(image?.src || '').trim();
+        if (!src || seen.has(src)) return;
+        seen.add(src);
+        merged.push(image);
+      });
     };
+
+    appendUnique(getAllImages());
+    appendUnique(getNetworkLoadedImageCandidates());
+
+    const scroller = document.scrollingElement || document.documentElement;
+    if (!scroller) return merged;
+
+    const originalX = window.scrollX;
+    const originalY = window.scrollY;
+    const scrollHeight = Math.max(
+      scroller.scrollHeight || 0,
+      document.documentElement?.scrollHeight || 0,
+      document.body?.scrollHeight || 0,
+    );
+    const maxScrollTop = Math.max(0, scrollHeight - window.innerHeight);
+    if (maxScrollTop <= 0) return merged;
+
+    const step = Math.max(280, Math.floor(window.innerHeight * 0.8));
+    const maxSteps = 28;
+
+    try {
+      let y = 0;
+      let steps = 0;
+      while (y <= maxScrollTop && steps < maxSteps) {
+        window.scrollTo({ top: y, left: originalX, behavior: 'auto' });
+        // Allow lazy loaders to materialize assets.
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        appendUnique(getVisibleImages());
+        appendUnique(getNetworkLoadedImageCandidates());
+        y += step;
+        steps += 1;
+      }
+
+      if (maxScrollTop > 0) {
+        window.scrollTo({ top: maxScrollTop, left: originalX, behavior: 'auto' });
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        appendUnique(getVisibleImages());
+        appendUnique(getNetworkLoadedImageCandidates());
+      }
+    } finally {
+      window.scrollTo({ top: originalY, left: originalX, behavior: 'auto' });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+
+    return merged;
   }
 
-  if (scope === 'visible_with_total') {
+  const run = async () => {
+    if (scope === 'all') {
+      const images = await getAllImagesWithScroll();
+      return {
+        success: true,
+        images,
+        totalCount: images.length,
+        sourceUrl: window.location.href,
+      };
+    }
+
+    if (scope === 'visible_with_total') {
+      const visibleImages = getVisibleImages();
+      let totalCount = getAllImages().length;
+      let visibleWithFallback = visibleImages;
+
+      if (visibleImages.length === 0 && totalCount === 0) {
+        const fallbackImages = await getAllImagesWithScroll();
+        totalCount = fallbackImages.length;
+        visibleWithFallback = fallbackImages;
+      }
+
+      return {
+        success: true,
+        visibleImages: visibleWithFallback,
+        totalCount,
+        sourceUrl: window.location.href,
+      };
+    }
+
     const visibleImages = getVisibleImages();
-    const totalCount = getAllImages().length;
     return {
       success: true,
-      visibleImages,
-      totalCount,
+      images: visibleImages,
+      totalCount: visibleImages.length,
       sourceUrl: window.location.href,
     };
-  }
-
-  const visibleImages = getVisibleImages();
-  return {
-    success: true,
-    images: visibleImages,
-    totalCount: visibleImages.length,
-    sourceUrl: window.location.href,
   };
+
+  return run();
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -394,7 +532,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === ACTIONS.scanPageImages) {
-      sendResponse(scanPageImages(request.scope || 'visible'));
+      Promise.resolve(scanPageImages(request.scope || 'visible'))
+        .then((payload) => sendResponse(payload))
+        .catch((error) => {
+          sendResponse({ success: false, error: error?.message || 'Image scan failed.' });
+        });
       return true;
     }
 
@@ -466,7 +608,8 @@ function getElementRect(element) {
 }
 
 function isVisibleRect(rect, viewportOnly) {
-  if (rect.width <= 50 || rect.height <= 50) return false;
+  const minSize = viewportOnly ? 24 : 8;
+  if (rect.width < minSize || rect.height < minSize) return false;
   if (!viewportOnly) return true;
 
   return (
@@ -477,9 +620,167 @@ function isVisibleRect(rect, viewportOnly) {
   );
 }
 
+function getMetaImageCandidates() {
+  const selectors = [
+    'meta[property="og:image"]',
+    'meta[property="og:image:url"]',
+    'meta[name="twitter:image"]',
+    'meta[name="twitter:image:src"]',
+    'meta[itemprop="image"]',
+  ];
+  const results = [];
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((meta) => {
+      const content = meta.getAttribute('content') || '';
+      if (content.trim()) results.push(content.trim());
+    });
+  });
+  return results;
+}
+
+function isLikelyImageResourceUrl(sourceUrl) {
+  if (!sourceUrl || typeof sourceUrl !== 'string') return false;
+  const value = sourceUrl.trim();
+  if (!value) return false;
+  if (value.startsWith('data:image/')) return true;
+  if (value.startsWith('blob:')) return true;
+
+  try {
+    const parsed = new URL(value, document.baseURI);
+    const pathname = parsed.pathname || '';
+    if (/\.(?:js|mjs|css|json|txt|xml|html?|woff2?|ttf|otf|eot|map)(?:$|\?)/i.test(pathname)) {
+      return false;
+    }
+
+    if (/\.(avif|webp|png|jpe?g|gif|svg|bmp|ico|tiff?|jfif|heic|heif)(?:$|\?)/i.test(pathname)) {
+      return true;
+    }
+
+    const formatParam = (
+      parsed.searchParams.get('format')
+      || parsed.searchParams.get('fm')
+      || parsed.searchParams.get('f')
+      || parsed.searchParams.get('ext')
+      || ''
+    ).toLowerCase();
+    if (/(avif|webp|png|jpe?g|gif|svg|bmp|ico|tiff?|heic|heif)/i.test(formatParam)) {
+      return true;
+    }
+
+    const imageQueryValue = (
+      parsed.searchParams.get('url')
+      || parsed.searchParams.get('image')
+      || parsed.searchParams.get('img')
+      || parsed.searchParams.get('src')
+      || ''
+    );
+    if (/\.(avif|webp|png|jpe?g|gif|svg|bmp|ico|tiff?|jfif|heic|heif)(?:$|\?)/i.test(imageQueryValue)) {
+      return true;
+    }
+
+    if (/\/(images?|photos?|media|assets?)\//i.test(pathname)) {
+      return true;
+    }
+
+    if (/\/(?:_?next|cdn-cgi)\/image/i.test(pathname)) {
+      return true;
+    }
+  } catch {
+    if (/\.(avif|webp|png|jpe?g|gif|svg|bmp|ico|tiff?|jfif|heic|heif)(?:$|\?)/i.test(value)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getNetworkLoadedImageCandidates() {
+  const entries = (
+    typeof performance !== 'undefined'
+    && typeof performance.getEntriesByType === 'function'
+  )
+    ? performance.getEntriesByType('resource')
+    : [];
+
+  if (!Array.isArray(entries) || entries.length === 0) return [];
+
+  const candidates = [];
+  const seen = new Set();
+  const imageInitiators = new Set(['img', 'image', 'picture', 'video']);
+
+  entries.forEach((entry) => {
+    const sourceUrl = String(entry?.name || '').trim();
+    if (!sourceUrl || seen.has(sourceUrl)) return;
+
+    const initiatorType = String(entry?.initiatorType || '').toLowerCase();
+    const isImageInitiator = imageInitiators.has(initiatorType);
+    if (!isImageInitiator && !isLikelyImageResourceUrl(sourceUrl)) return;
+
+    seen.add(sourceUrl);
+    let resolvedUrl = sourceUrl;
+    let hintedWidth = 0;
+    let hintedHeight = 0;
+
+    try {
+      const parsed = new URL(sourceUrl, document.baseURI);
+      resolvedUrl = parsed.href;
+
+      const widthHint = Number(
+        parsed.searchParams.get('width')
+        || parsed.searchParams.get('w')
+        || parsed.searchParams.get('mw')
+        || 0
+      );
+      const heightHint = Number(
+        parsed.searchParams.get('height')
+        || parsed.searchParams.get('h')
+        || parsed.searchParams.get('mh')
+        || 0
+      );
+
+      if (Number.isFinite(widthHint) && widthHint > 0) hintedWidth = Math.round(widthHint);
+      if (Number.isFinite(heightHint) && heightHint > 0) hintedHeight = Math.round(heightHint);
+    } catch {
+      // Keep raw URL when it cannot be parsed.
+    }
+
+    candidates.push({
+      src: resolvedUrl,
+      alt: '',
+      width: hintedWidth,
+      height: hintedHeight,
+      displayWidth: hintedWidth,
+      displayHeight: hintedHeight,
+      fromNetwork: true,
+    });
+  });
+
+  return candidates;
+}
+
 function deepScanImages(viewportOnly) {
   const results = [];
   const seenUrls = new Set();
+
+  function addResolvedCandidate(resolvedUrl, payload = {}) {
+    if (!resolvedUrl || seenUrls.has(resolvedUrl)) return;
+    seenUrls.add(resolvedUrl);
+
+    const intrinsicWidth = Number(payload.width || 0);
+    const intrinsicHeight = Number(payload.height || 0);
+    const displayWidth = Number(payload.displayWidth || intrinsicWidth || 0);
+    const displayHeight = Number(payload.displayHeight || intrinsicHeight || 0);
+
+    results.push({
+      src: resolvedUrl,
+      alt: payload.alt || '',
+      width: Number.isFinite(intrinsicWidth) && intrinsicWidth > 0 ? Math.round(intrinsicWidth) : 0,
+      height: Number.isFinite(intrinsicHeight) && intrinsicHeight > 0 ? Math.round(intrinsicHeight) : 0,
+      displayWidth: Number.isFinite(displayWidth) && displayWidth > 0 ? Math.round(displayWidth) : 0,
+      displayHeight: Number.isFinite(displayHeight) && displayHeight > 0 ? Math.round(displayHeight) : 0,
+      fromNetwork: Boolean(payload.fromNetwork),
+    });
+  }
 
   function addCandidate(sourceUrl, element, altText = '') {
     if (!sourceUrl) return;
@@ -491,18 +792,21 @@ function deepScanImages(viewportOnly) {
       // Keep raw URL.
     }
 
-    if (seenUrls.has(resolvedUrl)) return;
-    seenUrls.add(resolvedUrl);
-
     const rect = getElementRect(element);
-    results.push({
-      src: resolvedUrl,
+    addResolvedCandidate(resolvedUrl, {
       alt: altText,
       width: element.naturalWidth || Math.round(rect.width),
       height: element.naturalHeight || Math.round(rect.height),
       displayWidth: Math.round(rect.width),
       displayHeight: Math.round(rect.height),
+      fromNetwork: false,
     });
+  }
+
+  function addNetworkCandidate(candidate) {
+    const src = String(candidate?.src || '').trim();
+    if (!src) return;
+    addResolvedCandidate(src, candidate);
   }
 
   document.querySelectorAll('img').forEach((image) => {
@@ -539,6 +843,26 @@ function deepScanImages(viewportOnly) {
     if (video.poster) addCandidate(video.poster, video);
   });
 
+  document.querySelectorAll('[data-src], [data-original], [data-lazy-src], [data-bg], [data-background], [data-image], [poster]').forEach((element) => {
+    const rect = element.getBoundingClientRect();
+    if (!isVisibleRect(rect, viewportOnly)) return;
+
+    const srcsetUrl = getBestUrlFromSrcset(
+      element.getAttribute('data-srcset')
+      || element.getAttribute('srcset')
+      || ''
+    );
+    const candidate = srcsetUrl
+      || element.getAttribute('data-src')
+      || element.getAttribute('data-original')
+      || element.getAttribute('data-lazy-src')
+      || element.getAttribute('data-bg')
+      || element.getAttribute('data-background')
+      || element.getAttribute('data-image')
+      || element.getAttribute('poster');
+    if (candidate) addCandidate(candidate, element, element.getAttribute('alt') || '');
+  });
+
   document.querySelectorAll('[style*="background-image"], [style*="background:"]').forEach((element) => {
     const rect = element.getBoundingClientRect();
     if (!isVisibleRect(rect, viewportOnly)) return;
@@ -548,7 +872,7 @@ function deepScanImages(viewportOnly) {
   });
 
   const allElements = document.querySelectorAll('*');
-  const limit = Math.min(allElements.length, 500);
+  const limit = Math.min(allElements.length, 5000);
   for (let index = 0; index < limit; index += 1) {
     const element = allElements[index];
     const rect = element.getBoundingClientRect();
@@ -559,6 +883,17 @@ function deepScanImages(viewportOnly) {
 
     const beforeBackground = getBackgroundUrl(element, ':before');
     if (beforeBackground) addCandidate(beforeBackground, element);
+
+    const afterBackground = getBackgroundUrl(element, ':after');
+    if (afterBackground) addCandidate(afterBackground, element);
+  }
+
+  if (results.length === 0) {
+    getMetaImageCandidates().forEach((metaImage) => addCandidate(metaImage, document.body || document.documentElement));
+  }
+
+  if (!viewportOnly || results.length === 0) {
+    getNetworkLoadedImageCandidates().forEach(addNetworkCandidate);
   }
 
   return results;
@@ -582,6 +917,7 @@ const SHORTCUT_MAP = [
   { code: 'KeyC', command: 'capture-visible' },
   { code: 'KeyP', command: 'capture-full-page' },
   { code: 'KeyI', command: 'smart-picker' },
+  { code: 'KeyK', command: 'pick-color' },
   { code: 'KeyA', command: 'area-select' },
   { code: 'KeyR', command: 'area-record' },
 ];

@@ -2,6 +2,8 @@ const ACTIONS = {
   ping: 'ping',
   saveCapturedItem: 'saveCapturedItem',
   getDreamlabOrgData: 'getDreamlabOrgData',
+  getShortcutBindings: 'getShortcutBindings',
+  executeCommand: 'executeCommand',
 };
 
 const STORAGE_KEYS = {
@@ -14,6 +16,7 @@ const state = {
   projects: [],
   collections: [],
   activeContext: {},
+  shortcuts: [],
   isSaving: false,
 };
 
@@ -33,6 +36,8 @@ function cacheDom() {
   ui.tagsInput = document.getElementById('tags-input');
   ui.saveButton = document.getElementById('save-btn');
   ui.refreshButton = document.getElementById('refresh-btn');
+  ui.shortcutsRefreshButton = document.getElementById('shortcuts-refresh-btn');
+  ui.shortcutActions = document.getElementById('shortcut-actions');
   ui.status = document.getElementById('status');
 }
 
@@ -44,10 +49,23 @@ function bindEvents() {
 
   ui.refreshButton.addEventListener('click', () => {
     void refreshOrganizationData({ preserveSelection: true });
+    void refreshShortcutBindings();
   });
 
   ui.saveButton.addEventListener('click', () => {
     void handleSave();
+  });
+
+  ui.shortcutsRefreshButton?.addEventListener('click', () => {
+    void refreshShortcutBindings();
+  });
+
+  ui.shortcutActions?.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('[data-command]');
+    if (!button) return;
+    const command = button.getAttribute('data-command');
+    if (!command) return;
+    void handleShortcutAction(command);
   });
 }
 
@@ -61,9 +79,87 @@ async function initialize() {
   await Promise.all([
     loadPendingCapture(),
     refreshOrganizationData(),
+    refreshShortcutBindings(),
   ]);
   renderPreview();
   updateSaveButtonState();
+}
+
+function prettyShortcutPart(part) {
+  const value = String(part || '').trim();
+  const normalized = value.toLowerCase();
+  if (normalized === 'command' || normalized === 'cmd') return '⌘';
+  if (normalized === 'ctrl' || normalized === 'control') return 'Ctrl';
+  if (normalized === 'alt' || normalized === 'option') return '⌥';
+  if (normalized === 'shift') return '⇧';
+  if (normalized === 'up') return '↑';
+  if (normalized === 'down') return '↓';
+  if (normalized === 'left') return '←';
+  if (normalized === 'right') return '→';
+  return value.length === 1 ? value.toUpperCase() : value;
+}
+
+function splitShortcut(shortcut) {
+  const raw = String(shortcut || '').trim();
+  if (!raw) return [];
+  return raw.split('+').map(prettyShortcutPart).filter(Boolean);
+}
+
+function renderShortcutActions() {
+  if (!ui.shortcutActions) return;
+  if (!Array.isArray(state.shortcuts) || state.shortcuts.length === 0) {
+    ui.shortcutActions.innerHTML = '<div class="shortcut-empty">No shortcut actions available.</div>';
+    return;
+  }
+
+  ui.shortcutActions.innerHTML = state.shortcuts.map((entry) => {
+    const keys = splitShortcut(entry.shortcut);
+    const keysMarkup = keys.length > 0
+      ? keys.map((key) => `<kbd class="shortcut-key">${escapeHtml(key)}</kbd>`).join('')
+      : '<kbd class="shortcut-key">Unassigned</kbd>';
+
+    return `
+      <button class="shortcut-action-btn" type="button" data-command="${escapeHtml(entry.command)}" title="${escapeHtml(entry.description || entry.label)}">
+        <span class="shortcut-action-label">${escapeHtml(entry.label)}</span>
+        <span class="shortcut-keys">${keysMarkup}</span>
+      </button>
+    `;
+  }).join('');
+}
+
+async function refreshShortcutBindings() {
+  try {
+    const response = await runtimeMessage({ action: ACTIONS.getShortcutBindings });
+    if (!response?.success) {
+      state.shortcuts = [];
+      renderShortcutActions();
+      return;
+    }
+    state.shortcuts = Array.isArray(response.shortcuts) ? response.shortcuts : [];
+    renderShortcutActions();
+  } catch {
+    state.shortcuts = [];
+    renderShortcutActions();
+  }
+}
+
+async function handleShortcutAction(command) {
+  if (!command) return;
+  setStatus('Running command...');
+  try {
+    const response = await runtimeMessage({
+      action: ACTIONS.executeCommand,
+      command,
+      origin: 'popup-quick-action',
+    });
+    if (!response?.success) {
+      throw new Error(response?.error || 'Command failed.');
+    }
+    setStatus('Command triggered.', 'success');
+    setTimeout(() => window.close(), 250);
+  } catch (error) {
+    setStatus(error?.message || 'Command failed.', 'error');
+  }
 }
 
 function getStorage(keys) {

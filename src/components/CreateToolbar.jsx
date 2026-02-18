@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FileText, Image, Link, Clipboard, Palette } from 'lucide-react';
+import { FileText, Image, Link, Clipboard, Palette, Pipette } from 'lucide-react';
 
 export default function CreateToolbar({ onCreateNote, onUploadImage, onCreateLink, onPasteClipboard, onCreateColor }) {
     const [showLinkInput, setShowLinkInput] = useState(false);
     const [showColorPicker, setShowColorPicker] = useState(false);
     const [linkUrl, setLinkUrl] = useState('');
     const [colorValue, setColorValue] = useState('#6366f1');
+    const [isPickingColor, setIsPickingColor] = useState(false);
     const toolbarRef = useRef(null);
     const linkInputRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -36,9 +37,31 @@ export default function CreateToolbar({ onCreateNote, onUploadImage, onCreateLin
         setShowLinkInput(false);
     };
 
+    const isValidHexColor = /^#[0-9a-fA-F]{6}$/.test(colorValue);
+    const resolvedPreviewColor = isValidHexColor ? colorValue : '#000000';
+
     const handleColorSubmit = () => {
+        if (!isValidHexColor) return;
         onCreateColor(colorValue);
         setShowColorPicker(false);
+    };
+
+    const handleEyedropperPick = async () => {
+        if (typeof window === 'undefined' || typeof window.EyeDropper !== 'function') {
+            return;
+        }
+        setIsPickingColor(true);
+        try {
+            const picker = new window.EyeDropper();
+            const result = await picker.open();
+            if (result?.sRGBHex) {
+                setColorValue(String(result.sRGBHex).toUpperCase());
+            }
+        } catch {
+            // User cancellation (AbortError) is expected; no-op.
+        } finally {
+            setIsPickingColor(false);
+        }
     };
 
     const handleImageClick = () => {
@@ -124,10 +147,15 @@ export default function CreateToolbar({ onCreateNote, onUploadImage, onCreateLin
             {showColorPicker && (
                 <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50">
                     <div className="flex items-center gap-3 bg-white rounded-xl border border-zinc-200 shadow-xl px-4 py-3 min-w-[280px]">
+                        <div
+                            className="w-6 h-6 rounded-md border border-zinc-200 flex-shrink-0"
+                            style={{ backgroundColor: resolvedPreviewColor }}
+                            title={`Preview ${resolvedPreviewColor.toUpperCase()}`}
+                        />
                         <input
                             type="color"
-                            value={colorValue}
-                            onChange={(e) => setColorValue(e.target.value)}
+                            value={resolvedPreviewColor}
+                            onChange={(e) => setColorValue(e.target.value.toLowerCase())}
                             className="w-10 h-10 rounded-lg border border-zinc-200 cursor-pointer p-0"
                         />
                         <input
@@ -140,9 +168,21 @@ export default function CreateToolbar({ onCreateNote, onUploadImage, onCreateLin
                             className="flex-1 text-sm font-mono outline-none bg-transparent text-zinc-900 uppercase"
                             maxLength={7}
                         />
+                        {typeof window !== 'undefined' && typeof window.EyeDropper === 'function' ? (
+                            <button
+                                type="button"
+                                onClick={handleEyedropperPick}
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-100 transition-colors disabled:opacity-40"
+                                title="Pick from screen (native eyedropper)"
+                                disabled={isPickingColor}
+                            >
+                                <Pipette size={14} />
+                            </button>
+                        ) : null}
                         <button
                             onClick={handleColorSubmit}
-                            className="text-xs font-semibold text-white bg-zinc-900 rounded-lg px-3 py-1.5 hover:bg-zinc-800 transition-colors"
+                            disabled={!isValidHexColor}
+                            className="text-xs font-semibold text-white bg-zinc-900 rounded-lg px-3 py-1.5 hover:bg-zinc-800 transition-colors disabled:opacity-40"
                         >
                             Add
                         </button>
