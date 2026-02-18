@@ -41,6 +41,7 @@ import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveA
 
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
+import EntitySettingsModal from './components/EntitySettingsModal';
 import MasonryGrid from './components/MasonryGrid';
 import SortableGrid from './components/SortableGrid';
 import CreateToolbar from './components/CreateToolbar';
@@ -225,6 +226,7 @@ function App() {
     const [tagFilter, setTagFilter] = useState(null);
 
     const [showSettings, setShowSettings] = useState(false);
+    const [entitySettingsTarget, setEntitySettingsTarget] = useState(null);
     const [toast, setToast] = useState(null);
 
     // Connect AI tagging module to toast notifications
@@ -1370,21 +1372,23 @@ function App() {
         }
     };
 
-    const handleDeleteProject = async (project) => {
-        if (!project?.id) return;
+    const handleDeleteProject = async (project, { skipConfirm = false } = {}) => {
+        if (!project?.id) return false;
         const hasCollections = workspaceCollections.some((collection) => collection.projectId === project.id);
         if (hasCollections) {
             setToast({ message: 'Folder must be empty before deletion', type: 'error' });
-            return;
+            return false;
         }
 
-        const confirmed = window.confirm(`Delete folder "${project.name}"?`);
-        if (!confirmed) return;
+        if (!skipConfirm) {
+            const confirmed = window.confirm(`Delete folder "${project.name}"?`);
+            if (!confirmed) return false;
+        }
 
         const deleted = await deleteProject(project.id);
         if (!deleted) {
             setToast({ message: 'Failed to delete folder', type: 'error' });
-            return;
+            return false;
         }
 
         setProjects((prev) => prev.filter((candidate) => candidate.id !== project.id));
@@ -1393,6 +1397,99 @@ function App() {
             setSelectedCollectionId(null);
         }
         setToast({ message: `Deleted folder "${project.name}"`, type: 'success' });
+        return true;
+    };
+
+    const handleDeleteCollection = async (collection, { skipConfirm = false } = {}) => {
+        if (!collection?.id) return false;
+        if (!skipConfirm) {
+            const confirmed = window.confirm(
+                `Delete "${collection.name}" and all items inside it? This cannot be undone.`
+            );
+            if (!confirmed) return false;
+        }
+
+        try {
+            const { deletedItems } = await deleteCollection(collection.id, { moveItemsToUnsorted: false });
+
+            // Clean up media files in storage
+            for (const item of deletedItems) {
+                if (item.content && !item.content.startsWith('data:') && !item.content.startsWith('http')) {
+                    void deleteMedia(item.content).catch(() => {});
+                }
+                if (item.thumbnail && !item.thumbnail.startsWith('data:') && !item.thumbnail.startsWith('http')) {
+                    void deleteMedia(item.thumbnail).catch(() => {});
+                }
+            }
+
+            // Update local state immediately
+            const deletedIds = new Set(deletedItems.map((i) => i.id));
+            setItems((prev) => prev.filter((item) => !deletedIds.has(item.id)));
+            setCollections((prev) => prev.filter((candidate) => candidate.id !== collection.id));
+
+            if (selectedCollectionId === collection.id) {
+                setSelectedCollectionId(null);
+            }
+            setToast({ message: `Deleted "${collection.name}" and its items`, type: 'success' });
+            return true;
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to delete collection', type: 'error' });
+            return false;
+        }
+    };
+
+    const handleSaveProjectSettings = async (project, updates) => {
+        if (!project?.id) return false;
+
+        const nextName = String(updates?.name || '').trim();
+        if (!nextName) {
+            setToast({ message: 'Project name is required', type: 'error' });
+            return false;
+        }
+
+        const updated = await updateProject(project.id, {
+            name: nextName,
+            description: String(updates?.description || '').trim(),
+            iconKey: updates?.iconKey || null,
+            colorKey: updates?.colorKey || null,
+        });
+        if (!updated) {
+            setToast({ message: 'Failed to save project settings', type: 'error' });
+            return false;
+        }
+
+        setProjects((prev) => prev.map((candidate) => (
+            candidate.id === updated.id ? updated : candidate
+        )));
+        setToast({ message: `Saved settings for "${updated.name}"`, type: 'success' });
+        return true;
+    };
+
+    const handleSaveCollectionSettings = async (collection, updates) => {
+        if (!collection?.id) return false;
+
+        const nextName = String(updates?.name || '').trim();
+        if (!nextName) {
+            setToast({ message: 'Collection name is required', type: 'error' });
+            return false;
+        }
+
+        const updated = await updateCollection(collection.id, {
+            name: nextName,
+            description: String(updates?.description || '').trim(),
+            iconKey: updates?.iconKey || null,
+            colorKey: updates?.colorKey || null,
+        });
+        if (!updated) {
+            setToast({ message: 'Failed to save collection settings', type: 'error' });
+            return false;
+        }
+
+        setCollections((prev) => prev.map((candidate) => (
+            candidate.id === updated.id ? updated : candidate
+        )));
+        setToast({ message: `Saved settings for "${updated.name}"`, type: 'success' });
+        return true;
     };
 
     const handleCollectionReorder = async ({
@@ -2094,6 +2191,9 @@ function App() {
                 onProjectDelete={(project) => {
                     void handleDeleteProject(project);
                 }}
+                onOpenProjectSettings={(project) => {
+                    setEntitySettingsTarget({ type: 'project', entity: project });
+                }}
                 onCollectionSelect={(collectionId) => {
                     const selectedCollection = workspaceCollections.find((collection) => collection.id === collectionId);
                     setSelectedCollectionId(collectionId);
@@ -2113,38 +2213,11 @@ function App() {
                         setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
                     }
                 }}
-                onCollectionDelete={async (collection) => {
-                    if (!collection?.id) return;
-                    const confirmed = window.confirm(
-                        `Delete "${collection.name}" and all items inside it? This cannot be undone.`
-                    );
-                    if (!confirmed) return;
-
-                    try {
-                        const { deletedItems } = await deleteCollection(collection.id, { moveItemsToUnsorted: false });
-
-                        // Clean up media files in storage
-                        for (const item of deletedItems) {
-                            if (item.content && !item.content.startsWith('data:') && !item.content.startsWith('http')) {
-                                void deleteMedia(item.content).catch(() => {});
-                            }
-                            if (item.thumbnail && !item.thumbnail.startsWith('data:') && !item.thumbnail.startsWith('http')) {
-                                void deleteMedia(item.thumbnail).catch(() => {});
-                            }
-                        }
-
-                        // Update local state immediately
-                        const deletedIds = new Set(deletedItems.map((i) => i.id));
-                        setItems((prev) => prev.filter((item) => !deletedIds.has(item.id)));
-                        setCollections((prev) => prev.filter((candidate) => candidate.id !== collection.id));
-
-                        if (selectedCollectionId === collection.id) {
-                            setSelectedCollectionId(null);
-                        }
-                        setToast({ message: `Deleted "${collection.name}" and its items`, type: 'success' });
-                    } catch (error) {
-                        setToast({ message: error?.message || 'Failed to delete collection', type: 'error' });
-                    }
+                onCollectionDelete={(collection) => {
+                    void handleDeleteCollection(collection);
+                }}
+                onOpenCollectionSettings={(collection) => {
+                    setEntitySettingsTarget({ type: 'collection', entity: collection });
                 }}
                 onCreateCollection={(projectId, collectionName) => {
                     void handleCreateCollection(projectId, collectionName);
@@ -2443,6 +2516,22 @@ function App() {
                             onUpdateWorkspace={loadData}
                             onResetAllData={handleClear}
                             user={user}
+                        />
+                    )}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                    {entitySettingsTarget && (
+                        <EntitySettingsModal
+                            type={entitySettingsTarget.type}
+                            entity={entitySettingsTarget.entity}
+                            onClose={() => setEntitySettingsTarget(null)}
+                            onSave={entitySettingsTarget.type === 'project'
+                                ? handleSaveProjectSettings
+                                : handleSaveCollectionSettings}
+                            onDelete={entitySettingsTarget.type === 'project'
+                                ? (project) => handleDeleteProject(project, { skipConfirm: true })
+                                : (collection) => handleDeleteCollection(collection, { skipConfirm: true })}
                         />
                     )}
                 </AnimatePresence>

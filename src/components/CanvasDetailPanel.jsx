@@ -176,28 +176,39 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
         }
     };
 
-    const handleAddTag = (e) => {
-        if (e.key === 'Enter' && tagInput.trim()) {
-            const next = tagInput.trim();
-            if (next.includes(',')) return;
-            if (!objectiveTags.includes(next)) {
-                const nextObj = [...objectiveTags, next];
-                setObjectiveTags(nextObj);
-                setSearchTags(uniqueTags([...searchTags, next]));
-            }
-            setTagInput('');
-        }
+    const persistTagState = async (nextObjectiveTags, nextContextTags, nextSearchTags) => {
+        setObjectiveTags(nextObjectiveTags);
+        setContextTags(nextContextTags);
+        setSearchTags(nextSearchTags);
+        const updated = await updateItem(item.id, {
+            objectiveTags: nextObjectiveTags,
+            contextTags: nextContextTags,
+            tags: nextSearchTags,
+        });
+        if (onUpdate && updated) onUpdate(updated);
+    };
+
+    const handleAddTag = async (e) => {
+        if (e.key !== 'Enter' || !tagInput.trim()) return;
+        e.preventDefault();
+
+        const nextTag = tagInput.trim();
+        if (nextTag.includes(',')) return;
+
+        setTagInput('');
+
+        if (objectiveTags.includes(nextTag)) return;
+
+        const nextObjectiveTags = [...objectiveTags, nextTag];
+        const nextSearchTags = uniqueTags([...searchTags, nextTag]);
+        await persistTagState(nextObjectiveTags, contextTags, nextSearchTags);
     };
 
     const handleRemoveTag = async (tagToRemove) => {
         const nextObj = objectiveTags.filter((t) => t !== tagToRemove);
         const nextCtx = contextTags.filter((ct) => getContextTagText(ct) !== tagToRemove);
         const nextSearch = searchTags.filter((t) => t !== tagToRemove);
-        setObjectiveTags(nextObj);
-        setContextTags(nextCtx);
-        setSearchTags(nextSearch);
-        const updated = await updateItem(item.id, { objectiveTags: nextObj, contextTags: nextCtx, tags: nextSearch });
-        if (onUpdate && updated) onUpdate(updated);
+        await persistTagState(nextObj, nextCtx, nextSearch);
     };
 
     const handleDeleteItem = () => {

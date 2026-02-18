@@ -80,6 +80,9 @@ function projectFromDb(row) {
         id: row.id,
         workspaceId: row.workspace_id || null,
         name: row.name,
+        description: row.description || '',
+        iconKey: row.icon_key || null,
+        colorKey: row.color_key || null,
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
     };
@@ -93,6 +96,9 @@ function collectionFromDb(row) {
         projectId: row.project_id || null,
         sortOrder: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : null,
         name: row.name,
+        description: row.description || '',
+        iconKey: row.icon_key || null,
+        colorKey: row.color_key || null,
         kind: row.kind || 'custom',
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
@@ -214,6 +220,9 @@ export async function createProject(workspaceId, name) {
 export async function updateProject(id, updates) {
     const row = {};
     if (updates.name !== undefined) row.name = updates.name;
+    if (updates.description !== undefined) row.description = updates.description;
+    if (updates.iconKey !== undefined) row.icon_key = updates.iconKey;
+    if (updates.colorKey !== undefined) row.color_key = updates.colorKey;
 
     const { data, error } = await supabase
         .from('projects')
@@ -277,6 +286,9 @@ export async function createCollection(workspaceId, projectId, name, sortOrder =
 export async function updateCollection(id, updates) {
     const row = {};
     if (updates.name !== undefined) row.name = updates.name;
+    if (updates.description !== undefined) row.description = updates.description;
+    if (updates.iconKey !== undefined) row.icon_key = updates.iconKey;
+    if (updates.colorKey !== undefined) row.color_key = updates.colorKey;
     if (updates.kind !== undefined) row.kind = updates.kind;
     if (updates.projectId !== undefined) row.project_id = updates.projectId;
     if (updates.sortOrder !== undefined) row.sort_order = updates.sortOrder;

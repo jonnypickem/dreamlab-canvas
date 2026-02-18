@@ -495,19 +495,24 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         }
     };
 
-    const handleAddTag = (e) => {
-        if (e.key === 'Enter' && tagInput.trim()) {
-            const nextTag = tagInput.trim();
-            if (nextTag.includes(',')) {
-                return;
-            }
-            if (!objectiveTagsState.includes(nextTag)) {
-                const nextObjectiveTags = [...objectiveTagsState, nextTag];
-                setObjectiveTagsState(nextObjectiveTags);
-                setSearchTagsState(uniqueTags([...searchTagsState, nextTag]));
-            }
-            setTagInput('');
+    const handleAddTag = async (e) => {
+        if (e.key !== 'Enter' || !tagInput.trim()) return;
+        e.preventDefault();
+
+        const nextTag = tagInput.trim();
+        if (nextTag.includes(',')) {
+            return;
         }
+
+        setTagInput('');
+
+        if (objectiveTagsState.includes(nextTag)) {
+            return;
+        }
+
+        const nextObjectiveTags = [...objectiveTagsState, nextTag];
+        const nextSearchTags = uniqueTags([...searchTagsState, nextTag]);
+        await persistTagState(nextObjectiveTags, contextTagsState, nextSearchTags);
     };
 
     const persistTagState = async (nextObjectiveTags, nextContextTags, nextSearchTags) => {

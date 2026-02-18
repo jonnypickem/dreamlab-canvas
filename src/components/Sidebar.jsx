@@ -6,6 +6,7 @@ import { IconButton } from '../ui/components/IconButton';
 import { Avatar } from '../ui/components/Avatar';
 import { Badge } from '../ui/components/Badge';
 import { TextField } from '../ui/components/TextField';
+import { getEntityColorToken, getEntityIconComponent } from '../utils/entityStyles';
 import * as SubframeCore from "@subframe/core";
 import {
     FeatherChevronDown,
@@ -20,23 +21,6 @@ import {
 } from "@subframe/core";
 
 const UNGROUPED_COLLECTION_COMPOSER_ID = '__ungrouped__';
-const COLLECTION_CHIP_CLASSES = [
-    'border-emerald-300 bg-emerald-200',
-    'border-indigo-300 bg-indigo-200',
-    'border-violet-300 bg-violet-200',
-    'border-sky-300 bg-sky-200',
-    'border-amber-300 bg-amber-200',
-    'border-rose-300 bg-rose-200'
-];
-
-const getCollectionChipClassName = (collectionId) => {
-    const text = String(collectionId || '');
-    let hash = 0;
-    for (let i = 0; i < text.length; i += 1) {
-        hash = (hash * 31 + text.charCodeAt(i)) | 0;
-    }
-    return COLLECTION_CHIP_CLASSES[Math.abs(hash) % COLLECTION_CHIP_CLASSES.length];
-};
 
 export default function Sidebar({
     projects = [],
@@ -55,6 +39,8 @@ export default function Sidebar({
     onCreateUngroupedCollection,
     onCollectionMove,
     onCollectionReorder,
+    onOpenProjectSettings,
+    onOpenCollectionSettings,
     projectIdToOpenCollectionComposer,
     onCollectionComposerOpened,
     activeWorkspaceId,
@@ -434,9 +420,10 @@ export default function Sidebar({
                     {projects.map((project) => {
                         const projectCollections = groupedCollections.map.get(project.id) || [];
                         const isCollapsed = Boolean(collapsedProjects[project.id]);
-                        const canDeleteProject = projectCollections.length === 0;
                         const moveTargets = projects.filter((candidate) => candidate.id !== project.id);
                         const isProjectSelected = selectedProjectId === project.id && !selectedCollectionId;
+                        const ProjectIcon = getEntityIconComponent(project.iconKey, project.id, 'project');
+                        const projectColor = getEntityColorToken(project.colorKey, project.id);
 
                         return (
                             <div
@@ -496,7 +483,9 @@ export default function Sidebar({
                                                 title={project.name}
                                             >
                                                 <span className="truncate flex items-center gap-2">
-                                                    <FeatherFolder className="h-4 w-4 shrink-0" />
+                                                    <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${projectColor.bgClass} ${projectColor.borderClass}`}>
+                                                        <ProjectIcon className={`h-3.5 w-3.5 ${projectColor.iconClass}`} />
+                                                    </span>
                                                     <span className="truncate">{project.name}</span>
                                                     <span className="text-[11px] text-neutral-400">{projectCollections.length}</span>
                                                 </span>
@@ -533,17 +522,9 @@ export default function Sidebar({
                                                             <DropdownMenu>
                                                                 <DropdownMenu.DropdownItem
                                                                     icon={<FeatherSettings />}
-                                                                    onClick={() => startProjectRename(project)}
+                                                                    onClick={() => onOpenProjectSettings && onOpenProjectSettings(project)}
                                                                 >
-                                                                    Rename Folder
-                                                                </DropdownMenu.DropdownItem>
-                                                                <DropdownMenu.DropdownDivider />
-                                                                <DropdownMenu.DropdownItem
-                                                                    icon={<FeatherTrash />}
-                                                                    onClick={() => onProjectDelete && onProjectDelete(project)}
-                                                                    className={!canDeleteProject ? 'opacity-50' : ''}
-                                                                >
-                                                                    {canDeleteProject ? 'Delete Folder' : 'Delete Folder (Empty Only)'}
+                                                                    Project Settings
                                                                 </DropdownMenu.DropdownItem>
                                                             </DropdownMenu>
                                                         </SubframeCore.DropdownMenu.Content>
@@ -580,6 +561,8 @@ export default function Sidebar({
                                     const isDropAfter = dropTarget?.collectionId === collection.id
                                         && dropTarget?.projectId === project.id
                                         && dropTarget?.position === 'after';
+                                    const CollectionIcon = getEntityIconComponent(collection.iconKey, collection.id, 'collection');
+                                    const collectionColor = getEntityColorToken(collection.colorKey, collection.id);
 
                                     return (
                                         <div
@@ -623,11 +606,12 @@ export default function Sidebar({
                                                             : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
                                                         }`}
                                                         onClick={() => onCollectionSelect && onCollectionSelect(collection.id)}
-                                                        onDoubleClick={() => startCollectionRename(collection)}
                                                         title={collection.name}
                                                     >
                                                         <span className="truncate flex items-center gap-2">
-                                                            <span className={`h-3.5 w-3.5 shrink-0 rounded-[4px] border ${getCollectionChipClassName(collection.id)}`} />
+                                                            <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${collectionColor.bgClass} ${collectionColor.borderClass}`}>
+                                                                <CollectionIcon className={`h-3.5 w-3.5 ${collectionColor.iconClass}`} />
+                                                            </span>
                                                             <span className="truncate">{collection.name}</span>
                                                         </span>
                                                     </button>
@@ -651,9 +635,9 @@ export default function Sidebar({
                                                                 <DropdownMenu>
                                                                     <DropdownMenu.DropdownItem
                                                                         icon={<FeatherSettings />}
-                                                                        onClick={() => startCollectionRename(collection)}
+                                                                        onClick={() => onOpenCollectionSettings && onOpenCollectionSettings(collection)}
                                                                     >
-                                                                        Rename
+                                                                        Collection Settings
                                                                     </DropdownMenu.DropdownItem>
                                                                     {moveTargets.length > 0 && (
                                                                         <>
@@ -669,13 +653,6 @@ export default function Sidebar({
                                                                             ))}
                                                                         </>
                                                                     )}
-                                                                    <DropdownMenu.DropdownDivider />
-                                                                    <DropdownMenu.DropdownItem
-                                                                        icon={<FeatherTrash />}
-                                                                        onClick={() => onCollectionDelete && onCollectionDelete(collection)}
-                                                                    >
-                                                                        Delete Collection
-                                                                    </DropdownMenu.DropdownItem>
                                                                 </DropdownMenu>
                                                             </SubframeCore.DropdownMenu.Content>
                                                         </SubframeCore.DropdownMenu.Portal>
@@ -735,6 +712,8 @@ export default function Sidebar({
                             const isDropAfter = dropTarget?.collectionId === collection.id
                                 && dropTarget?.projectId === null
                                 && dropTarget?.position === 'after';
+                            const CollectionIcon = getEntityIconComponent(collection.iconKey, collection.id, 'collection');
+                            const collectionColor = getEntityColorToken(collection.colorKey, collection.id);
 
                             return (
                                 <div
@@ -778,11 +757,12 @@ export default function Sidebar({
                                                     : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
                                                 }`}
                                                 onClick={() => onCollectionSelect && onCollectionSelect(collection.id)}
-                                                onDoubleClick={() => startCollectionRename(collection)}
                                                 title={collection.name}
                                             >
                                                 <span className="truncate flex items-center gap-2">
-                                                    <span className={`h-3.5 w-3.5 shrink-0 rounded-[4px] border ${getCollectionChipClassName(collection.id)}`} />
+                                                    <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${collectionColor.bgClass} ${collectionColor.borderClass}`}>
+                                                        <CollectionIcon className={`h-3.5 w-3.5 ${collectionColor.iconClass}`} />
+                                                    </span>
                                                     <span className="truncate">{collection.name}</span>
                                                 </span>
                                             </button>
@@ -806,9 +786,9 @@ export default function Sidebar({
                                                         <DropdownMenu>
                                                             <DropdownMenu.DropdownItem
                                                                 icon={<FeatherSettings />}
-                                                                onClick={() => startCollectionRename(collection)}
+                                                                onClick={() => onOpenCollectionSettings && onOpenCollectionSettings(collection)}
                                                             >
-                                                                Rename
+                                                                Collection Settings
                                                             </DropdownMenu.DropdownItem>
                                                             {projects.length > 0 && (
                                                                 <>
@@ -824,13 +804,6 @@ export default function Sidebar({
                                                                     ))}
                                                                 </>
                                                             )}
-                                                            <DropdownMenu.DropdownDivider />
-                                                            <DropdownMenu.DropdownItem
-                                                                icon={<FeatherTrash />}
-                                                                onClick={() => onCollectionDelete && onCollectionDelete(collection)}
-                                                            >
-                                                                Delete Collection
-                                                            </DropdownMenu.DropdownItem>
                                                         </DropdownMenu>
                                                     </SubframeCore.DropdownMenu.Content>
                                                 </SubframeCore.DropdownMenu.Portal>

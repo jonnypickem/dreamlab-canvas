@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS projects (
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    description TEXT,
+    icon_key TEXT,
+    color_key TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -43,6 +46,9 @@ CREATE TABLE IF NOT EXISTS collections (
     project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
     sort_order BIGINT,
     name TEXT NOT NULL,
+    description TEXT,
+    icon_key TEXT,
+    color_key TEXT,
     kind TEXT NOT NULL DEFAULT 'custom',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -54,6 +60,24 @@ ALTER TABLE collections
 
 ALTER TABLE collections
     ADD COLUMN IF NOT EXISTS sort_order BIGINT;
+
+ALTER TABLE projects
+    ADD COLUMN IF NOT EXISTS description TEXT;
+
+ALTER TABLE projects
+    ADD COLUMN IF NOT EXISTS icon_key TEXT;
+
+ALTER TABLE projects
+    ADD COLUMN IF NOT EXISTS color_key TEXT;
+
+ALTER TABLE collections
+    ADD COLUMN IF NOT EXISTS description TEXT;
+
+ALTER TABLE collections
+    ADD COLUMN IF NOT EXISTS icon_key TEXT;
+
+ALTER TABLE collections
+    ADD COLUMN IF NOT EXISTS color_key TEXT;
 
 DO $$
 BEGIN
