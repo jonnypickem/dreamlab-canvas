@@ -305,6 +305,32 @@ export default function Sidebar({
         clearDragState();
     };
 
+    const renderEntityMarker = (IconComponent, colorToken) => {
+        if (!IconComponent && !colorToken) {
+            return null;
+        }
+
+        if (IconComponent && colorToken) {
+            return (
+                <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${colorToken.bgClass} ${colorToken.borderClass}`}>
+                    <IconComponent className={`h-3.5 w-3.5 ${colorToken.iconClass}`} />
+                </span>
+            );
+        }
+
+        if (IconComponent) {
+            return (
+                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-white">
+                    <IconComponent className="h-3.5 w-3.5 text-neutral-600" />
+                </span>
+            );
+        }
+
+        return (
+            <span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-full border ${colorToken.bgClass} ${colorToken.borderClass}`} />
+        );
+    };
+
     return (
         <aside
             className={`flex w-72 flex-none flex-col items-start gap-2 self-stretch bg-neutral-50 px-4 py-4 mobile:hidden ${lockScroll ? 'overflow-hidden' : ''}`}
@@ -483,9 +509,7 @@ export default function Sidebar({
                                                 title={project.name}
                                             >
                                                 <span className="truncate flex items-center gap-2">
-                                                    <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${projectColor.bgClass} ${projectColor.borderClass}`}>
-                                                        <ProjectIcon className={`h-3.5 w-3.5 ${projectColor.iconClass}`} />
-                                                    </span>
+                                                    {renderEntityMarker(ProjectIcon, projectColor)}
                                                     <span className="truncate">{project.name}</span>
                                                     <span className="text-[11px] text-neutral-400">{projectCollections.length}</span>
                                                 </span>
@@ -609,9 +633,7 @@ export default function Sidebar({
                                                         title={collection.name}
                                                     >
                                                         <span className="truncate flex items-center gap-2">
-                                                            <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${collectionColor.bgClass} ${collectionColor.borderClass}`}>
-                                                                <CollectionIcon className={`h-3.5 w-3.5 ${collectionColor.iconClass}`} />
-                                                            </span>
+                                                            {renderEntityMarker(CollectionIcon, collectionColor)}
                                                             <span className="truncate">{collection.name}</span>
                                                         </span>
                                                     </button>
@@ -760,9 +782,7 @@ export default function Sidebar({
                                                 title={collection.name}
                                             >
                                                 <span className="truncate flex items-center gap-2">
-                                                    <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${collectionColor.bgClass} ${collectionColor.borderClass}`}>
-                                                        <CollectionIcon className={`h-3.5 w-3.5 ${collectionColor.iconClass}`} />
-                                                    </span>
+                                                    {renderEntityMarker(CollectionIcon, collectionColor)}
                                                     <span className="truncate">{collection.name}</span>
                                                 </span>
                                             </button>

@@ -13,7 +13,11 @@ import {
     Compass
 } from 'lucide-react';
 
+export const ENTITY_ICON_NONE_KEY = 'none';
+export const ENTITY_COLOR_NONE_KEY = 'none';
+
 export const ENTITY_ICON_OPTIONS = [
+    { key: ENTITY_ICON_NONE_KEY, label: 'No icon', Icon: null },
     { key: 'folder', label: 'Folder', Icon: Folder },
     { key: 'layers', label: 'Layers', Icon: Layers3 },
     { key: 'briefcase', label: 'Briefcase', Icon: Briefcase },
@@ -29,6 +33,7 @@ export const ENTITY_ICON_OPTIONS = [
 ];
 
 export const ENTITY_COLOR_OPTIONS = [
+    { key: ENTITY_COLOR_NONE_KEY, label: 'No color', iconClass: '', bgClass: '', borderClass: '' },
     { key: 'slate', label: 'Slate', iconClass: 'text-slate-600', bgClass: 'bg-slate-100', borderClass: 'border-slate-200' },
     { key: 'indigo', label: 'Indigo', iconClass: 'text-indigo-600', bgClass: 'bg-indigo-100', borderClass: 'border-indigo-200' },
     { key: 'violet', label: 'Violet', iconClass: 'text-violet-600', bgClass: 'bg-violet-100', borderClass: 'border-violet-200' },
@@ -40,6 +45,9 @@ export const ENTITY_COLOR_OPTIONS = [
     { key: 'rose', label: 'Rose', iconClass: 'text-rose-600', bgClass: 'bg-rose-100', borderClass: 'border-rose-200' },
     { key: 'fuchsia', label: 'Fuchsia', iconClass: 'text-fuchsia-600', bgClass: 'bg-fuchsia-100', borderClass: 'border-fuchsia-200' },
 ];
+
+const ENTITY_ICON_OPTIONS_WITH_MARKER = ENTITY_ICON_OPTIONS.filter((option) => option.key !== ENTITY_ICON_NONE_KEY);
+const ENTITY_COLOR_OPTIONS_WITH_MARKER = ENTITY_COLOR_OPTIONS.filter((option) => option.key !== ENTITY_COLOR_NONE_KEY);
 
 function hashString(input) {
     const text = String(input || '');
@@ -59,6 +67,7 @@ function getColorOption(colorKey) {
 }
 
 export function resolveEntityIconKey(iconKey, entityId = '', entityType = 'collection') {
+    if (iconKey === ENTITY_ICON_NONE_KEY) return ENTITY_ICON_NONE_KEY;
     const explicit = getIconOption(iconKey);
     if (explicit) return explicit.key;
 
@@ -66,26 +75,29 @@ export function resolveEntityIconKey(iconKey, entityId = '', entityType = 'colle
         return 'folder';
     }
 
-    const fallbackIndex = hashString(entityId) % ENTITY_ICON_OPTIONS.length;
-    return ENTITY_ICON_OPTIONS[fallbackIndex].key;
+    const fallbackIndex = hashString(entityId) % ENTITY_ICON_OPTIONS_WITH_MARKER.length;
+    return ENTITY_ICON_OPTIONS_WITH_MARKER[fallbackIndex].key;
 }
 
 export function resolveEntityColorKey(colorKey, entityId = '') {
+    if (colorKey === ENTITY_COLOR_NONE_KEY) return ENTITY_COLOR_NONE_KEY;
     const explicit = getColorOption(colorKey);
     if (explicit) return explicit.key;
 
-    const fallbackIndex = hashString(entityId) % ENTITY_COLOR_OPTIONS.length;
-    return ENTITY_COLOR_OPTIONS[fallbackIndex].key;
+    const fallbackIndex = hashString(entityId) % ENTITY_COLOR_OPTIONS_WITH_MARKER.length;
+    return ENTITY_COLOR_OPTIONS_WITH_MARKER[fallbackIndex].key;
 }
 
 export function getEntityIconComponent(iconKey, entityId = '', entityType = 'collection') {
     const resolvedKey = resolveEntityIconKey(iconKey, entityId, entityType);
+    if (resolvedKey === ENTITY_ICON_NONE_KEY) return null;
     const option = getIconOption(resolvedKey) || ENTITY_ICON_OPTIONS[0];
+    if (!option?.Icon) return null;
     return option.Icon;
 }
 
 export function getEntityColorToken(colorKey, entityId = '') {
     const resolvedKey = resolveEntityColorKey(colorKey, entityId);
+    if (resolvedKey === ENTITY_COLOR_NONE_KEY) return null;
     return getColorOption(resolvedKey) || ENTITY_COLOR_OPTIONS[0];
 }
-

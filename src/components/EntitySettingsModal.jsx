@@ -8,6 +8,8 @@ import ConfirmDialog from './ConfirmDialog';
 import {
     ENTITY_ICON_OPTIONS,
     ENTITY_COLOR_OPTIONS,
+    ENTITY_ICON_NONE_KEY,
+    ENTITY_COLOR_NONE_KEY,
     getEntityColorToken,
     getEntityIconComponent,
     resolveEntityColorKey,
@@ -49,6 +51,8 @@ export default function EntitySettingsModal({
         () => getEntityColorToken(colorKey, entity?.id),
         [colorKey, entity?.id]
     );
+    const hasPreviewIcon = Boolean(PreviewIcon) && iconKey !== ENTITY_ICON_NONE_KEY;
+    const hasPreviewColor = Boolean(previewColor) && colorKey !== ENTITY_COLOR_NONE_KEY;
 
     if (!entity) return null;
 
@@ -104,8 +108,16 @@ export default function EntitySettingsModal({
                 >
                     <div className="flex items-center justify-between border-b border-neutral-100 px-6 py-5">
                         <div className="flex items-center gap-3">
-                            <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${previewColor.bgClass} ${previewColor.borderClass}`}>
-                                <PreviewIcon className={`h-5 w-5 ${previewColor.iconClass}`} />
+                            <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${
+                                hasPreviewColor ? `${previewColor.bgClass} ${previewColor.borderClass}` : 'bg-neutral-50 border-neutral-200'
+                            }`}>
+                                {hasPreviewIcon ? (
+                                    <PreviewIcon className={`h-5 w-5 ${hasPreviewColor ? previewColor.iconClass : 'text-neutral-600'}`} />
+                                ) : hasPreviewColor ? (
+                                    <span className={`h-3.5 w-3.5 rounded-[4px] ${previewColor.iconClass.replace('text-', 'bg-')}`} />
+                                ) : (
+                                    <span className="text-[10px] font-medium uppercase text-neutral-400">None</span>
+                                )}
                             </div>
                             <div className="flex flex-col">
                                 <span className="text-heading-3 font-heading-3 text-default-font">{title}</span>
@@ -154,12 +166,18 @@ export default function EntitySettingsModal({
                                             title={option.label}
                                             className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
                                                 isActive
-                                                    ? `${previewColor.bgClass} ${previewColor.borderClass}`
+                                                    ? (hasPreviewColor
+                                                        ? `${previewColor.bgClass} ${previewColor.borderClass}`
+                                                        : 'border-neutral-300 bg-neutral-100')
                                                     : 'border-neutral-200 bg-white hover:bg-neutral-50'
                                             }`}
                                             onClick={() => setIconKey(option.key)}
                                         >
-                                            <OptionIcon className={`h-4 w-4 ${isActive ? previewColor.iconClass : 'text-neutral-600'}`} />
+                                            {OptionIcon ? (
+                                                <OptionIcon className={`h-4 w-4 ${isActive && hasPreviewColor ? previewColor.iconClass : 'text-neutral-600'}`} />
+                                            ) : (
+                                                <span className="text-[10px] font-medium uppercase text-neutral-500">None</span>
+                                            )}
                                         </button>
                                     );
                                 })}
@@ -178,12 +196,18 @@ export default function EntitySettingsModal({
                                             title={option.label}
                                             className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-2 transition-colors ${
                                                 isActive
-                                                    ? `${option.bgClass} ${option.borderClass}`
+                                                    ? (option.key === ENTITY_COLOR_NONE_KEY
+                                                        ? 'border-neutral-300 bg-neutral-100'
+                                                        : `${option.bgClass} ${option.borderClass}`)
                                                     : 'border-neutral-200 bg-white hover:bg-neutral-50'
                                             }`}
                                             onClick={() => setColorKey(option.key)}
                                         >
-                                            <span className={`h-3 w-3 rounded-full ${option.iconClass.replace('text-', 'bg-')}`} />
+                                            {option.key === ENTITY_COLOR_NONE_KEY ? (
+                                                <span className="text-[10px] font-medium uppercase text-neutral-500">None</span>
+                                            ) : (
+                                                <span className={`h-3 w-3 rounded-full ${option.iconClass.replace('text-', 'bg-')}`} />
+                                            )}
                                             <span className="text-caption font-caption text-subtext-color">{option.label}</span>
                                         </button>
                                     );
@@ -234,4 +258,3 @@ export default function EntitySettingsModal({
         </>
     );
 }
-
