@@ -1,6 +1,15 @@
 import { supabase, getCurrentUserId } from './supabase';
 
 export const GENERATED_COLLECTION_KIND = 'generated_outputs';
+let lastStorageError = null;
+
+export function getLastStorageError() {
+    return lastStorageError;
+}
+
+function setLastStorageError(error) {
+    lastStorageError = error || null;
+}
 
 // ── Helper: snake_case ↔ camelCase mapping ──────────────────────────
 
@@ -218,6 +227,7 @@ export async function createProject(workspaceId, name) {
 }
 
 export async function updateProject(id, updates) {
+    setLastStorageError(null);
     const row = {};
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.description !== undefined) row.description = updates.description;
@@ -231,7 +241,12 @@ export async function updateProject(id, updates) {
         .select()
         .single();
 
-    if (error) { console.error('updateProject error:', error); return null; }
+    if (error) {
+        setLastStorageError(error);
+        console.error('updateProject error:', error);
+        return null;
+    }
+    setLastStorageError(null);
     return projectFromDb(data);
 }
 
@@ -284,6 +299,7 @@ export async function createCollection(workspaceId, projectId, name, sortOrder =
 }
 
 export async function updateCollection(id, updates) {
+    setLastStorageError(null);
     const row = {};
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.description !== undefined) row.description = updates.description;
@@ -300,7 +316,12 @@ export async function updateCollection(id, updates) {
         .select()
         .single();
 
-    if (error) { console.error('updateCollection error:', error); return null; }
+    if (error) {
+        setLastStorageError(error);
+        console.error('updateCollection error:', error);
+        return null;
+    }
+    setLastStorageError(null);
     return collectionFromDb(data);
 }
 

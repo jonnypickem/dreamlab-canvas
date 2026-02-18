@@ -18,7 +18,8 @@ import {
     setActiveContext,
     updateItem,
     loadPrimitiveAnalysisStore,
-    getPrimitiveAnalysisStore
+    getPrimitiveAnalysisStore,
+    getLastStorageError
 } from './lib/storage';
 import { supabase } from './lib/supabase';
 import AuthScreen from './components/AuthScreen';
@@ -114,6 +115,20 @@ function areIdOrdersEqual(a, b) {
     if (!Array.isArray(a) || !Array.isArray(b)) return false;
     if (a.length !== b.length) return false;
     return a.every((id, index) => id === b[index]);
+}
+
+function getEntitySettingsSaveErrorMessage(entityLabel = 'settings') {
+    const error = getLastStorageError();
+    const fallback = `Failed to save ${entityLabel}`;
+    if (!error) return fallback;
+
+    const message = String(error?.message || '');
+    if (error?.code === '42703' && /(icon_key|color_key|description)/i.test(message)) {
+        return 'Settings columns are missing in Supabase. Run the latest SQL migration and try again.';
+    }
+
+    if (message) return `${fallback}: ${message}`;
+    return fallback;
 }
 
 function computeCollectionReorder(allCollections, {
@@ -1454,7 +1469,7 @@ function App() {
             colorKey: updates?.colorKey || null,
         });
         if (!updated) {
-            setToast({ message: 'Failed to save project settings', type: 'error' });
+            setToast({ message: getEntitySettingsSaveErrorMessage('project settings'), type: 'error' });
             return false;
         }
 
@@ -1481,7 +1496,7 @@ function App() {
             colorKey: updates?.colorKey || null,
         });
         if (!updated) {
-            setToast({ message: 'Failed to save collection settings', type: 'error' });
+            setToast({ message: getEntitySettingsSaveErrorMessage('collection settings'), type: 'error' });
             return false;
         }
 

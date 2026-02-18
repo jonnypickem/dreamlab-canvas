@@ -481,7 +481,23 @@ export default function Sidebar({
                                         <>
                                             <button
                                                 type="button"
-                                                className="absolute left-2 top-1/2 z-10 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100"
+                                                className={`h-10 w-full rounded-full border px-3.5 pr-28 text-left text-body font-body transition-colors ${
+                                                    isProjectSelected
+                                                        ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
+                                                        : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
+                                                }`}
+                                                onClick={() => onProjectSelect && onProjectSelect(project.id)}
+                                                title={project.name}
+                                            >
+                                                <span className="truncate flex items-center gap-2">
+                                                    {renderEntityMarker(ProjectIcon, projectColor)}
+                                                    <span className="truncate">{project.name}</span>
+                                                    <span className="text-[11px] text-neutral-400">{projectCollections.length}</span>
+                                                </span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="absolute right-2 top-1/2 z-10 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100"
                                                 onClick={(event) => {
                                                     event.preventDefault();
                                                     event.stopPropagation();
@@ -498,23 +514,7 @@ export default function Sidebar({
                                                     <FeatherChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
                                                 )}
                                             </button>
-                                            <button
-                                                type="button"
-                                                className={`h-10 w-full rounded-full border pl-8 pr-16 text-left text-body font-body transition-colors ${
-                                                    isProjectSelected
-                                                        ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
-                                                        : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
-                                                }`}
-                                                onClick={() => onProjectSelect && onProjectSelect(project.id)}
-                                                title={project.name}
-                                            >
-                                                <span className="truncate flex items-center gap-2">
-                                                    {renderEntityMarker(ProjectIcon, projectColor)}
-                                                    <span className="truncate">{project.name}</span>
-                                                    <span className="text-[11px] text-neutral-400">{projectCollections.length}</span>
-                                                </span>
-                                            </button>
-                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                                            <div className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100">
                                                 <IconButton
                                                     icon={<FeatherPlus />}
                                                     size="small"
