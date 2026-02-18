@@ -1462,12 +1462,24 @@ function App() {
             return false;
         }
 
-        const updated = await updateProject(project.id, {
+        const projectPatch = {
             name: nextName,
-            description: String(updates?.description || '').trim(),
-            iconKey: updates?.iconKey || null,
-            colorKey: updates?.colorKey || null,
-        });
+        };
+        const nextDescription = String(updates?.description ?? '').trim();
+        const nextIconKey = updates?.iconKey ?? null;
+        const nextColorKey = updates?.colorKey ?? null;
+
+        if (nextDescription !== String(project.description || '').trim()) {
+            projectPatch.description = nextDescription;
+        }
+        if (nextIconKey !== (project.iconKey ?? null)) {
+            projectPatch.iconKey = nextIconKey;
+        }
+        if (nextColorKey !== (project.colorKey ?? null)) {
+            projectPatch.colorKey = nextColorKey;
+        }
+
+        const updated = await updateProject(project.id, projectPatch);
         if (!updated) {
             setToast({ message: getEntitySettingsSaveErrorMessage('project settings'), type: 'error' });
             return false;
@@ -1489,12 +1501,24 @@ function App() {
             return false;
         }
 
-        const updated = await updateCollection(collection.id, {
+        const collectionPatch = {
             name: nextName,
-            description: String(updates?.description || '').trim(),
-            iconKey: updates?.iconKey || null,
-            colorKey: updates?.colorKey || null,
-        });
+        };
+        const nextDescription = String(updates?.description ?? '').trim();
+        const nextIconKey = updates?.iconKey ?? null;
+        const nextColorKey = updates?.colorKey ?? null;
+
+        if (nextDescription !== String(collection.description || '').trim()) {
+            collectionPatch.description = nextDescription;
+        }
+        if (nextIconKey !== (collection.iconKey ?? null)) {
+            collectionPatch.iconKey = nextIconKey;
+        }
+        if (nextColorKey !== (collection.colorKey ?? null)) {
+            collectionPatch.colorKey = nextColorKey;
+        }
+
+        const updated = await updateCollection(collection.id, collectionPatch);
         if (!updated) {
             setToast({ message: getEntitySettingsSaveErrorMessage('collection settings'), type: 'error' });
             return false;
@@ -1985,15 +2009,32 @@ function App() {
     const handleCopySelection = useCallback(async () => {
         if (selectedItems.size === 0) return;
 
-        const selectedItemsList = items.filter(item => selectedItems.has(item.id));
-        const imageItem = selectedItemsList.find(item => item.type === 'image');
+        const selectedItemsList = items.filter((item) => selectedItems.has(item.id));
+        const displayIndexById = new Map(displayGridItems.map((item, index) => [item.id, index]));
+        const selectedItemsOrdered = [...selectedItemsList].sort((a, b) => {
+            const aIndex = displayIndexById.get(a.id);
+            const bIndex = displayIndexById.get(b.id);
+            const aKnown = Number.isInteger(aIndex);
+            const bKnown = Number.isInteger(bIndex);
+            if (aKnown && bKnown && aIndex !== bIndex) return aIndex - bIndex;
+            if (aKnown && !bKnown) return -1;
+            if (!aKnown && bKnown) return 1;
+            return compareItemsForDisplay(a, b);
+        });
 
-        if (!imageItem) {
-            const selectedTextItems = orderedFilteredItems.filter(
-                (item) => selectedItems.has(item.id) && item.type === 'text'
-            );
+        const selectedTextItems = selectedItemsOrdered.filter(
+            (item) => item.type === 'text' || (item.type === 'link' && item.linkViewMode === 'text')
+        );
+
+        if (selectedTextItems.length > 0) {
             const mergedText = selectedTextItems
-                .map((item) => String(item.content || '').trim())
+                .map((item) => {
+                    if (item.type === 'link' && item.linkViewMode === 'text') {
+                        const extracted = String(item?.textExtract?.content || '').trim();
+                        if (extracted) return extracted;
+                    }
+                    return String(item.content || item.sourceUrl || '').trim();
+                })
                 .filter(Boolean)
                 .join('\n\n');
 
@@ -2004,10 +2045,19 @@ function App() {
                         ? `Merged ${selectedTextItems.length} text notes to clipboard`
                         : 'Text copied to clipboard';
                     setToast({ message, type: 'success' });
-                    return;
+                } else {
+                    setToast({ message: 'Nothing to copy', type: 'error' });
                 }
+            } catch {
+                setToast({ message: 'Failed to copy text', type: 'error' });
+            }
+            return;
+        }
 
-                const textLikeItem = selectedItemsList.find(item => item.type === 'text' || item.type === 'link');
+        const imageItem = selectedItemsOrdered.find((item) => item.type === 'image');
+        if (!imageItem) {
+            const textLikeItem = selectedItemsOrdered.find((item) => item.type === 'text' || item.type === 'link');
+            try {
                 if (textLikeItem) {
                     await navigator.clipboard.writeText(textLikeItem.content || textLikeItem.sourceUrl || '');
                     setToast({ message: 'Text copied to clipboard', type: 'success' });
@@ -2041,14 +2091,14 @@ function App() {
             await navigator.clipboard.write([
                 new ClipboardItem({ 'image/png': pngBlob })
             ]);
-            const msg = selectedItemsList.length > 1
+            const msg = selectedItemsOrdered.length > 1
                 ? 'Copied first image to clipboard'
                 : 'Image copied to clipboard';
             setToast({ message: msg, type: 'success' });
         } catch {
             setToast({ message: 'Failed to copy image', type: 'error' });
         }
-    }, [items, orderedFilteredItems, selectedItems]);
+    }, [items, displayGridItems, selectedItems]);
 
     useEffect(() => {
         const handleCopyShortcut = (event) => {

@@ -155,7 +155,7 @@ export default function EntitySettingsModal({
 
                         <div className="space-y-2">
                             <span className="text-caption-bold font-caption-bold text-default-font">Icon</span>
-                            <div className="grid grid-cols-6 gap-2">
+                            <div className="grid grid-cols-8 gap-1">
                                 {ENTITY_ICON_OPTIONS.map((option) => {
                                     const OptionIcon = option.Icon;
                                     const isActive = option.key === iconKey;
@@ -164,7 +164,7 @@ export default function EntitySettingsModal({
                                             key={option.key}
                                             type="button"
                                             title={option.label}
-                                            className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
+                                            className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
                                                 isActive
                                                     ? (hasPreviewColor
                                                         ? `${previewColor.bgClass} ${previewColor.borderClass}`
@@ -186,7 +186,7 @@ export default function EntitySettingsModal({
 
                         <div className="space-y-2">
                             <span className="text-caption-bold font-caption-bold text-default-font">Color</span>
-                            <div className="grid grid-cols-5 gap-2">
+                            <div className="grid grid-cols-10 gap-1.5">
                                 {ENTITY_COLOR_OPTIONS.map((option) => {
                                     const isActive = option.key === colorKey;
                                     return (
@@ -194,7 +194,8 @@ export default function EntitySettingsModal({
                                             key={option.key}
                                             type="button"
                                             title={option.label}
-                                            className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-2 transition-colors ${
+                                            aria-label={`Select ${option.label} color`}
+                                            className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
                                                 isActive
                                                     ? (option.key === ENTITY_COLOR_NONE_KEY
                                                         ? 'border-neutral-300 bg-neutral-100'
@@ -206,9 +207,8 @@ export default function EntitySettingsModal({
                                             {option.key === ENTITY_COLOR_NONE_KEY ? (
                                                 <span className="text-[10px] font-medium uppercase text-neutral-500">None</span>
                                             ) : (
-                                                <span className={`h-3 w-3 rounded-full ${option.iconClass.replace('text-', 'bg-')}`} />
+                                                <span className={`h-3.5 w-3.5 rounded-full ${option.iconClass.replace('text-', 'bg-')}`} />
                                             )}
-                                            <span className="text-caption font-caption text-subtext-color">{option.label}</span>
                                         </button>
                                     );
                                 })}
