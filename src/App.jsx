@@ -2253,7 +2253,6 @@ function App() {
                                         onValueChange={(val) => setZoomLevel(val)}
                                     />
                                 </div>
-                                {canUseGridReorder ? <Badge variant="neutral">Drag to reorder</Badge> : null}
                             </div>
                         </div>
                         {tagFilter && (

@@ -13,6 +13,8 @@ import {
     useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import Masonry from 'react-masonry-css';
+import '../masonry.css';
 import ItemCard from './ItemCard';
 
 function SortableCard({
@@ -97,14 +99,14 @@ function SortableGrid({
         })
     );
 
-    const minWidthByZoom = {
-        0: 200,
-        1: 240,
-        2: 290,
-        3: 360,
-        4: 420,
+    const offset = 2 - zoomLevel;
+    const breakpointColumnsObj = {
+        default: Math.max(1, 5 + offset),
+        1536: Math.max(1, 4 + offset),
+        1280: Math.max(1, 3 + offset),
+        1024: Math.max(1, 2 + offset),
+        768: Math.max(1, 1 + Math.floor(offset / 2)),
     };
-    const minCardWidth = minWidthByZoom[zoomLevel] || 290;
 
     const emitReorder = (event, callback) => {
         const { active, over } = event;
@@ -155,9 +157,10 @@ function SortableGrid({
                 items={items.map((item) => item.id)}
                 strategy={rectSortingStrategy}
             >
-                <div
-                    className="grid gap-6"
-                    style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minCardWidth}px, 1fr))` }}
+                <Masonry
+                    breakpointCols={breakpointColumnsObj}
+                    className="masonry-grid"
+                    columnClassName="masonry-grid-column"
                 >
                     {items.map((item) => (
                         <SortableCard
@@ -172,7 +175,7 @@ function SortableGrid({
                             onFinishInlineEdit={onFinishInlineEdit}
                         />
                     ))}
-                </div>
+                </Masonry>
             </SortableContext>
         </DndContext>
     );

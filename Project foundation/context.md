@@ -15,9 +15,80 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Canvas mode now supports inline note editing, viewport-aware item placement, creation toolbar (text/image/link/clipboard/color), and a floating detail side panel. Area screenshot and video recording via extension shortcuts. Thumbnail generation at save time for fast grid rendering. Invite code gating for closed alpha.
+-   **Last Major Change**: Project-level browsing shipped (grid + canvas) with safe placement semantics: collection canvas positions remain persisted source of truth, while project canvas uses session-local draft layout and reset control. Sortable grid now uses masonry columns to remove large vertical gaps, and the top-right "Drag to reorder" badge has been removed.
 
 ## Changelog
+
+### [0.32.0] - 2026-02-18
+#### Fixed
+- **Grid Gap Density in Reorder View** (`src/components/SortableGrid.jsx`, `src/masonry.css`):
+  - Replaced sortable CSS grid layout with masonry columns while keeping dnd-kit drag behavior.
+  - Removed large row-height whitespace gaps between mixed-height cards during direct drag-reorder.
+  - Tightened masonry gutters from `24px` to `14px` for a denser board.
+
+#### Changed
+- **Reorder UI Cleanup** (`src/App.jsx`):
+  - Removed top-right "Drag to reorder" badge from grid header.
+
+### [0.31.0] - 2026-02-18
+#### Added
+- **Project-Level Scope for Content Browsing** (`src/App.jsx`, `src/components/Sidebar.jsx`, `src/components/CanvasView.jsx`, `src/components/CanvasItem.jsx`, `src/lib/storage.js`, `supabase-schema.sql`):
+  - Project folders are now selectable scope targets for both grid and canvas views.
+  - New nav state `selectedProjectId` with restore priority: `collection -> project -> all items`.
+  - `active_contexts` now stores `project_id` (with idempotent schema update + backfill from selected collection).
+  - Extension bridge org payload now includes `activeContext.projectId`.
+
+#### Changed
+- **Safe Placement Semantics** (`src/components/CanvasView.jsx`, `src/components/CanvasItem.jsx`):
+  - Collection canvas remains canonical persisted placement.
+  - Project canvas auto-packs on first open and supports local drag/resize draft only (session-local, no position persistence).
+  - Added visible `Reset Project Layout` action in project canvas header.
+
+- **Project-Scope Reorder Behavior** (`src/App.jsx`):
+  - Collection scope reorder remains persisted to `items.sort_order`.
+  - Project scope reorder is visual-only and session-local.
+
+- **Optional Project Folders** (`src/App.jsx`, `src/components/Sidebar.jsx`):
+  - Restored direct ungrouped collection creation (`+ Collection` in Ungrouped section).
+  - Item create flows in project scope route to last-used collection in folder, fallback to first ordered collection.
+  - If project folder has no collections, create actions are blocked and open inline collection composer for that folder.
+
+### [0.29.0] - 2026-02-17
+#### Fixed
+- **Instant Collection UI Sync** (`src/App.jsx`):
+  - Collection create now updates local `collections` state immediately before selecting the new collection.
+  - Collection rename (sidebar + canvas title) now patches local `collections` state instantly after successful save.
+  - Collection delete now removes the deleted collection from local `collections` state immediately.
+  - Eliminates the refresh-only behavior where new/renamed/deleted collections were not visible until Realtime arrived.
+
+### [0.28.0] - 2026-02-17
+#### Added
+- **BlockEditor (Notion-Style Inline Markdown Editing)** (`src/components/BlockEditor.jsx`):
+  - New reusable `contentEditable` block editor supporting inline `#`, `##`, `###` heading transforms.
+  - Markdown round-trip preserved (`# Heading` + paragraph text serialized back to plain markdown strings).
+  - Keyboard behaviors implemented: Enter split/new paragraph, heading demotion on Backspace at block start, Cmd/Ctrl+Enter and Escape submit, plain-text paste parsing.
+
+#### Changed
+- **Text Editing Surfaces Migrated to BlockEditor**:
+  - `src/components/CanvasItem.jsx`
+  - `src/components/ItemCard.jsx`
+  - `src/components/CanvasDetailPanel.jsx`
+  - `src/components/ItemModal.jsx`
+  - Replaced textarea + separate heading-preview patterns with a single inline WYSIWYG markdown editing experience.
+
+### [0.27.0] - 2026-02-17
+#### Changed
+- **Compact Bottom Bar** (`src/App.jsx`, `src/components/CreateToolbar.jsx`):
+  - Search bar collapses to a search icon + ⌘K badge by default. Expands on click or ⌘K shortcut, collapses on Escape/blur when empty.
+  - All 5 creation tools (note, image, link, paste, color) shown as direct icon buttons — no more "+" popover gate. Labels on hover via `title` attribute.
+  - Link input and color picker still appear as popovers above their respective icons.
+  - Thin vertical dividers separate search, tools, and view toggle sections.
+
+#### Fixed
+- **Bottom Bar Positioning** (`src/App.jsx`, `src/components/SelectionToolbar.jsx`):
+  - Switched both bottom bar and selection toolbar from `fixed` to `absolute` positioning inside `<main>` (which has `position: relative`).
+  - Both use `bottom-3 left-1/2 -translate-x-1/2` — auto-centers within content area and matches CanvasDetailPanel's `bottom-3` inset.
+  - Fixes toolbar jumping to different horizontal position when toggling multi-select.
 
 ### [0.26.0] - 2026-02-16
 #### Added
