@@ -114,7 +114,7 @@ export default function EntitySettingsModal({
                                 {hasPreviewIcon ? (
                                     <PreviewIcon className={`h-5 w-5 ${hasPreviewColor ? previewColor.iconClass : 'text-neutral-600'}`} />
                                 ) : hasPreviewColor ? (
-                                    <span className={`h-3.5 w-3.5 rounded-[4px] ${previewColor.iconClass.replace('text-', 'bg-')}`} />
+                                    <span className={`h-3.5 w-3.5 rounded-[4px] ${previewColor.swatchClass}`} />
                                 ) : (
                                     <span className="text-[10px] font-medium uppercase text-neutral-400">None</span>
                                 )}
@@ -155,7 +155,7 @@ export default function EntitySettingsModal({
 
                         <div className="space-y-2">
                             <span className="text-caption-bold font-caption-bold text-default-font">Icon</span>
-                            <div className="grid grid-cols-8 gap-1">
+                            <div className="flex flex-wrap gap-1.5">
                                 {ENTITY_ICON_OPTIONS.map((option) => {
                                     const OptionIcon = option.Icon;
                                     const isActive = option.key === iconKey;
@@ -176,7 +176,7 @@ export default function EntitySettingsModal({
                                             {OptionIcon ? (
                                                 <OptionIcon className={`h-4 w-4 ${isActive && hasPreviewColor ? previewColor.iconClass : 'text-neutral-600'}`} />
                                             ) : (
-                                                <span className="text-[10px] font-medium uppercase text-neutral-500">None</span>
+                                                <span className="text-[9px] font-semibold uppercase tracking-wide text-neutral-500">None</span>
                                             )}
                                         </button>
                                     );
@@ -186,7 +186,7 @@ export default function EntitySettingsModal({
 
                         <div className="space-y-2">
                             <span className="text-caption-bold font-caption-bold text-default-font">Color</span>
-                            <div className="grid grid-cols-10 gap-1.5">
+                            <div className="flex flex-wrap gap-2">
                                 {ENTITY_COLOR_OPTIONS.map((option) => {
                                     const isActive = option.key === colorKey;
                                     return (
@@ -205,9 +205,9 @@ export default function EntitySettingsModal({
                                             onClick={() => setColorKey(option.key)}
                                         >
                                             {option.key === ENTITY_COLOR_NONE_KEY ? (
-                                                <span className="text-[10px] font-medium uppercase text-neutral-500">None</span>
+                                                <span className="text-[9px] font-semibold uppercase tracking-wide text-neutral-500">None</span>
                                             ) : (
-                                                <span className={`h-3.5 w-3.5 rounded-full ${option.iconClass.replace('text-', 'bg-')}`} />
+                                                <span className={`h-3.5 w-3.5 rounded-full ${option.swatchClass}`} />
                                             )}
                                         </button>
                                     );
