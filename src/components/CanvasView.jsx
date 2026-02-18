@@ -327,6 +327,31 @@ const CanvasView = ({
         });
     }, [items]);
 
+    const handleCopySelectedText = useCallback(async () => {
+        if (selectedIds.size === 0) return false;
+
+        const selectedTextItems = items
+            .filter((item) => selectedIds.has(item.id) && item.type === 'text')
+            .sort((a, b) => {
+                const rectA = itemCanvasRects.get(a.id) || { y: 0, x: 0 };
+                const rectB = itemCanvasRects.get(b.id) || { y: 0, x: 0 };
+                if (rectA.y !== rectB.y) return rectA.y - rectB.y;
+                return rectA.x - rectB.x;
+            });
+
+        if (selectedTextItems.length === 0) return false;
+
+        const mergedText = selectedTextItems
+            .map((item) => String(item.content || '').trim())
+            .filter(Boolean)
+            .join('\n\n');
+
+        if (!mergedText) return false;
+
+        await navigator.clipboard.writeText(mergedText);
+        return true;
+    }, [selectedIds, items, itemCanvasRects]);
+
     useEffect(() => {
         const handleKeyDown = (event) => {
             if (isTypingTarget(event.target)) return;
@@ -341,6 +366,17 @@ const CanvasView = ({
                 event.preventDefault();
                 selectedIds.forEach((id) => onDeleteItem(id));
                 setSelectedIds(new Set());
+                return;
+            }
+
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && selectedIds.size > 0) {
+                const hasSelectedText = items.some((item) => selectedIds.has(item.id) && item.type === 'text');
+                if (!hasSelectedText) return;
+
+                event.preventDefault();
+                void handleCopySelectedText().catch((error) => {
+                    console.error('Failed to copy selected text nodes:', error);
+                });
                 return;
             }
 
@@ -369,7 +405,7 @@ const CanvasView = ({
             window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('blur', handleWindowBlur);
         };
-    }, [selectedIds, onDeleteItem]);
+    }, [selectedIds, onDeleteItem, handleCopySelectedText, items]);
 
     const selectionOverlayRect = useMemo(() => {
         if (!selectionDraft || !containerRef.current) return null;

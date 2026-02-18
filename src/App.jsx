@@ -1974,12 +1974,33 @@ function App() {
         const imageItem = selectedItemsList.find(item => item.type === 'image');
 
         if (!imageItem) {
-            const textLikeItem = selectedItemsList.find(item => item.type === 'text' || item.type === 'link');
-            if (textLikeItem) {
-                await navigator.clipboard.writeText(textLikeItem.content || textLikeItem.sourceUrl || '');
-                setToast({ message: 'Text copied to clipboard', type: 'success' });
-            } else {
-                setToast({ message: 'Nothing to copy', type: 'error' });
+            const selectedTextItems = orderedFilteredItems.filter(
+                (item) => selectedItems.has(item.id) && item.type === 'text'
+            );
+            const mergedText = selectedTextItems
+                .map((item) => String(item.content || '').trim())
+                .filter(Boolean)
+                .join('\n\n');
+
+            try {
+                if (mergedText) {
+                    await navigator.clipboard.writeText(mergedText);
+                    const message = selectedTextItems.length > 1
+                        ? `Merged ${selectedTextItems.length} text notes to clipboard`
+                        : 'Text copied to clipboard';
+                    setToast({ message, type: 'success' });
+                    return;
+                }
+
+                const textLikeItem = selectedItemsList.find(item => item.type === 'text' || item.type === 'link');
+                if (textLikeItem) {
+                    await navigator.clipboard.writeText(textLikeItem.content || textLikeItem.sourceUrl || '');
+                    setToast({ message: 'Text copied to clipboard', type: 'success' });
+                } else {
+                    setToast({ message: 'Nothing to copy', type: 'error' });
+                }
+            } catch {
+                setToast({ message: 'Failed to copy text', type: 'error' });
             }
             return;
         }
@@ -2012,7 +2033,23 @@ function App() {
         } catch {
             setToast({ message: 'Failed to copy image', type: 'error' });
         }
-    }, [items, selectedItems]);
+    }, [items, orderedFilteredItems, selectedItems]);
+
+    useEffect(() => {
+        const handleCopyShortcut = (event) => {
+            const target = event.target;
+            const isInInput = ['INPUT', 'TEXTAREA'].includes(target?.tagName) || target?.isContentEditable;
+            if (isInInput || editingItem) return;
+
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && selectedItems.size > 0) {
+                event.preventDefault();
+                void handleCopySelection();
+            }
+        };
+
+        window.addEventListener('keydown', handleCopyShortcut);
+        return () => window.removeEventListener('keydown', handleCopyShortcut);
+    }, [editingItem, selectedItems, handleCopySelection]);
 
     const handleDownloadSelection = useCallback(async () => {
         if (selectedItems.size === 0) {
