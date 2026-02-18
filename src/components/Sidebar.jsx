@@ -55,7 +55,8 @@ export default function Sidebar({
     const [editingCollectionId, setEditingCollectionId] = useState(null);
     const [editingCollectionName, setEditingCollectionName] = useState('');
     const [collapsedProjects, setCollapsedProjects] = useState({});
-    const [isUngroupedCollapsed, setIsUngroupedCollapsed] = useState(false);
+    const [isProjectsSectionCollapsed, setIsProjectsSectionCollapsed] = useState(false);
+    const [isCollectionsSectionCollapsed, setIsCollectionsSectionCollapsed] = useState(false);
     const [draggingCollectionId, setDraggingCollectionId] = useState(null);
     const [dropTarget, setDropTarget] = useState(null);
     const [projectDropTarget, setProjectDropTarget] = useState(null);
@@ -78,6 +79,7 @@ export default function Sidebar({
         if (projectIdToOpenCollectionComposer === UNGROUPED_COLLECTION_COMPOSER_ID) {
             setAddingCollectionProjectId(UNGROUPED_COLLECTION_COMPOSER_ID);
             setNewCollectionName('');
+            setIsCollectionsSectionCollapsed(false);
             onCollectionComposerOpened?.(projectIdToOpenCollectionComposer);
             return;
         }
@@ -87,6 +89,7 @@ export default function Sidebar({
             setAddingCollectionProjectId(projectIdToOpenCollectionComposer);
             setCollapsedProjects((prev) => ({ ...prev, [projectIdToOpenCollectionComposer]: false }));
             setNewCollectionName('');
+            setIsProjectsSectionCollapsed(false);
         }
 
         onCollectionComposerOpened?.(projectIdToOpenCollectionComposer);
@@ -383,20 +386,40 @@ export default function Sidebar({
                     All Items
                 </ChatChannelsMenu.Item>
 
-                <ChatChannelsMenu.Folder
-                    label="Project Folders"
-                    action={
-                        <IconButton
-                            icon={<FeatherPlus />}
-                            size="small"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setIsAddingProject(true);
-                            }}
-                        />
-                    }
-                >
-                    {isAddingProject && (
+                <div className="mt-2 flex w-full flex-col gap-1">
+                    <div className="group relative flex h-10 w-full items-center">
+                        <button
+                            type="button"
+                            className="h-10 w-full rounded-full border border-transparent px-3.5 pr-12 text-left text-body font-body text-amber-700 transition-colors hover:bg-neutral-100"
+                            onClick={() => setIsProjectsSectionCollapsed((prev) => !prev)}
+                            aria-label={isProjectsSectionCollapsed ? 'Expand projects section' : 'Collapse projects section'}
+                        >
+                            <span className="truncate flex items-center gap-2">
+                                {isProjectsSectionCollapsed ? (
+                                    <FeatherChevronRight className="h-3 w-3 shrink-0 text-amber-600" />
+                                ) : (
+                                    <FeatherChevronDown className="h-3 w-3 shrink-0 text-amber-600" />
+                                )}
+                                <FeatherFolder className="h-4 w-4 shrink-0 text-amber-600" />
+                                <span className="truncate font-medium">Projects</span>
+                                <span className="text-[11px] text-neutral-500">{projects.length}</span>
+                            </span>
+                        </button>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
+                            <IconButton
+                                icon={<FeatherPlus />}
+                                size="small"
+                                className="h-7 w-7"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsAddingProject(true);
+                                    setIsProjectsSectionCollapsed(false);
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {!isProjectsSectionCollapsed && isAddingProject && (
                         <div className="px-3 py-1">
                             <TextField className="w-full">
                                 <TextField.Input
@@ -415,108 +438,219 @@ export default function Sidebar({
                         </div>
                     )}
 
-                    {projects.length === 0 && !isAddingProject ? (
-                        <div className="px-3 py-4 text-center">
-                            <p className="text-caption font-caption text-subtext-color">
-                                No folders yet
-                            </p>
-                        </div>
-                    ) : (
-                        projects.map((project) => {
-                            const projectCollections = groupedCollections.map.get(project.id) || [];
-                            const isCollapsed = Boolean(collapsedProjects[project.id]);
-                            const canDeleteProject = projectCollections.length === 0;
-                            const moveTargets = projects.filter((candidate) => candidate.id !== project.id);
-                            const isProjectSelected = selectedProjectId === project.id && !selectedCollectionId;
+                    {!isProjectsSectionCollapsed && projects.map((project) => {
+                        const projectCollections = groupedCollections.map.get(project.id) || [];
+                        const isCollapsed = Boolean(collapsedProjects[project.id]);
+                        const canDeleteProject = projectCollections.length === 0;
+                        const moveTargets = projects.filter((candidate) => candidate.id !== project.id);
+                        const isProjectSelected = selectedProjectId === project.id && !selectedCollectionId;
 
-                            return (
-                                <div
-                                    key={project.id}
-                                    className={`flex w-full flex-col gap-1 rounded-xl ${draggingCollectionId && projectDropTarget === project.id ? 'bg-orange-50/70' : ''}`}
-                                    onDragOver={(event) => handleProjectDragOver(event, project.id)}
-                                    onDrop={(event) => handleProjectDrop(event, project.id)}
-                                >
-                                    <div className="group relative flex h-10 w-full items-center">
-                                        {editingProjectId === project.id ? (
-                                            <input
+                        return (
+                            <div
+                                key={project.id}
+                                className={`flex w-full flex-col gap-1 rounded-xl ${draggingCollectionId && projectDropTarget === project.id ? 'bg-orange-50/70' : ''}`}
+                                onDragOver={(event) => handleProjectDragOver(event, project.id)}
+                                onDrop={(event) => handleProjectDrop(event, project.id)}
+                            >
+                                <div className="group relative flex h-10 w-full items-center">
+                                    {editingProjectId === project.id ? (
+                                        <input
+                                            autoFocus
+                                            type="text"
+                                            value={editingProjectName}
+                                            onChange={(e) => setEditingProjectName(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    submitProjectRename(project);
+                                                } else if (e.key === 'Escape') {
+                                                    e.preventDefault();
+                                                    cancelProjectRename();
+                                                }
+                                            }}
+                                            onBlur={() => submitProjectRename(project)}
+                                            className="h-10 w-full rounded-full border border-brand-300 bg-white px-3.5 text-body font-body text-default-font outline-none focus:border-brand-600"
+                                        />
+                                    ) : (
+                                        <>
+                                            <button
+                                                type="button"
+                                                className={`h-10 w-full rounded-full border px-3.5 pr-16 text-left text-body font-body transition-colors ${
+                                                    isProjectSelected
+                                                        ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
+                                                        : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
+                                                }`}
+                                                onClick={() => onProjectSelect && onProjectSelect(project.id)}
+                                                title={project.name}
+                                            >
+                                                <span className="truncate flex items-center gap-2">
+                                                    <span
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100"
+                                                        onClick={(event) => {
+                                                            event.preventDefault();
+                                                            event.stopPropagation();
+                                                            setCollapsedProjects((prev) => ({
+                                                                ...prev,
+                                                                [project.id]: !prev[project.id]
+                                                            }));
+                                                        }}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key !== 'Enter' && event.key !== ' ') return;
+                                                            event.preventDefault();
+                                                            event.stopPropagation();
+                                                            setCollapsedProjects((prev) => ({
+                                                                ...prev,
+                                                                [project.id]: !prev[project.id]
+                                                            }));
+                                                        }}
+                                                        aria-label={isCollapsed ? 'Expand folder' : 'Collapse folder'}
+                                                    >
+                                                        {isCollapsed ? (
+                                                            <FeatherChevronRight className="h-3 w-3 shrink-0 text-neutral-400" />
+                                                        ) : (
+                                                            <FeatherChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
+                                                        )}
+                                                    </span>
+                                                    <FeatherFolder className="h-4 w-4 shrink-0" />
+                                                    <span className="truncate">{project.name}</span>
+                                                    <span className="text-[11px] text-neutral-400">{projectCollections.length}</span>
+                                                </span>
+                                            </button>
+                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                                                <IconButton
+                                                    icon={<FeatherPlus />}
+                                                    size="small"
+                                                    className="h-7 w-7"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setAddingCollectionProjectId(project.id);
+                                                        setNewCollectionName('');
+                                                        setCollapsedProjects((prev) => ({ ...prev, [project.id]: false }));
+                                                    }}
+                                                />
+                                                <SubframeCore.DropdownMenu.Root>
+                                                    <SubframeCore.DropdownMenu.Trigger asChild={true}>
+                                                        <div>
+                                                            <IconButton
+                                                                icon={<MoreHorizontal className="w-3.5 h-3.5" />}
+                                                                size="small"
+                                                                className="h-7 w-7"
+                                                            />
+                                                        </div>
+                                                    </SubframeCore.DropdownMenu.Trigger>
+                                                    <SubframeCore.DropdownMenu.Portal>
+                                                        <SubframeCore.DropdownMenu.Content
+                                                            side="right"
+                                                            align="start"
+                                                            sideOffset={6}
+                                                            asChild={true}
+                                                        >
+                                                            <DropdownMenu>
+                                                                <DropdownMenu.DropdownItem
+                                                                    icon={<FeatherSettings />}
+                                                                    onClick={() => startProjectRename(project)}
+                                                                >
+                                                                    Rename Folder
+                                                                </DropdownMenu.DropdownItem>
+                                                                <DropdownMenu.DropdownDivider />
+                                                                <DropdownMenu.DropdownItem
+                                                                    icon={<FeatherTrash />}
+                                                                    onClick={() => onProjectDelete && onProjectDelete(project)}
+                                                                    className={!canDeleteProject ? 'opacity-50' : ''}
+                                                                >
+                                                                    {canDeleteProject ? 'Delete Folder' : 'Delete Folder (Empty Only)'}
+                                                                </DropdownMenu.DropdownItem>
+                                                            </DropdownMenu>
+                                                        </SubframeCore.DropdownMenu.Content>
+                                                    </SubframeCore.DropdownMenu.Portal>
+                                                </SubframeCore.DropdownMenu.Root>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+
+                                {addingCollectionProjectId === project.id && (
+                                    <div className="px-3 py-1 pl-8">
+                                        <TextField className="w-full">
+                                            <TextField.Input
                                                 autoFocus
                                                 type="text"
-                                                value={editingProjectName}
-                                                onChange={(e) => setEditingProjectName(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        submitProjectRename(project);
-                                                    } else if (e.key === 'Escape') {
-                                                        e.preventDefault();
-                                                        cancelProjectRename();
-                                                    }
+                                                placeholder="Collection name..."
+                                                value={newCollectionName}
+                                                onChange={(e) => setNewCollectionName(e.target.value)}
+                                                onKeyDown={(e) => handleCreateCollectionKeyDown(e, project.id)}
+                                                onBlur={() => {
+                                                    setAddingCollectionProjectId(null);
+                                                    setNewCollectionName('');
                                                 }}
-                                                onBlur={() => submitProjectRename(project)}
-                                                className="h-10 w-full rounded-full border border-brand-300 bg-white px-3.5 text-body font-body text-default-font outline-none focus:border-brand-600"
                                             />
-                                        ) : (
-                                            <>
-                                                <button
-                                                    type="button"
-                                                    className={`h-10 w-full rounded-full border px-3.5 pr-16 text-left text-body font-body transition-colors ${
-                                                        isProjectSelected
+                                        </TextField>
+                                    </div>
+                                )}
+
+                                {!isCollapsed && projectCollections.map((collection) => {
+                                    const isDropBefore = dropTarget?.collectionId === collection.id
+                                        && dropTarget?.projectId === project.id
+                                        && dropTarget?.position === 'before';
+                                    const isDropAfter = dropTarget?.collectionId === collection.id
+                                        && dropTarget?.projectId === project.id
+                                        && dropTarget?.position === 'after';
+
+                                    return (
+                                        <div
+                                            key={collection.id}
+                                            className="group relative flex h-10 w-full items-center pl-6"
+                                            draggable={editingCollectionId !== collection.id}
+                                            onDragStart={(event) => handleCollectionDragStart(event, collection)}
+                                            onDragEnd={handleCollectionDragEnd}
+                                            onDragOver={(event) => handleCollectionDragOver(event, collection, project.id)}
+                                            onDrop={(event) => handleCollectionDrop(event, collection, project.id)}
+                                            style={isDropBefore
+                                                ? { boxShadow: 'inset 0 2px 0 #EA580C' }
+                                                : isDropAfter
+                                                    ? { boxShadow: 'inset 0 -2px 0 #EA580C' }
+                                                    : undefined}
+                                        >
+                                            {editingCollectionId === collection.id ? (
+                                                <input
+                                                    autoFocus
+                                                    type="text"
+                                                    value={editingCollectionName}
+                                                    onChange={(e) => setEditingCollectionName(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            submitCollectionRename(collection);
+                                                        } else if (e.key === 'Escape') {
+                                                            e.preventDefault();
+                                                            cancelCollectionRename();
+                                                        }
+                                                    }}
+                                                    onBlur={() => submitCollectionRename(collection)}
+                                                    className="h-10 w-full rounded-full border border-brand-300 bg-white px-3.5 text-body font-body text-default-font outline-none focus:border-brand-600"
+                                                />
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        className={`h-10 w-full rounded-full border px-3.5 pr-11 text-left text-body font-body transition-colors ${selectedCollectionId === collection.id
                                                             ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
                                                             : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
-                                                    }`}
-                                                    onClick={() => onProjectSelect && onProjectSelect(project.id)}
-                                                    title={project.name}
-                                                >
-                                                    <span className="truncate flex items-center gap-2">
-                                                        <span
-                                                            role="button"
-                                                            tabIndex={0}
-                                                            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100"
-                                                            onClick={(event) => {
-                                                                event.preventDefault();
-                                                                event.stopPropagation();
-                                                                setCollapsedProjects((prev) => ({
-                                                                    ...prev,
-                                                                    [project.id]: !prev[project.id]
-                                                                }));
-                                                            }}
-                                                            onKeyDown={(event) => {
-                                                                if (event.key !== 'Enter' && event.key !== ' ') return;
-                                                                event.preventDefault();
-                                                                event.stopPropagation();
-                                                                setCollapsedProjects((prev) => ({
-                                                                    ...prev,
-                                                                    [project.id]: !prev[project.id]
-                                                                }));
-                                                            }}
-                                                            aria-label={isCollapsed ? 'Expand folder' : 'Collapse folder'}
-                                                        >
-                                                            {isCollapsed ? (
-                                                                <FeatherChevronRight className="h-3 w-3 shrink-0 text-neutral-400" />
-                                                            ) : (
-                                                                <FeatherChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
-                                                            )}
+                                                        }`}
+                                                        onClick={() => onCollectionSelect && onCollectionSelect(collection.id)}
+                                                        onDoubleClick={() => startCollectionRename(collection)}
+                                                        title={collection.name}
+                                                    >
+                                                        <span className="truncate flex items-center gap-2">
+                                                            <FeatherFolder className="h-4 w-4 shrink-0" />
+                                                            <span className="truncate">{collection.name}</span>
                                                         </span>
-                                                        <FeatherFolder className="h-4 w-4 shrink-0" />
-                                                        <span className="truncate">{project.name}</span>
-                                                        <span className="text-[11px] text-neutral-400">{projectCollections.length}</span>
-                                                    </span>
-                                                </button>
-                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100">
-                                                    <IconButton
-                                                        icon={<FeatherPlus />}
-                                                        size="small"
-                                                        className="h-7 w-7"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setAddingCollectionProjectId(project.id);
-                                                            setNewCollectionName('');
-                                                            setCollapsedProjects((prev) => ({ ...prev, [project.id]: false }));
-                                                        }}
-                                                    />
+                                                    </button>
                                                     <SubframeCore.DropdownMenu.Root>
                                                         <SubframeCore.DropdownMenu.Trigger asChild={true}>
-                                                            <div>
+                                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
                                                                 <IconButton
                                                                     icon={<MoreHorizontal className="w-3.5 h-3.5" />}
                                                                     size="small"
@@ -534,348 +668,221 @@ export default function Sidebar({
                                                                 <DropdownMenu>
                                                                     <DropdownMenu.DropdownItem
                                                                         icon={<FeatherSettings />}
-                                                                        onClick={() => startProjectRename(project)}
+                                                                        onClick={() => startCollectionRename(collection)}
                                                                     >
-                                                                        Rename Folder
+                                                                        Rename
                                                                     </DropdownMenu.DropdownItem>
+                                                                    {moveTargets.length > 0 && (
+                                                                        <>
+                                                                            <DropdownMenu.DropdownDivider />
+                                                                            {moveTargets.map((target) => (
+                                                                                <DropdownMenu.DropdownItem
+                                                                                    key={`${collection.id}-${target.id}`}
+                                                                                    icon={<FeatherFolder />}
+                                                                                    onClick={() => onCollectionMove && onCollectionMove(collection, target.id)}
+                                                                                >
+                                                                                    Move to {target.name}
+                                                                                </DropdownMenu.DropdownItem>
+                                                                            ))}
+                                                                        </>
+                                                                    )}
                                                                     <DropdownMenu.DropdownDivider />
                                                                     <DropdownMenu.DropdownItem
                                                                         icon={<FeatherTrash />}
-                                                                        onClick={() => onProjectDelete && onProjectDelete(project)}
-                                                                        className={!canDeleteProject ? 'opacity-50' : ''}
+                                                                        onClick={() => onCollectionDelete && onCollectionDelete(collection)}
                                                                     >
-                                                                        {canDeleteProject ? 'Delete Folder' : 'Delete Folder (Empty Only)'}
+                                                                        Delete Collection
                                                                     </DropdownMenu.DropdownItem>
                                                                 </DropdownMenu>
                                                             </SubframeCore.DropdownMenu.Content>
                                                         </SubframeCore.DropdownMenu.Portal>
                                                     </SubframeCore.DropdownMenu.Root>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-
-                                    {addingCollectionProjectId === project.id && (
-                                        <div className="px-3 py-1 pl-8">
-                                            <TextField className="w-full">
-                                                <TextField.Input
-                                                    autoFocus
-                                                    type="text"
-                                                    placeholder="Collection name..."
-                                                    value={newCollectionName}
-                                                    onChange={(e) => setNewCollectionName(e.target.value)}
-                                                    onKeyDown={(e) => handleCreateCollectionKeyDown(e, project.id)}
-                                                    onBlur={() => {
-                                                        setAddingCollectionProjectId(null);
-                                                        setNewCollectionName('');
-                                                    }}
-                                                />
-                                            </TextField>
-                                        </div>
-                                    )}
-
-                                    {!isCollapsed && (
-                                        <>
-                                            {projectCollections.length === 0 && addingCollectionProjectId !== project.id ? (
-                                                <div className="px-3 py-2 pl-8">
-                                                    <p className="text-[12px] text-neutral-400">No collections</p>
-                                                </div>
-                                            ) : (
-                                                projectCollections.map((collection) => {
-                                                    const isDropBefore = dropTarget?.collectionId === collection.id
-                                                        && dropTarget?.projectId === project.id
-                                                        && dropTarget?.position === 'before';
-                                                    const isDropAfter = dropTarget?.collectionId === collection.id
-                                                        && dropTarget?.projectId === project.id
-                                                        && dropTarget?.position === 'after';
-
-                                                    return (
-                                                    <div
-                                                        key={collection.id}
-                                                        className="group relative flex h-10 w-full items-center pl-6"
-                                                        draggable={editingCollectionId !== collection.id}
-                                                        onDragStart={(event) => handleCollectionDragStart(event, collection)}
-                                                        onDragEnd={handleCollectionDragEnd}
-                                                        onDragOver={(event) => handleCollectionDragOver(event, collection, project.id)}
-                                                        onDrop={(event) => handleCollectionDrop(event, collection, project.id)}
-                                                        style={isDropBefore
-                                                            ? { boxShadow: 'inset 0 2px 0 #EA580C' }
-                                                            : isDropAfter
-                                                                ? { boxShadow: 'inset 0 -2px 0 #EA580C' }
-                                                                : undefined}
-                                                    >
-                                                        {editingCollectionId === collection.id ? (
-                                                            <input
-                                                                autoFocus
-                                                                type="text"
-                                                                value={editingCollectionName}
-                                                                onChange={(e) => setEditingCollectionName(e.target.value)}
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === 'Enter') {
-                                                                        e.preventDefault();
-                                                                        submitCollectionRename(collection);
-                                                                    } else if (e.key === 'Escape') {
-                                                                        e.preventDefault();
-                                                                        cancelCollectionRename();
-                                                                    }
-                                                                }}
-                                                                onBlur={() => submitCollectionRename(collection)}
-                                                                className="h-10 w-full rounded-full border border-brand-300 bg-white px-3.5 text-body font-body text-default-font outline-none focus:border-brand-600"
-                                                            />
-                                                        ) : (
-                                                            <>
-                                                                <button
-                                                                    type="button"
-                                                                    className={`h-10 w-full rounded-full border px-3.5 pr-11 text-left text-body font-body transition-colors ${selectedCollectionId === collection.id
-                                                                        ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
-                                                                        : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
-                                                                        }`}
-                                                                    onClick={() => onCollectionSelect && onCollectionSelect(collection.id)}
-                                                                    onDoubleClick={() => startCollectionRename(collection)}
-                                                                    title={collection.name}
-                                                                >
-                                                                    <span className="truncate flex items-center gap-2">
-                                                                        <FeatherFolder className="h-4 w-4 shrink-0" />
-                                                                        <span className="truncate">{collection.name}</span>
-                                                                    </span>
-                                                                </button>
-                                                                <SubframeCore.DropdownMenu.Root>
-                                                                    <SubframeCore.DropdownMenu.Trigger asChild={true}>
-                                                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
-                                                                            <IconButton
-                                                                                icon={<MoreHorizontal className="w-3.5 h-3.5" />}
-                                                                                size="small"
-                                                                                className="h-7 w-7"
-                                                                            />
-                                                                        </div>
-                                                                    </SubframeCore.DropdownMenu.Trigger>
-                                                                    <SubframeCore.DropdownMenu.Portal>
-                                                                        <SubframeCore.DropdownMenu.Content
-                                                                            side="right"
-                                                                            align="start"
-                                                                            sideOffset={6}
-                                                                            asChild={true}
-                                                                        >
-                                                                            <DropdownMenu>
-                                                                                <DropdownMenu.DropdownItem
-                                                                                    icon={<FeatherSettings />}
-                                                                                    onClick={() => startCollectionRename(collection)}
-                                                                                >
-                                                                                    Rename
-                                                                                </DropdownMenu.DropdownItem>
-                                                                                {moveTargets.length > 0 && (
-                                                                                    <>
-                                                                                        <DropdownMenu.DropdownDivider />
-                                                                                        {moveTargets.map((target) => (
-                                                                                            <DropdownMenu.DropdownItem
-                                                                                                key={`${collection.id}-${target.id}`}
-                                                                                                icon={<FeatherFolder />}
-                                                                                                onClick={() => onCollectionMove && onCollectionMove(collection, target.id)}
-                                                                                            >
-                                                                                                Move to {target.name}
-                                                                                            </DropdownMenu.DropdownItem>
-                                                                                        ))}
-                                                                                    </>
-                                                                                )}
-                                                                                <DropdownMenu.DropdownDivider />
-                                                                                <DropdownMenu.DropdownItem
-                                                                                    icon={<FeatherTrash />}
-                                                                                    onClick={() => onCollectionDelete && onCollectionDelete(collection)}
-                                                                                >
-                                                                                    Delete Collection
-                                                                                </DropdownMenu.DropdownItem>
-                                                                            </DropdownMenu>
-                                                                        </SubframeCore.DropdownMenu.Content>
-                                                                    </SubframeCore.DropdownMenu.Portal>
-                                                                </SubframeCore.DropdownMenu.Root>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                    );
-                                                })
+                                                </>
                                             )}
-                                        </>
-                                    )}
-                                </div>
-                            );
-                        })
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="mt-3 w-full border-t border-neutral-200/80 pt-2" />
+
+                <div
+                    className={`flex w-full flex-col gap-1 ${draggingCollectionId && projectDropTarget === null && !isCollectionsSectionCollapsed ? 'rounded-xl bg-orange-50/70' : ''}`}
+                    onDragOver={(event) => {
+                        if (!isCollectionsSectionCollapsed) handleProjectDragOver(event, null);
+                    }}
+                    onDrop={(event) => {
+                        if (!isCollectionsSectionCollapsed) handleProjectDrop(event, null);
+                    }}
+                >
+                    <div className="group relative flex h-10 w-full items-center">
+                        <button
+                            type="button"
+                            className="h-10 w-full rounded-full border border-transparent px-3.5 pr-12 text-left text-body font-body text-slate-600 transition-colors hover:bg-neutral-100 hover:text-slate-700"
+                            onClick={() => setIsCollectionsSectionCollapsed((prev) => !prev)}
+                            aria-label={isCollectionsSectionCollapsed ? 'Expand collections section' : 'Collapse collections section'}
+                        >
+                            <span className="truncate flex items-center gap-2">
+                                {isCollectionsSectionCollapsed ? (
+                                    <FeatherChevronRight className="h-3 w-3 shrink-0 text-slate-500" />
+                                ) : (
+                                    <FeatherChevronDown className="h-3 w-3 shrink-0 text-slate-500" />
+                                )}
+                                <FeatherLayoutGrid className="h-4 w-4 shrink-0 text-slate-500" />
+                                <span className="truncate font-medium">Collections</span>
+                                <span className="text-[11px] text-neutral-500">{groupedCollections.ungrouped.length}</span>
+                            </span>
+                        </button>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
+                            <IconButton
+                                icon={<FeatherPlus />}
+                                size="small"
+                                className="h-7 w-7"
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    setAddingCollectionProjectId(UNGROUPED_COLLECTION_COMPOSER_ID);
+                                    setNewCollectionName('');
+                                    setIsCollectionsSectionCollapsed(false);
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {!isCollectionsSectionCollapsed && addingCollectionProjectId === UNGROUPED_COLLECTION_COMPOSER_ID && (
+                        <div className="px-3 py-1 pl-8">
+                            <TextField className="w-full">
+                                <TextField.Input
+                                    autoFocus
+                                    type="text"
+                                    placeholder="Collection name..."
+                                    value={newCollectionName}
+                                    onChange={(e) => setNewCollectionName(e.target.value)}
+                                    onKeyDown={(e) => handleCreateCollectionKeyDown(e, UNGROUPED_COLLECTION_COMPOSER_ID)}
+                                    onBlur={() => {
+                                        setAddingCollectionProjectId(null);
+                                        setNewCollectionName('');
+                                    }}
+                                />
+                            </TextField>
+                        </div>
                     )}
 
-                    <div
-                            className={`flex w-full flex-col gap-1 pt-1 rounded-xl ${draggingCollectionId && projectDropTarget === null ? 'bg-orange-50/70' : ''}`}
-                            onDragOver={(event) => handleProjectDragOver(event, null)}
-                            onDrop={(event) => handleProjectDrop(event, null)}
-                        >
-                            <div className="group relative flex h-10 w-full items-center">
-                                <button
-                                    type="button"
-                                    className="h-10 w-full rounded-full border border-transparent px-3.5 pr-12 text-left text-body font-body text-subtext-color transition-colors hover:bg-neutral-100 hover:text-default-font"
-                                    onClick={() => setIsUngroupedCollapsed((prev) => !prev)}
-                                >
-                                    <span className="truncate flex items-center gap-2">
-                                        {isUngroupedCollapsed ? (
-                                            <FeatherChevronRight className="h-3 w-3 shrink-0 text-neutral-400" />
-                                        ) : (
-                                            <FeatherChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
-                                        )}
-                                        <FeatherFolder className="h-4 w-4 shrink-0" />
-                                        <span className="truncate">Ungrouped</span>
-                                        <span className="text-[11px] text-neutral-400">{groupedCollections.ungrouped.length}</span>
-                                    </span>
-                                </button>
-                                <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
-                                    <IconButton
-                                        icon={<FeatherPlus />}
-                                        size="small"
-                                        className="h-7 w-7"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setAddingCollectionProjectId(UNGROUPED_COLLECTION_COMPOSER_ID);
-                                            setNewCollectionName('');
-                                            setIsUngroupedCollapsed(false);
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                            {addingCollectionProjectId === UNGROUPED_COLLECTION_COMPOSER_ID && (
-                                <div className="px-3 py-1 pl-8">
-                                    <TextField className="w-full">
-                                        <TextField.Input
-                                            autoFocus
-                                            type="text"
-                                            placeholder="Collection name..."
-                                            value={newCollectionName}
-                                            onChange={(e) => setNewCollectionName(e.target.value)}
-                                            onKeyDown={(e) => handleCreateCollectionKeyDown(e, UNGROUPED_COLLECTION_COMPOSER_ID)}
-                                            onBlur={() => {
-                                                setAddingCollectionProjectId(null);
-                                                setNewCollectionName('');
-                                            }}
-                                        />
-                                    </TextField>
-                                </div>
-                            )}
-                            {!isUngroupedCollapsed
-                                && groupedCollections.ungrouped.length === 0
-                                && addingCollectionProjectId !== UNGROUPED_COLLECTION_COMPOSER_ID ? (
-                                    <div className="px-3 py-2 pl-8">
-                                        <p className="text-[12px] text-neutral-400">No collections</p>
-                                    </div>
-                                ) : null}
-                            {!isUngroupedCollapsed && groupedCollections.ungrouped.map((collection) => {
-                                const isDropBefore = dropTarget?.collectionId === collection.id
-                                    && dropTarget?.projectId === null
-                                    && dropTarget?.position === 'before';
-                                const isDropAfter = dropTarget?.collectionId === collection.id
-                                    && dropTarget?.projectId === null
-                                    && dropTarget?.position === 'after';
+                    {!isCollectionsSectionCollapsed && groupedCollections.ungrouped.map((collection) => {
+                        const isDropBefore = dropTarget?.collectionId === collection.id
+                            && dropTarget?.projectId === null
+                            && dropTarget?.position === 'before';
+                        const isDropAfter = dropTarget?.collectionId === collection.id
+                            && dropTarget?.projectId === null
+                            && dropTarget?.position === 'after';
 
-                                return (
-                                <div
-                                    key={collection.id}
-                                    className="group relative flex h-10 w-full items-center pl-6"
-                                    draggable={editingCollectionId !== collection.id}
-                                    onDragStart={(event) => handleCollectionDragStart(event, collection)}
-                                    onDragEnd={handleCollectionDragEnd}
-                                    onDragOver={(event) => handleCollectionDragOver(event, collection, null)}
-                                    onDrop={(event) => handleCollectionDrop(event, collection, null)}
-                                    style={isDropBefore
-                                        ? { boxShadow: 'inset 0 2px 0 #EA580C' }
-                                        : isDropAfter
-                                            ? { boxShadow: 'inset 0 -2px 0 #EA580C' }
-                                            : undefined}
-                                >
-                                    {editingCollectionId === collection.id ? (
-                                        <input
-                                            autoFocus
-                                            type="text"
-                                            value={editingCollectionName}
-                                            onChange={(e) => setEditingCollectionName(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    e.preventDefault();
-                                                    submitCollectionRename(collection);
-                                                } else if (e.key === 'Escape') {
-                                                    e.preventDefault();
-                                                    cancelCollectionRename();
-                                                }
-                                            }}
-                                            onBlur={() => submitCollectionRename(collection)}
-                                            className="h-10 w-full rounded-full border border-brand-300 bg-white px-3.5 text-body font-body text-default-font outline-none focus:border-brand-600"
-                                        />
-                                    ) : (
-                                        <>
-                                            <button
-                                                type="button"
-                                                className={`h-10 w-full rounded-full border px-3.5 pr-11 text-left text-body font-body transition-colors ${selectedCollectionId === collection.id
-                                                    ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
-                                                    : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
-                                                    }`}
-                                                onClick={() => onCollectionSelect && onCollectionSelect(collection.id)}
-                                                onDoubleClick={() => startCollectionRename(collection)}
-                                                title={collection.name}
-                                            >
-                                                <span className="truncate flex items-center gap-2">
-                                                    <FeatherFolder className="h-4 w-4 shrink-0" />
-                                                    <span className="truncate">{collection.name}</span>
-                                                </span>
-                                            </button>
-                                            <SubframeCore.DropdownMenu.Root>
-                                                <SubframeCore.DropdownMenu.Trigger asChild={true}>
-                                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
-                                                        <IconButton
-                                                            icon={<MoreHorizontal className="w-3.5 h-3.5" />}
-                                                            size="small"
-                                                            className="h-7 w-7"
-                                                        />
-                                                    </div>
-                                                </SubframeCore.DropdownMenu.Trigger>
-                                                <SubframeCore.DropdownMenu.Portal>
-                                                    <SubframeCore.DropdownMenu.Content
-                                                        side="right"
-                                                        align="start"
-                                                        sideOffset={6}
-                                                        asChild={true}
-                                                    >
-                                                        <DropdownMenu>
-                                                            <DropdownMenu.DropdownItem
-                                                                icon={<FeatherSettings />}
-                                                                onClick={() => startCollectionRename(collection)}
-                                                            >
-                                                                Rename
-                                                            </DropdownMenu.DropdownItem>
-                                                            {projects.length > 0 && (
-                                                                <>
-                                                                    <DropdownMenu.DropdownDivider />
-                                                                    {projects.map((target) => (
-                                                                        <DropdownMenu.DropdownItem
-                                                                            key={`${collection.id}-${target.id}`}
-                                                                            icon={<FeatherFolder />}
-                                                                            onClick={() => onCollectionMove && onCollectionMove(collection, target.id)}
-                                                                        >
-                                                                            Move to {target.name}
-                                                                        </DropdownMenu.DropdownItem>
-                                                                    ))}
-                                                                </>
-                                                            )}
-                                                            <DropdownMenu.DropdownDivider />
-                                                            <DropdownMenu.DropdownItem
-                                                                icon={<FeatherTrash />}
-                                                                onClick={() => onCollectionDelete && onCollectionDelete(collection)}
-                                                            >
-                                                                Delete Collection
-                                                            </DropdownMenu.DropdownItem>
-                                                        </DropdownMenu>
-                                                    </SubframeCore.DropdownMenu.Content>
-                                                </SubframeCore.DropdownMenu.Portal>
-                                            </SubframeCore.DropdownMenu.Root>
-                                        </>
-                                    )}
-                                </div>
-                                );
-                            })}
-                    </div>
-                </ChatChannelsMenu.Folder>
+                        return (
+                            <div
+                                key={collection.id}
+                                className="group relative flex h-10 w-full items-center pl-6"
+                                draggable={editingCollectionId !== collection.id}
+                                onDragStart={(event) => handleCollectionDragStart(event, collection)}
+                                onDragEnd={handleCollectionDragEnd}
+                                onDragOver={(event) => handleCollectionDragOver(event, collection, null)}
+                                onDrop={(event) => handleCollectionDrop(event, collection, null)}
+                                style={isDropBefore
+                                    ? { boxShadow: 'inset 0 2px 0 #EA580C' }
+                                    : isDropAfter
+                                        ? { boxShadow: 'inset 0 -2px 0 #EA580C' }
+                                        : undefined}
+                            >
+                                {editingCollectionId === collection.id ? (
+                                    <input
+                                        autoFocus
+                                        type="text"
+                                        value={editingCollectionName}
+                                        onChange={(e) => setEditingCollectionName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                submitCollectionRename(collection);
+                                            } else if (e.key === 'Escape') {
+                                                e.preventDefault();
+                                                cancelCollectionRename();
+                                            }
+                                        }}
+                                        onBlur={() => submitCollectionRename(collection)}
+                                        className="h-10 w-full rounded-full border border-brand-300 bg-white px-3.5 text-body font-body text-default-font outline-none focus:border-brand-600"
+                                    />
+                                ) : (
+                                    <>
+                                        <button
+                                            type="button"
+                                            className={`h-10 w-full rounded-full border px-3.5 pr-11 text-left text-body font-body transition-colors ${selectedCollectionId === collection.id
+                                                ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
+                                                : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
+                                            }`}
+                                            onClick={() => onCollectionSelect && onCollectionSelect(collection.id)}
+                                            onDoubleClick={() => startCollectionRename(collection)}
+                                            title={collection.name}
+                                        >
+                                            <span className="truncate flex items-center gap-2">
+                                                <FeatherFolder className="h-4 w-4 shrink-0" />
+                                                <span className="truncate">{collection.name}</span>
+                                            </span>
+                                        </button>
+                                        <SubframeCore.DropdownMenu.Root>
+                                            <SubframeCore.DropdownMenu.Trigger asChild={true}>
+                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
+                                                    <IconButton
+                                                        icon={<MoreHorizontal className="w-3.5 h-3.5" />}
+                                                        size="small"
+                                                        className="h-7 w-7"
+                                                    />
+                                                </div>
+                                            </SubframeCore.DropdownMenu.Trigger>
+                                            <SubframeCore.DropdownMenu.Portal>
+                                                <SubframeCore.DropdownMenu.Content
+                                                    side="right"
+                                                    align="start"
+                                                    sideOffset={6}
+                                                    asChild={true}
+                                                >
+                                                    <DropdownMenu>
+                                                        <DropdownMenu.DropdownItem
+                                                            icon={<FeatherSettings />}
+                                                            onClick={() => startCollectionRename(collection)}
+                                                        >
+                                                            Rename
+                                                        </DropdownMenu.DropdownItem>
+                                                        {projects.length > 0 && (
+                                                            <>
+                                                                <DropdownMenu.DropdownDivider />
+                                                                {projects.map((target) => (
+                                                                    <DropdownMenu.DropdownItem
+                                                                        key={`${collection.id}-${target.id}`}
+                                                                        icon={<FeatherFolder />}
+                                                                        onClick={() => onCollectionMove && onCollectionMove(collection, target.id)}
+                                                                    >
+                                                                        Move to {target.name}
+                                                                    </DropdownMenu.DropdownItem>
+                                                                ))}
+                                                            </>
+                                                        )}
+                                                        <DropdownMenu.DropdownDivider />
+                                                        <DropdownMenu.DropdownItem
+                                                            icon={<FeatherTrash />}
+                                                            onClick={() => onCollectionDelete && onCollectionDelete(collection)}
+                                                        >
+                                                            Delete Collection
+                                                        </DropdownMenu.DropdownItem>
+                                                    </DropdownMenu>
+                                                </SubframeCore.DropdownMenu.Content>
+                                            </SubframeCore.DropdownMenu.Portal>
+                                        </SubframeCore.DropdownMenu.Root>
+                                    </>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
             </ChatChannelsMenu>
         </aside>
     );
