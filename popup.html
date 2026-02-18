@@ -9,53 +9,40 @@
 <body>
   <main class="popup-shell" aria-live="polite">
     <header class="popup-header">
-      <div class="brand-dot" aria-hidden="true"></div>
-      <div>
-        <h1>Dreamlab Capture</h1>
-        <p>Review and route this capture to a collection.</p>
-      </div>
+      <h1>Dreamlab Capture</h1>
+      <button id="refresh-btn" class="icon-btn" type="button" title="Reload destinations and shortcuts" aria-label="Reload">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <path d="M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
     </header>
 
-    <section id="preview-container" class="panel preview-panel">
-      <div id="preview-text" class="preview-empty">No pending capture found.</div>
+    <section class="actions-section" aria-label="Quick actions">
+      <div id="shortcut-actions" class="actions-grid"></div>
     </section>
 
-    <section class="panel form-panel">
-      <div class="field-grid">
-        <div class="field">
-          <label for="workspace-select">Workspace</label>
-          <select id="workspace-select">
-            <option value="">Select workspace</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="collection-select">Collection</label>
-          <select id="collection-select">
-            <option value="">No collection</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="tags-input">Tags</label>
-          <input type="text" id="tags-input" placeholder="design, inspiration" autocomplete="off" />
-        </div>
+    <section class="field-section">
+      <label for="workspace-select">Workspace</label>
+      <div class="pill-select">
+        <span class="pill-dot workspace-dot" aria-hidden="true"></span>
+        <select id="workspace-select">
+          <option value="">Select workspace</option>
+        </select>
       </div>
     </section>
 
-    <div class="action-row">
-      <button id="refresh-btn" class="btn btn-neutral" type="button">Refresh</button>
-      <button id="save-btn" class="btn btn-brand" type="button" disabled>Save Capture</button>
-    </div>
-
-    <section class="panel shortcuts-panel">
-      <div class="shortcuts-header">
-        <span>Quick Actions</span>
-        <button id="shortcuts-refresh-btn" class="btn btn-neutral btn-xs" type="button">Reload</button>
+    <section class="field-section">
+      <label for="collection-select">Collection</label>
+      <div class="pill-select">
+        <span class="pill-dot collection-dot" aria-hidden="true"></span>
+        <select id="collection-select">
+          <option value="">No collection</option>
+        </select>
       </div>
-      <div id="shortcut-actions" class="shortcut-actions"></div>
     </section>
 
+    <div id="pending-note" class="pending-note" hidden>Pending capture queued. Open Dreamlab to finish routing if needed.</div>
     <div id="status" class="status" role="status"></div>
   </main>
 

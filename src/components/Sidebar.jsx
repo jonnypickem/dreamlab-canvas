@@ -872,12 +872,12 @@ export default function Sidebar({
                     ) : shortcutRows.map((entry) => {
                         const parts = splitShortcutParts(entry.shortcut);
                         return (
-                            <div key={entry.command} className="flex items-center justify-between rounded-lg px-2 py-1 hover:bg-neutral-100">
+                            <div key={entry.actionId || entry.command} className="flex items-center justify-between rounded-lg px-2 py-1 hover:bg-neutral-100">
                                 <span className="truncate pr-2 text-[11px] font-medium text-neutral-600">{entry.label}</span>
                                 <div className="flex items-center gap-1">
                                     {parts.length > 0 ? parts.map((part, index) => (
                                         <kbd
-                                            key={`${entry.command}-${part}-${index}`}
+                                            key={`${entry.actionId || entry.command}-${part}-${index}`}
                                             className="inline-flex min-w-[18px] items-center justify-center rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500"
                                         >
                                             {part}

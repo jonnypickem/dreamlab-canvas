@@ -1,6 +1,5 @@
 const ACTIONS = {
   ping: 'ping',
-  saveCapturedItem: 'saveCapturedItem',
   getDreamlabOrgData: 'getDreamlabOrgData',
   getShortcutBindings: 'getShortcutBindings',
   executeCommand: 'executeCommand',
@@ -10,6 +9,15 @@ const STORAGE_KEYS = {
   pendingCapture: 'pendingCapture',
 };
 
+const ACTION_ICONS = {
+  'save-page': '<path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 13h6M9 17h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  'capture-visible': '<rect x="3.5" y="5" width="17" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 14l3-3 2.5 2.5L15 11l2 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  'capture-full-page': '<rect x="4" y="4" width="16" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  'smart-picker': '<path d="M11 3l9 9-4 4-9-9 4-4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M6 15l-2 6 6-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+  'pick-color': '<path d="M14.7 3.3l6 6-3.2 3.2-6-6z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11.5 6.5L4 14a2.6 2.6 0 0 0 0 3.7 2.6 2.6 0 0 0 3.7 0l7.5-7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2 22h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  'area-capture': '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+};
+
 const state = {
   pendingCapture: null,
   workspaces: [],
@@ -17,7 +25,6 @@ const state = {
   collections: [],
   activeContext: {},
   shortcuts: [],
-  isSaving: false,
 };
 
 const ui = {};
@@ -29,43 +36,29 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function cacheDom() {
-  ui.previewContainer = document.getElementById('preview-container');
-  ui.previewText = document.getElementById('preview-text');
   ui.workspaceSelect = document.getElementById('workspace-select');
   ui.collectionSelect = document.getElementById('collection-select');
-  ui.tagsInput = document.getElementById('tags-input');
-  ui.saveButton = document.getElementById('save-btn');
   ui.refreshButton = document.getElementById('refresh-btn');
-  ui.shortcutsRefreshButton = document.getElementById('shortcuts-refresh-btn');
   ui.shortcutActions = document.getElementById('shortcut-actions');
+  ui.pendingNote = document.getElementById('pending-note');
   ui.status = document.getElementById('status');
 }
 
 function bindEvents() {
   ui.workspaceSelect.addEventListener('change', () => {
-    const workspaceId = ui.workspaceSelect.value;
-    populateCollectionOptions(workspaceId, null);
+    populateCollectionOptions(ui.workspaceSelect.value, null);
   });
 
-  ui.refreshButton.addEventListener('click', () => {
-    void refreshOrganizationData({ preserveSelection: true });
-    void refreshShortcutBindings();
-  });
-
-  ui.saveButton.addEventListener('click', () => {
-    void handleSave();
-  });
-
-  ui.shortcutsRefreshButton?.addEventListener('click', () => {
-    void refreshShortcutBindings();
+  ui.refreshButton?.addEventListener('click', () => {
+    void refreshAll({ preserveSelection: true });
   });
 
   ui.shortcutActions?.addEventListener('click', (event) => {
-    const button = event.target?.closest?.('[data-command]');
-    if (!button) return;
-    const command = button.getAttribute('data-command');
+    const tile = event.target?.closest?.('[data-command]');
+    if (!tile) return;
+    const command = tile.getAttribute('data-command');
     if (!command) return;
-    void handleShortcutAction(command);
+    void runAction(command);
   });
 }
 
@@ -73,16 +66,19 @@ async function initialize() {
   try {
     await runtimeMessage({ action: ACTIONS.ping }, { retries: 2 });
   } catch {
-    // Continue; downstream calls include retries.
+    // Continue; follow-up calls include retries.
   }
 
+  await refreshAll({ preserveSelection: false });
+}
+
+async function refreshAll({ preserveSelection = false } = {}) {
   await Promise.all([
     loadPendingCapture(),
-    refreshOrganizationData(),
+    refreshOrganizationData({ preserveSelection }),
     refreshShortcutBindings(),
   ]);
-  renderPreview();
-  updateSaveButtonState();
+  renderPendingNotice();
 }
 
 function prettyShortcutPart(part) {
@@ -108,7 +104,7 @@ function splitShortcut(shortcut) {
 function renderShortcutActions() {
   if (!ui.shortcutActions) return;
   if (!Array.isArray(state.shortcuts) || state.shortcuts.length === 0) {
-    ui.shortcutActions.innerHTML = '<div class="shortcut-empty">No shortcut actions available.</div>';
+    ui.shortcutActions.innerHTML = '<div class="shortcut-unassigned">No actions available.</div>';
     return;
   }
 
@@ -116,12 +112,16 @@ function renderShortcutActions() {
     const keys = splitShortcut(entry.shortcut);
     const keysMarkup = keys.length > 0
       ? keys.map((key) => `<kbd class="shortcut-key">${escapeHtml(key)}</kbd>`).join('')
-      : '<kbd class="shortcut-key">Unassigned</kbd>';
+      : '<span class="shortcut-unassigned">Unassigned</span>';
+    const actionId = entry.actionId || entry.command || '';
+    const iconMarkup = ACTION_ICONS[actionId] || ACTION_ICONS['save-page'];
+    const command = entry.executeCommand || entry.command || '';
 
     return `
-      <button class="shortcut-action-btn" type="button" data-command="${escapeHtml(entry.command)}" title="${escapeHtml(entry.description || entry.label)}">
-        <span class="shortcut-action-label">${escapeHtml(entry.label)}</span>
-        <span class="shortcut-keys">${keysMarkup}</span>
+      <button class="action-tile" type="button" data-command="${escapeHtml(command)}" title="${escapeHtml(entry.description || entry.label || '')}">
+        <svg class="action-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">${iconMarkup}</svg>
+        <span class="action-label">${escapeHtml(entry.label || command || 'Action')}</span>
+        <span class="tile-shortcut">${keysMarkup}</span>
       </button>
     `;
   }).join('');
@@ -143,9 +143,9 @@ async function refreshShortcutBindings() {
   }
 }
 
-async function handleShortcutAction(command) {
+async function runAction(command) {
   if (!command) return;
-  setStatus('Running command...');
+  setStatus('Running action...');
   try {
     const response = await runtimeMessage({
       action: ACTIONS.executeCommand,
@@ -153,12 +153,12 @@ async function handleShortcutAction(command) {
       origin: 'popup-quick-action',
     });
     if (!response?.success) {
-      throw new Error(response?.error || 'Command failed.');
+      throw new Error(response?.error || 'Action failed.');
     }
-    setStatus('Command triggered.', 'success');
-    setTimeout(() => window.close(), 250);
+    setStatus('Action triggered.', 'success');
+    setTimeout(() => window.close(), 180);
   } catch (error) {
-    setStatus(error?.message || 'Command failed.', 'error');
+    setStatus(error?.message || 'Action failed.', 'error');
   }
 }
 
@@ -170,18 +170,6 @@ function getStorage(keys) {
         return;
       }
       resolve(result || {});
-    });
-  });
-}
-
-function removeStorage(keys) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.remove(keys, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve();
     });
   });
 }
@@ -227,9 +215,15 @@ async function loadPendingCapture() {
   try {
     const data = await getStorage(STORAGE_KEYS.pendingCapture);
     state.pendingCapture = data?.[STORAGE_KEYS.pendingCapture] || null;
-  } catch (error) {
-    setStatus(error?.message || 'Could not read pending capture.', 'error');
+  } catch {
+    state.pendingCapture = null;
   }
+}
+
+function renderPendingNotice() {
+  if (!ui.pendingNote) return;
+  const hasPending = Boolean(state.pendingCapture);
+  ui.pendingNote.hidden = !hasPending;
 }
 
 function getCollectionWorkspaceId(collection) {
@@ -354,61 +348,6 @@ async function refreshOrganizationData({ preserveSelection = false } = {}) {
   }
 }
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function truncateText(value, maxLength = 140) {
-  const text = String(value || '');
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength - 1)}…`;
-}
-
-function renderPreview() {
-  if (!state.pendingCapture) {
-    ui.previewContainer.innerHTML = '<div class="preview-empty">No pending capture found.</div>';
-    return;
-  }
-
-  const capture = state.pendingCapture;
-  const source = capture.sourceUrl ? escapeHtml(capture.sourceUrl) : '';
-
-  if (capture.type === 'image') {
-    ui.previewContainer.innerHTML = `
-      <div class="preview-meta">
-        <span class="preview-type">Image Capture</span>
-        <img class="preview-image" src="${escapeHtml(capture.content)}" alt="Pending capture" />
-        ${source ? `<span class="preview-source">${source}</span>` : ''}
-      </div>
-    `;
-    return;
-  }
-
-  const title = capture.title || capture.content || 'Pending capture';
-  const subtitle = capture.description || capture.content || '';
-
-  ui.previewContainer.innerHTML = `
-    <div class="preview-meta">
-      <span class="preview-type">${capture.type === 'text' ? 'Text Capture' : 'Link Capture'}</span>
-      <span class="preview-title">${escapeHtml(truncateText(title, 120))}</span>
-      ${subtitle ? `<span class="preview-subtitle">${escapeHtml(truncateText(subtitle, 180))}</span>` : ''}
-      ${source ? `<span class="preview-source">${source}</span>` : ''}
-    </div>
-  `;
-}
-
-function parseTags(raw) {
-  return String(raw || '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
 function setStatus(message, type = '') {
   ui.status.textContent = message || '';
   ui.status.className = 'status';
@@ -416,44 +355,11 @@ function setStatus(message, type = '') {
   if (type === 'error') ui.status.classList.add('error');
 }
 
-function updateSaveButtonState() {
-  ui.saveButton.disabled = !state.pendingCapture || state.isSaving;
-}
-
-async function handleSave() {
-  if (!state.pendingCapture || state.isSaving) return;
-
-  state.isSaving = true;
-  updateSaveButtonState();
-  setStatus('Saving capture...');
-
-  try {
-    const payload = {
-      ...state.pendingCapture,
-      workspaceId: ui.workspaceSelect.value || null,
-      projectId: null,
-      collectionId: ui.collectionSelect.value || null,
-      tags: parseTags(ui.tagsInput.value),
-    };
-
-    const response = await runtimeMessage({
-      action: ACTIONS.saveCapturedItem,
-      item: payload,
-    });
-
-    if (!response?.success) {
-      throw new Error(response?.error || 'Could not save capture.');
-    }
-
-    await removeStorage(STORAGE_KEYS.pendingCapture);
-    state.pendingCapture = null;
-    ui.tagsInput.value = '';
-    renderPreview();
-    setStatus('Saved to Dreamlab.', 'success');
-  } catch (error) {
-    setStatus(error?.message || 'Could not save capture.', 'error');
-  } finally {
-    state.isSaving = false;
-    updateSaveButtonState();
-  }
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

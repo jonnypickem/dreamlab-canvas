@@ -29,45 +29,83 @@ const ACTIONS = {
   getShortcutBindings: 'getShortcutBindings',
 };
 
-const COMMAND_ACTIONS = [
+const COMMAND_DEFINITIONS = [
   {
     command: 'save-page',
-    label: 'Save Page',
     description: 'Save current page to Dreamlab',
   },
   {
     command: 'capture-visible',
-    label: 'Image Selector',
     description: 'Open image capture review',
   },
   {
     command: 'capture-full-page',
-    label: 'Full Page Screenshot',
     description: 'Capture full page screenshot',
   },
   {
     command: 'smart-picker',
-    label: 'Smart Picker',
     description: 'Pick an image or background from page',
   },
   {
     command: 'pick-color',
-    label: 'Color Eyedropper',
     description: 'Pick a color from the current page',
   },
   {
     command: 'area-select',
-    label: 'Area Screenshot',
     description: 'Capture a selected area screenshot',
   },
   {
     command: 'area-record',
-    label: 'Area Record',
     description: 'Record a selected area',
   },
 ];
 
-const VALID_COMMAND_SET = new Set(COMMAND_ACTIONS.map((entry) => entry.command));
+const ACTION_DEFINITIONS = [
+  {
+    actionId: 'save-page',
+    label: 'Save Page',
+    description: 'Save current page to Dreamlab',
+    executeCommand: 'save-page',
+    shortcutSourceCommands: ['save-page'],
+  },
+  {
+    actionId: 'capture-visible',
+    label: 'Image Review',
+    description: 'Open image capture review',
+    executeCommand: 'capture-visible',
+    shortcutSourceCommands: ['capture-visible'],
+  },
+  {
+    actionId: 'capture-full-page',
+    label: 'Full Screenshot',
+    description: 'Capture full page screenshot',
+    executeCommand: 'capture-full-page',
+    shortcutSourceCommands: ['capture-full-page'],
+  },
+  {
+    actionId: 'smart-picker',
+    label: 'Smart Picker',
+    description: 'Pick an image or background from page',
+    executeCommand: 'smart-picker',
+    shortcutSourceCommands: ['smart-picker'],
+  },
+  {
+    actionId: 'pick-color',
+    label: 'Pick Color',
+    description: 'Pick a color from the current page',
+    executeCommand: 'pick-color',
+    shortcutSourceCommands: ['pick-color'],
+  },
+  {
+    actionId: 'area-capture',
+    label: 'Area Capture',
+    description: 'Capture screenshot or 10s recording from a selected area',
+    executeCommand: 'area-select',
+    shortcutSourceCommands: ['area-select', 'area-record'],
+  },
+];
+
+const VALID_COMMAND_SET = new Set(COMMAND_DEFINITIONS.map((entry) => entry.command));
 
 const CONTENT_ACTIONS = {
   saveItem: 'SAVE_ITEM',
@@ -2518,12 +2556,19 @@ async function getShortcutBindings() {
     commands = [];
   }
   const commandByName = new Map((commands || []).map((command) => [command.name, command]));
-  return COMMAND_ACTIONS.map((entry) => {
-    const runtimeCommand = commandByName.get(entry.command);
+  return ACTION_DEFINITIONS.map((entry) => {
+    const sourceCommand = entry.shortcutSourceCommands.find((name) => {
+      const command = commandByName.get(name);
+      return Boolean(command?.shortcut);
+    }) || entry.shortcutSourceCommands[0];
+    const runtimeCommand = commandByName.get(sourceCommand);
     return {
-      command: entry.command,
+      actionId: entry.actionId,
       label: entry.label,
       description: runtimeCommand?.description || entry.description,
+      executeCommand: entry.executeCommand,
+      sourceCommand,
+      command: entry.executeCommand,
       shortcut: runtimeCommand?.shortcut || '',
     };
   });
