@@ -1,9 +1,20 @@
 import React from 'react';
 import { Avatar } from '../ui/components/Avatar';
 import { IconButton } from '../ui/components/IconButton';
+import { DropdownMenu } from '../ui/components/DropdownMenu';
 import * as SubframeCore from '@subframe/core';
 
-export default function WorkspaceStrip({ workspaces, activeWorkspaceId, onWorkspaceChange, onAddWorkspace, lockScroll = false }) {
+export default function WorkspaceStrip({
+    workspaces,
+    activeWorkspaceId,
+    onWorkspaceChange,
+    onAddWorkspace,
+    onOpenWorkspaceSettings,
+    onOpenShortcutSettings,
+    onOpenAccountSettings,
+    onLogout,
+    lockScroll = false
+}) {
     const handleWheelCapture = (event) => {
         if (!lockScroll) return;
         event.preventDefault();
@@ -60,20 +71,66 @@ export default function WorkspaceStrip({ workspaces, activeWorkspaceId, onWorksp
                         </div>
                     );
                 })}
+
+                <IconButton
+                    onClick={onAddWorkspace}
+                    variant="neutral-tertiary"
+                    size="medium"
+                    icon={<SubframeCore.Icon name="FeatherPlus" />}
+                    title="Add Workspace"
+                />
             </div>
 
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Add button */}
-            <IconButton
-                onClick={onAddWorkspace}
-                variant="neutral-tertiary"
-                size="medium"
-                icon={<SubframeCore.Icon name="FeatherPlus" />}
-                title="Add Workspace"
-                className="mb-2"
-            />
+            <SubframeCore.DropdownMenu.Root>
+                <SubframeCore.DropdownMenu.Trigger asChild={true}>
+                    <div className="mb-2">
+                        <IconButton
+                            variant="neutral-secondary"
+                            size="medium"
+                            icon={<SubframeCore.Icon name="FeatherSettings" />}
+                            title="Account & settings"
+                        />
+                    </div>
+                </SubframeCore.DropdownMenu.Trigger>
+                <SubframeCore.DropdownMenu.Portal>
+                    <SubframeCore.DropdownMenu.Content
+                        side="right"
+                        align="end"
+                        sideOffset={8}
+                        asChild={true}
+                    >
+                        <DropdownMenu>
+                            <DropdownMenu.DropdownItem
+                                icon={<SubframeCore.Icon name="FeatherSettings" />}
+                                onClick={onOpenWorkspaceSettings}
+                            >
+                                Workspace Settings
+                            </DropdownMenu.DropdownItem>
+                            <DropdownMenu.DropdownItem
+                                onClick={onOpenShortcutSettings}
+                            >
+                                Shortcut Settings
+                            </DropdownMenu.DropdownItem>
+                            <DropdownMenu.DropdownItem
+                                icon={<SubframeCore.Icon name="FeatherUser" />}
+                                onClick={onOpenAccountSettings}
+                            >
+                                Account
+                            </DropdownMenu.DropdownItem>
+                            <DropdownMenu.DropdownDivider />
+                            <DropdownMenu.DropdownItem
+                                icon={<SubframeCore.Icon name="FeatherLogOut" />}
+                                onClick={onLogout}
+                            >
+                                Log out
+                            </DropdownMenu.DropdownItem>
+                        </DropdownMenu>
+                    </SubframeCore.DropdownMenu.Content>
+                </SubframeCore.DropdownMenu.Portal>
+            </SubframeCore.DropdownMenu.Root>
         </div>
     );
 }

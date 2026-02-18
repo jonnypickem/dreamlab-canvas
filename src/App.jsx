@@ -241,6 +241,7 @@ function App() {
     const [tagFilter, setTagFilter] = useState(null);
 
     const [showSettings, setShowSettings] = useState(false);
+    const [settingsInitialTab, setSettingsInitialTab] = useState('general');
     const [entitySettingsTarget, setEntitySettingsTarget] = useState(null);
     const [toast, setToast] = useState(null);
     const [extensionShortcuts, setExtensionShortcuts] = useState([]);
@@ -2319,6 +2320,21 @@ function App() {
                     const name = prompt('Workspace Name:');
                     if (name) await createWorkspace(name);
                 }}
+                onOpenWorkspaceSettings={() => {
+                    setSettingsInitialTab('general');
+                    setShowSettings(true);
+                }}
+                onOpenShortcutSettings={() => {
+                    setSettingsInitialTab('shortcuts');
+                    setShowSettings(true);
+                }}
+                onOpenAccountSettings={() => {
+                    setSettingsInitialTab('account');
+                    setShowSettings(true);
+                }}
+                onLogout={async () => {
+                    await supabase.auth.signOut();
+                }}
                 lockScroll={viewMode === 'canvas'}
             />
             {/* Sidebar is hidden on mobile in Subframe example, but we keep it responsive or as is */}
@@ -2391,7 +2407,6 @@ function App() {
                 }}
                 activeWorkspaceId={activeWorkspaceId}
                 activeWorkspaceName={getWorkspaceName(activeWorkspaceId)}
-                onOpenSettings={() => setShowSettings(true)}
                 totalItemCount={workspaceItemCount}
                 lockScroll={viewMode === 'canvas'}
             />
@@ -2666,6 +2681,7 @@ function App() {
                     {showSettings && (
                         <SettingsModal
                             onClose={() => setShowSettings(false)}
+                            initialTab={settingsInitialTab}
                             activeWorkspace={workspaces.find(w => w.id === activeWorkspaceId)}
                             onUpdateWorkspace={loadData}
                             onResetAllData={handleClear}

@@ -5,8 +5,8 @@ import { updateWorkspace } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { FeatherSparkles, FeatherFileText, FeatherCpu, FeatherEye } from '@subframe/core';
 
-export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorkspace, onResetAllData, user }) {
-    const [activeTab, setActiveTab] = useState('general');
+export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorkspace, onResetAllData, user, initialTab = 'general' }) {
+    const [activeTab, setActiveTab] = useState(initialTab || 'general');
     const [workspaceName, setWorkspaceName] = useState(activeWorkspace?.name || '');
     const [workspaceIcon, setWorkspaceIcon] = useState(activeWorkspace?.icon?.value || '');
     const [iconType, setIconType] = useState(activeWorkspace?.icon?.type === 'image' ? 'image' : 'text');
@@ -84,6 +84,10 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
         }
     }, [activeWorkspace]);
 
+    useEffect(() => {
+        setActiveTab(initialTab || 'general');
+    }, [initialTab]);
+
     const handleSaveWorkspace = async () => {
         if (!activeWorkspace) return;
 
@@ -124,8 +128,8 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
         { label: 'Smart Picker (Ext)', keys: ['⌥', '⇧', 'I'] },
         { label: 'Image Selector (Ext)', keys: ['⌥', '⇧', 'C'] },
         { label: 'Full Page Screenshot (Ext)', keys: ['⌥', '⇧', 'P'] },
-        { label: 'Area Screenshot (Ext)', keys: ['⌥', '⇧', 'A'] },
-        { label: 'Area Record (Ext)', keys: ['⌥', '⇧', 'R'] },
+        { label: 'Area Capture (Ext)', keys: ['⌥', '⇧', 'A'] },
+        { label: 'Pick Color (Ext)', keys: ['Unassigned'] },
     ];
 
     return (
@@ -303,7 +307,7 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
                                     ))}
                                 </div>
                                 <p className="text-xs text-zinc-400 mt-2">
-                                    Some browsers (Arc, Dia) may reserve certain shortcuts. Use the toolbar icon or right-click menu as a fallback.
+                                    Change extension shortcuts in browser extension shortcut settings. Some browsers (Arc, Dia) may reserve certain combinations.
                                 </p>
                             </div>
                         )}

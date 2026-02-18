@@ -3,20 +3,16 @@ import { MoreHorizontal } from 'lucide-react';
 import { ChatChannelsMenu } from '../ui/components/ChatChannelsMenu';
 import { DropdownMenu } from '../ui/components/DropdownMenu';
 import { IconButton } from '../ui/components/IconButton';
-import { Avatar } from '../ui/components/Avatar';
 import { Badge } from '../ui/components/Badge';
 import { TextField } from '../ui/components/TextField';
 import { getEntityColorToken, getEntityIconComponent } from '../utils/entityStyles';
 import * as SubframeCore from "@subframe/core";
 import {
-    FeatherChevronDown,
     FeatherChevronRight,
     FeatherSearch,
     FeatherLayoutGrid,
     FeatherFolder,
     FeatherSettings,
-    FeatherTrash,
-    FeatherLogOut,
     FeatherPlus
 } from "@subframe/core";
 
@@ -36,10 +32,10 @@ function formatShortcutPart(part) {
     return normalized.length === 1 ? normalized.toUpperCase() : normalized;
 }
 
-function splitShortcutParts(shortcut) {
+function formatShortcutChipLabel(shortcut) {
     const raw = String(shortcut || '').trim();
-    if (!raw) return [];
-    return raw.split('+').map(formatShortcutPart).filter(Boolean);
+    if (!raw) return '';
+    return raw.split('+').map(formatShortcutPart).filter(Boolean).join('');
 }
 
 export default function Sidebar({
@@ -66,7 +62,6 @@ export default function Sidebar({
     onCollectionComposerOpened,
     activeWorkspaceId,
     activeWorkspaceName,
-    onOpenSettings,
     totalItemCount = 0,
     lockScroll = false
 }) {
@@ -141,8 +136,6 @@ export default function Sidebar({
 
         return { map, ungrouped };
     }, [projects, collections]);
-
-    const workspaceInitials = activeWorkspaceName ? activeWorkspaceName.substring(0, 2).toUpperCase() : 'DL';
 
     const startProjectRename = (project) => {
         setEditingProjectId(project.id);
@@ -364,59 +357,9 @@ export default function Sidebar({
         >
             <div className="flex w-full items-center gap-4">
                 <div className="flex grow shrink-0 basis-0 items-center gap-2 px-4 py-4">
-                    <SubframeCore.DropdownMenu.Root>
-                        <SubframeCore.DropdownMenu.Trigger asChild={true}>
-                            <div className="flex items-center gap-2 cursor-pointer">
-                                <span className="text-heading-3 font-heading-3 text-default-font">
-                                    {activeWorkspaceName || 'Dreamlab'}
-                                </span>
-                                <FeatherChevronDown className="text-caption font-caption text-default-font" />
-                            </div>
-                        </SubframeCore.DropdownMenu.Trigger>
-                        <SubframeCore.DropdownMenu.Portal>
-                            <SubframeCore.DropdownMenu.Content
-                                side="bottom"
-                                align="start"
-                                sideOffset={4}
-                                asChild={true}
-                            >
-                                <DropdownMenu>
-                                    <div className="flex w-full items-center gap-2 border-b border-solid border-neutral-border px-3 pt-3 pb-4">
-                                        <Avatar
-                                            variant="neutral"
-                                            size="large"
-                                            square={true}
-                                        >
-                                            {workspaceInitials}
-                                        </Avatar>
-                                        <div className="flex grow shrink-0 basis-0 flex-col items-start">
-                                            <span className="line-clamp-1 w-full text-body-bold font-body-bold text-default-font">
-                                                {activeWorkspaceName || 'Dreamlab'}
-                                            </span>
-                                            <span className="line-clamp-1 w-full text-caption font-caption text-subtext-color">
-                                                {collections.length} collections
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <DropdownMenu.DropdownItem
-                                        icon={<FeatherSettings />}
-                                        onClick={onOpenSettings}
-                                    >
-                                        Settings
-                                    </DropdownMenu.DropdownItem>
-                                    <DropdownMenu.DropdownItem
-                                        icon={<FeatherLogOut />}
-                                        onClick={async () => {
-                                            const { supabase } = await import('../lib/supabase');
-                                            await supabase.auth.signOut();
-                                        }}
-                                    >
-                                        Sign out
-                                    </DropdownMenu.DropdownItem>
-                                </DropdownMenu>
-                            </SubframeCore.DropdownMenu.Content>
-                        </SubframeCore.DropdownMenu.Portal>
-                    </SubframeCore.DropdownMenu.Root>
+                    <span className="line-clamp-1 text-heading-3 font-heading-3 text-default-font">
+                        {activeWorkspaceName || 'Dreamlab'}
+                    </span>
                 </div>
                 <IconButton
                     icon={<FeatherSearch />}
@@ -862,32 +805,25 @@ export default function Sidebar({
                     </div>
                 </div>
             </ChatChannelsMenu>
-            <div className="w-full border-t border-neutral-200/80 pt-3">
-                <div className="px-3.5 pb-2">
+            <div className="w-full border-t border-neutral-200/80 pt-2.5">
+                <div className="px-3.5 pb-1.5">
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Shortcuts</span>
                 </div>
-                <div className="flex w-full flex-col gap-1 px-2">
+                <div className="flex w-full flex-col gap-0.5 px-2">
                     {shortcutRows.length === 0 ? (
-                        <div className="px-2 py-1 text-[11px] text-neutral-400">Extension shortcuts unavailable</div>
+                        <div className="px-2 py-0.5 text-[11px] text-neutral-400">Extension shortcuts unavailable</div>
                     ) : shortcutRows.map((entry) => {
-                        const parts = splitShortcutParts(entry.shortcut);
+                        const shortcutLabel = formatShortcutChipLabel(entry.shortcut);
                         return (
-                            <div key={entry.actionId || entry.command} className="flex items-center justify-between rounded-lg px-2 py-1 hover:bg-neutral-100">
+                            <div key={entry.actionId || entry.command} className="flex items-center justify-between rounded-lg px-2 py-0.5 hover:bg-neutral-100">
                                 <span className="truncate pr-2 text-[11px] font-medium text-neutral-600">{entry.label}</span>
-                                <div className="flex items-center gap-1">
-                                    {parts.length > 0 ? parts.map((part, index) => (
-                                        <kbd
-                                            key={`${entry.actionId || entry.command}-${part}-${index}`}
-                                            className="inline-flex min-w-[18px] items-center justify-center rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500"
-                                        >
-                                            {part}
-                                        </kbd>
-                                    )) : (
-                                        <kbd className="inline-flex min-w-[18px] items-center justify-center rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-neutral-400">
-                                            Unassigned
-                                        </kbd>
-                                    )}
-                                </div>
+                                <span className={`inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                    shortcutLabel
+                                        ? 'border-neutral-200 bg-white text-neutral-500'
+                                        : 'border-neutral-200 bg-neutral-50 text-neutral-400'
+                                }`}>
+                                    {shortcutLabel || 'Unassigned'}
+                                </span>
                             </div>
                         );
                     })}
