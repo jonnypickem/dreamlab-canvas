@@ -58,6 +58,7 @@ import { FeatherChevronLeft, FeatherChevronRight, FeatherLayoutGrid, FeatherSqua
 const STAGE_A_AUTO_BACKFILL_ENABLED = true;
 const COLLECTION_SORT_STEP = 1000;
 const ITEM_SORT_STEP = 1000;
+const UNSORTED_COLLECTION_ID = '__unsorted__';
 
 function getCollectionSortOrder(collection) {
     const order = Number(collection?.sortOrder);
@@ -106,6 +107,12 @@ function moveArrayItem(list, fromIndex, toIndex) {
     const [moved] = next.splice(fromIndex, 1);
     next.splice(toIndex, 0, moved);
     return next;
+}
+
+function areIdOrdersEqual(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    return a.every((id, index) => id === b[index]);
 }
 
 function computeCollectionReorder(allCollections, {
@@ -206,6 +213,9 @@ function App() {
     const [selectedCollectionId, setSelectedCollectionId] = useState(() => {
         try { return localStorage.getItem('dreamlab_nav_collection') || null; } catch { return null; }
     });
+    const [selectedProjectId, setSelectedProjectId] = useState(() => {
+        try { return localStorage.getItem('dreamlab_nav_project') || null; } catch { return null; }
+    });
     const navRestoredRef = useRef(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchExpanded, setSearchExpanded] = useState(false);
@@ -227,6 +237,10 @@ function App() {
     const [canvasInlineEditId, setCanvasInlineEditId] = useState(null);
     const [gridInlineEditId, setGridInlineEditId] = useState(null);
     const [reorderDraftIds, setReorderDraftIds] = useState([]);
+    const [projectGridDraftIdsByProjectId, setProjectGridDraftIdsByProjectId] = useState({});
+    const [projectCanvasDraftByProjectId, setProjectCanvasDraftByProjectId] = useState({});
+    const [projectIdToOpenCollectionComposer, setProjectIdToOpenCollectionComposer] = useState(undefined);
+    const [lastUsedCollectionByProject, setLastUsedCollectionByProject] = useState({});
     const canvasViewportRef = useRef(null);
     const suppressItemsRealtimeUntilRef = useRef(0);
     const reorderPersistTokenRef = useRef(0);
@@ -272,16 +286,37 @@ function App() {
 
     const activeCollection = useMemo(() => {
         if (!selectedCollectionId) return null;
-        if (selectedCollectionId === '__unsorted__') {
-            return { id: '__unsorted__', name: 'Unsorted' };
+        if (selectedCollectionId === UNSORTED_COLLECTION_ID) {
+            return { id: UNSORTED_COLLECTION_ID, name: 'Unsorted' };
         }
         return workspaceCollections.find((collection) => collection.id === selectedCollectionId) || null;
     }, [workspaceCollections, selectedCollectionId]);
 
+    const activeProject = useMemo(() => {
+        if (!selectedProjectId) return null;
+        return workspaceProjects.find((project) => project.id === selectedProjectId) || null;
+    }, [workspaceProjects, selectedProjectId]);
+
+    const selectedScope = useMemo(() => {
+        if (selectedCollectionId === UNSORTED_COLLECTION_ID) return 'unsorted';
+        if (selectedCollectionId) return 'collection';
+        if (selectedProjectId) return 'project';
+        return 'all';
+    }, [selectedCollectionId, selectedProjectId]);
+
+    const projectCollectionIds = useMemo(() => {
+        if (selectedScope !== 'project' || !selectedProjectId) return new Set();
+        return new Set(
+            workspaceCollections
+                .filter((collection) => collection.projectId === selectedProjectId)
+                .map((collection) => collection.id)
+        );
+    }, [selectedScope, selectedProjectId, workspaceCollections]);
+
     useEffect(() => {
-        setCanvasTitleDraft(activeCollection?.name || 'All Items');
+        setCanvasTitleDraft(activeCollection?.name || activeProject?.name || 'All Items');
         setIsCanvasTitleEditing(false);
-    }, [activeCollection?.id, activeCollection?.name, selectedCollectionId]);
+    }, [activeCollection?.id, activeCollection?.name, activeProject?.id, activeProject?.name, selectedScope]);
 
     useEffect(() => {
         if (!isCanvasTitleEditing) return;
@@ -294,23 +329,34 @@ function App() {
         [items, activeWorkspaceId]
     );
 
+    const activeProjectItemCount = useMemo(() => {
+        if (selectedScope !== 'project') return 0;
+        return items.filter((item) => (
+            item.workspaceId === activeWorkspaceId
+            && projectCollectionIds.has(item.collectionId)
+        )).length;
+    }, [selectedScope, items, activeWorkspaceId, projectCollectionIds]);
+
     useEffect(() => {
         itemsRef.current = items;
     }, [items]);
 
     const filteredItems = useMemo(() => items.filter((item) => {
         const matchesWorkspace = !activeWorkspaceId || item.workspaceId === activeWorkspaceId;
-        const matchesCollection = !selectedCollectionId
-            || (selectedCollectionId === '__unsorted__'
+        const matchesScope = selectedScope === 'collection'
+            ? item.collectionId === selectedCollectionId
+            : selectedScope === 'unsorted'
                 ? !item.collectionId
-                : item.collectionId === selectedCollectionId);
+                : selectedScope === 'project'
+                    ? projectCollectionIds.has(item.collectionId)
+                    : true;
         const matchesSearch = !searchQuery
             || item.content.toLowerCase().includes(searchQuery.toLowerCase())
             || item.sourceUrl.toLowerCase().includes(searchQuery.toLowerCase())
             || (item.tags && item.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase())));
         const matchesTag = !tagFilter || (item.tags && item.tags.includes(tagFilter));
-        return matchesWorkspace && matchesCollection && matchesSearch && matchesTag;
-    }), [items, searchQuery, activeWorkspaceId, selectedCollectionId, tagFilter]);
+        return matchesWorkspace && matchesScope && matchesSearch && matchesTag;
+    }), [items, searchQuery, activeWorkspaceId, selectedScope, selectedCollectionId, tagFilter, projectCollectionIds]);
 
     const orderedFilteredItems = useMemo(
         () => [...filteredItems].sort(compareItemsForDisplay),
@@ -318,9 +364,10 @@ function App() {
     );
 
     const hasActiveGridFilters = Boolean(searchQuery.trim() || tagFilter);
-    const hasConcreteCollectionSelection = Boolean(selectedCollectionId && selectedCollectionId !== '__unsorted__');
+    const hasConcreteCollectionSelection = selectedScope === 'collection';
+    const hasProjectSelection = selectedScope === 'project';
     const canUseGridReorder = viewMode === 'grid'
-        && hasConcreteCollectionSelection
+        && (hasConcreteCollectionSelection || hasProjectSelection)
         && !hasActiveGridFilters;
 
     const displayGridItems = useMemo(() => {
@@ -406,24 +453,41 @@ function App() {
             if (ctx.workspaceId && ws.some(w => w.id === ctx.workspaceId)) {
                 setActiveWorkspaceId(ctx.workspaceId);
                 if (ctx.collectionId) {
-                    const collectionIsValid = ctx.collectionId === '__unsorted__'
-                        || c.some((collection) => (
+                    const selectedCollection = ctx.collectionId === UNSORTED_COLLECTION_ID
+                        ? { id: UNSORTED_COLLECTION_ID, projectId: null }
+                        : c.find((collection) => (
                             collection.id === ctx.collectionId
                             && getCollectionWorkspaceId(collection) === ctx.workspaceId
                         ));
-                    setSelectedCollectionId(collectionIsValid ? ctx.collectionId : null);
+                    if (selectedCollection) {
+                        setSelectedCollectionId(ctx.collectionId);
+                        setSelectedProjectId(selectedCollection.projectId || null);
+                    } else {
+                        setSelectedCollectionId(null);
+                        const projectIsValid = ctx.projectId && p.some((project) => (
+                            project.id === ctx.projectId && project.workspaceId === ctx.workspaceId
+                        ));
+                        setSelectedProjectId(projectIsValid ? ctx.projectId : null);
+                    }
                 } else {
                     setSelectedCollectionId(null);
+                    const projectIsValid = ctx.projectId && p.some((project) => (
+                        project.id === ctx.projectId && project.workspaceId === ctx.workspaceId
+                    ));
+                    setSelectedProjectId(projectIsValid ? ctx.projectId : null);
                 }
             } else if (ws.length > 0) {
                 setActiveWorkspaceId(ws[0].id);
                 setSelectedCollectionId(null);
+                setSelectedProjectId(null);
             } else if (!hasLegacyData()) {
                 // No workspaces exist and no legacy data to migrate -> Create default "Dreamlab" workspace
                 const created = await createWorkspace('Dreamlab');
                 if (created) {
                     setActiveWorkspaceId(created.id);
                     setWorkspaces([created]);
+                    setSelectedCollectionId(null);
+                    setSelectedProjectId(null);
                 }
             }
 
@@ -456,9 +520,14 @@ function App() {
             } else {
                 localStorage.removeItem('dreamlab_nav_collection');
             }
+            if (selectedProjectId) {
+                localStorage.setItem('dreamlab_nav_project', selectedProjectId);
+            } else {
+                localStorage.removeItem('dreamlab_nav_project');
+            }
         } catch { /* ignore */ }
-        setActiveContext(activeWorkspaceId, selectedCollectionId);
-    }, [activeWorkspaceId, selectedCollectionId, user]);
+        setActiveContext(activeWorkspaceId, selectedCollectionId, selectedProjectId);
+    }, [activeWorkspaceId, selectedCollectionId, selectedProjectId, user]);
 
     // Load data when user is authenticated
     useEffect(() => {
@@ -493,6 +562,38 @@ function App() {
         return maxSortOrder + ITEM_SORT_STEP;
     }, [items]);
 
+    const markCollectionAsLastUsed = useCallback((collectionId) => {
+        if (!collectionId || collectionId === UNSORTED_COLLECTION_ID) return;
+        const collection = collections.find((candidate) => candidate.id === collectionId);
+        const projectId = collection?.projectId || null;
+        if (!projectId) return;
+        setLastUsedCollectionByProject((prev) => {
+            if (prev[projectId] === collectionId) return prev;
+            return { ...prev, [projectId]: collectionId };
+        });
+    }, [collections]);
+
+    const resolveCreateTargetCollectionId = useCallback(({ blockOnEmptyProject = false } = {}) => {
+        if (selectedCollectionId === UNSORTED_COLLECTION_ID) return null;
+        if (selectedCollectionId) return selectedCollectionId;
+        if (!selectedProjectId) return null;
+
+        const projectCollections = workspaceCollections.filter(
+            (collection) => collection.projectId === selectedProjectId
+        );
+        if (projectCollections.length === 0) {
+            if (blockOnEmptyProject) {
+                setToast({ message: 'Create a collection in this folder first', type: 'error' });
+                setProjectIdToOpenCollectionComposer(selectedProjectId);
+            }
+            return undefined;
+        }
+
+        const lastUsedCollectionId = lastUsedCollectionByProject[selectedProjectId];
+        const preferred = projectCollections.find((collection) => collection.id === lastUsedCollectionId);
+        return preferred?.id || projectCollections[0].id;
+    }, [selectedCollectionId, selectedProjectId, workspaceCollections, lastUsedCollectionByProject]);
+
     // Extension bridge: listen for postMessage from content.js
     useEffect(() => {
         if (!user) return;
@@ -504,7 +605,8 @@ function App() {
                 const { item, responseChannel } = event.data;
                 console.log('[ExtBridge] Received DREAMLAB_SAVE_ITEM', { type: item?.type, sourceUrl: item?.sourceUrl?.slice(0, 60), hasContent: !!item?.content });
                 try {
-                    const targetCollectionId = item.collectionId || (selectedCollectionId === '__unsorted__' ? null : selectedCollectionId);
+                    const inferredCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: false });
+                    const targetCollectionId = item.collectionId ?? (inferredCollectionId === undefined ? null : inferredCollectionId);
                     const sortOrder = item.sortOrder ?? getNextCollectionItemSortOrder(targetCollectionId);
                     const saved = await saveItemWithTags({
                         ...item,
@@ -515,6 +617,7 @@ function App() {
                     console.log('[ExtBridge] Save succeeded', saved?.id);
                     if (saved) {
                         setItems((prev) => [saved, ...prev]);
+                        markCollectionAsLastUsed(saved.collectionId);
                     }
                     window.postMessage({ type: responseChannel, payload: { success: true, itemId: saved.id } }, '*');
                 } catch (error) {
@@ -534,6 +637,7 @@ function App() {
                         collections,
                         activeContext: {
                             workspaceId: activeWorkspaceId,
+                            projectId: selectedProjectId,
                             collectionId: selectedCollectionId,
                         },
                     },
@@ -543,20 +647,42 @@ function App() {
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [user, activeWorkspaceId, selectedCollectionId, workspaces, projects, collections, getNextCollectionItemSortOrder]);
+    }, [user, activeWorkspaceId, selectedProjectId, selectedCollectionId, workspaces, projects, collections, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     useEffect(() => {
-        if (!selectedCollectionId || selectedCollectionId === '__unsorted__') {
+        if (!selectedCollectionId || selectedCollectionId === UNSORTED_COLLECTION_ID) {
+            if (selectedCollectionId === UNSORTED_COLLECTION_ID && selectedProjectId) {
+                setSelectedProjectId(null);
+            }
             return;
         }
-        const stillValid = collections.some(
+        const liveCollection = collections.find(
             (collection) => collection.id === selectedCollectionId
                 && getCollectionWorkspaceId(collection) === activeWorkspaceId
         );
-        if (!stillValid) {
+        if (!liveCollection) {
             setSelectedCollectionId(null);
+            return;
         }
-    }, [collections, selectedCollectionId, activeWorkspaceId]);
+        const parentProjectId = liveCollection.projectId || null;
+        if (selectedProjectId !== parentProjectId) {
+            setSelectedProjectId(parentProjectId);
+        }
+    }, [collections, selectedCollectionId, selectedProjectId, activeWorkspaceId]);
+
+    useEffect(() => {
+        if (!selectedProjectId) return;
+        const stillValid = workspaceProjects.some((project) => project.id === selectedProjectId);
+        if (!stillValid) {
+            setSelectedProjectId(null);
+        }
+    }, [workspaceProjects, selectedProjectId]);
+
+    useEffect(() => {
+        if (selectedScope !== 'collection') return;
+        if (!selectedCollectionId) return;
+        markCollectionAsLastUsed(selectedCollectionId);
+    }, [selectedScope, selectedCollectionId, markCollectionAsLastUsed]);
 
 
     // Tagging Processing Effect
@@ -713,7 +839,8 @@ function App() {
             setToast({ message: 'Select a workspace first', type: 'error' });
             return;
         }
-        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const targetCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: true });
+        if (targetCollectionId === undefined) return;
         const sortOrder = getNextCollectionItemSortOrder(targetCollectionId);
         const canvas = getCanvasPlacement('text');
         const newItem = {
@@ -732,18 +859,20 @@ function App() {
             if (saved) {
                 setItems((prev) => [saved, ...prev]);
                 setCanvasInlineEditId(saved.id);
+                markCollectionAsLastUsed(saved.collectionId);
             }
         } catch (error) {
             setToast({ message: error?.message || 'Failed to create note', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, getCanvasPlacement, getNextCollectionItemSortOrder]);
+    }, [activeWorkspaceId, getCanvasPlacement, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     const createGridNote = useCallback(async () => {
         if (!activeWorkspaceId) {
             setToast({ message: 'Select a workspace first', type: 'error' });
             return;
         }
-        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const targetCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: true });
+        if (targetCollectionId === undefined) return;
         const sortOrder = getNextCollectionItemSortOrder(targetCollectionId);
         const newItem = {
             type: 'text',
@@ -760,11 +889,12 @@ function App() {
             if (saved) {
                 setItems((prev) => [saved, ...prev]);
                 setGridInlineEditId(saved.id);
+                markCollectionAsLastUsed(saved.collectionId);
             }
         } catch (error) {
             setToast({ message: error?.message || 'Failed to create note', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, getNextCollectionItemSortOrder]);
+    }, [activeWorkspaceId, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     // Shared image save helper — used by both paste and drag-and-drop
     const saveImageFromBlob = useCallback(async (blob) => {
@@ -780,7 +910,11 @@ function App() {
 
         const tempId = crypto.randomUUID();
         const blobUrl = URL.createObjectURL(blob);
-        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const targetCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: true });
+        if (targetCollectionId === undefined) {
+            URL.revokeObjectURL(blobUrl);
+            return;
+        }
         const nextSortOrder = getNextCollectionItemSortOrder(targetCollectionId);
         const placeholderItem = {
             id: tempId,
@@ -823,6 +957,7 @@ function App() {
             const saved = await saveItemWithTags(newItem, null);
             if (saved) {
                 setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
+                markCollectionAsLastUsed(saved.collectionId);
             } else {
                 setItems((prev) => prev.filter((item) => item.id !== tempId));
             }
@@ -833,7 +968,7 @@ function App() {
         } finally {
             URL.revokeObjectURL(blobUrl);
         }
-    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder]);
+    }, [activeWorkspaceId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     // Drag-and-drop file handler
     const [isDragging, setIsDragging] = useState(false);
@@ -869,7 +1004,8 @@ function App() {
         }
 
         const tempId = crypto.randomUUID();
-        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const targetCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: true });
+        if (targetCollectionId === undefined) return;
         const nextSortOrder = getNextCollectionItemSortOrder(targetCollectionId);
         const placeholderItem = {
             id: tempId,
@@ -915,6 +1051,7 @@ function App() {
             const saved = await saveItemWithTags(newItem, null);
             if (saved) {
                 setItems((prev) => prev.map((item) => item.id === tempId ? saved : item));
+                markCollectionAsLastUsed(saved.collectionId);
             } else {
                 setItems((prev) => prev.filter((item) => item.id !== tempId));
             }
@@ -924,14 +1061,15 @@ function App() {
             setItems((prev) => prev.filter((item) => item.id !== tempId));
             setToast({ message: error?.message || 'Failed to save link', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder]);
+    }, [activeWorkspaceId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     const saveText = useCallback(async (text, source = 'clipboard') => {
         if (!activeWorkspaceId) {
             setToast({ message: 'Select a workspace first', type: 'error' });
             return;
         }
-        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const targetCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: true });
+        if (targetCollectionId === undefined) return;
         const sortOrder = getNextCollectionItemSortOrder(targetCollectionId);
 
         const newItem = {
@@ -947,19 +1085,23 @@ function App() {
         };
         try {
             const saved = await saveItemWithTags(newItem, null);
-            if (saved) setItems((prev) => [saved, ...prev]);
+            if (saved) {
+                setItems((prev) => [saved, ...prev]);
+                markCollectionAsLastUsed(saved.collectionId);
+            }
             setToast({ message: source === 'note' ? 'Note created' : 'Text saved', type: 'success' });
         } catch (error) {
             setToast({ message: error?.message || 'Failed to save text', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder]);
+    }, [activeWorkspaceId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     const saveColor = useCallback(async (hexColor) => {
         if (!activeWorkspaceId) {
             setToast({ message: 'Select a workspace first', type: 'error' });
             return;
         }
-        const targetCollectionId = selectedCollectionId === '__unsorted__' ? null : selectedCollectionId;
+        const targetCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: true });
+        if (targetCollectionId === undefined) return;
         const sortOrder = getNextCollectionItemSortOrder(targetCollectionId);
 
         const newItem = {
@@ -975,12 +1117,15 @@ function App() {
         };
         try {
             const saved = await saveItemWithTags(newItem, null);
-            if (saved) setItems((prev) => [saved, ...prev]);
+            if (saved) {
+                setItems((prev) => [saved, ...prev]);
+                markCollectionAsLastUsed(saved.collectionId);
+            }
             setToast({ message: 'Color saved', type: 'success' });
         } catch (error) {
             setToast({ message: error?.message || 'Failed to save color', type: 'error' });
         }
-    }, [activeWorkspaceId, selectedCollectionId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder]);
+    }, [activeWorkspaceId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     const handlePasteClipboard = useCallback(async () => {
         try {
@@ -1243,6 +1388,10 @@ function App() {
         }
 
         setProjects((prev) => prev.filter((candidate) => candidate.id !== project.id));
+        if (selectedProjectId === project.id) {
+            setSelectedProjectId(null);
+            setSelectedCollectionId(null);
+        }
         setToast({ message: `Deleted folder "${project.name}"`, type: 'success' });
     };
 
@@ -1304,17 +1453,33 @@ function App() {
         setToast({ message: `Moved "${collection.name}" to "${targetProject.name}"`, type: 'success' });
     };
 
-    const canGoBack = Boolean(selectedCollectionId);
+    const canGoBack = Boolean(selectedCollectionId || selectedProjectId);
 
-    const headerTitle = selectedCollectionId
+    const headerTitle = selectedScope === 'collection'
         ? (activeCollection?.name || 'Collection')
-        : 'All Items';
+        : selectedScope === 'project'
+            ? (activeProject?.name || 'Project')
+            : selectedScope === 'unsorted'
+                ? 'Unsorted'
+                : 'All Items';
 
-    const headerSubtitle = selectedCollectionId
+    const headerSubtitle = selectedScope === 'collection'
         ? `Collection in ${getWorkspaceName(activeWorkspaceId) || 'workspace'}`
-        : `${workspaceItemCount} items in ${getWorkspaceName(activeWorkspaceId) || 'workspace'}`;
+        : selectedScope === 'project'
+            ? `${activeProjectItemCount} items in ${activeProject?.name || 'project'}`
+            : `${workspaceItemCount} items in ${getWorkspaceName(activeWorkspaceId) || 'workspace'}`;
 
     const handleBackNavigate = () => {
+        if (selectedScope === 'collection') {
+            const parentProjectId = activeCollection?.projectId || null;
+            setSelectedCollectionId(null);
+            setSelectedProjectId(parentProjectId);
+            return;
+        }
+        if (selectedScope === 'project') {
+            setSelectedProjectId(null);
+            return;
+        }
         if (selectedCollectionId) {
             setSelectedCollectionId(null);
         }
@@ -1350,7 +1515,7 @@ function App() {
     }, [items, viewMode]);
 
     const handleCanvasTitleSave = useCallback(async () => {
-        if (!activeCollection || !activeCollection.id || activeCollection.id === '__unsorted__') {
+        if (!activeCollection || !activeCollection.id || activeCollection.id === UNSORTED_COLLECTION_ID) {
             setIsCanvasTitleEditing(false);
             return;
         }
@@ -1371,24 +1536,23 @@ function App() {
     }, [activeCollection, canvasTitleDraft]);
 
     const handleCanvasTitleCancel = useCallback(() => {
-        setCanvasTitleDraft(activeCollection?.name || 'All Items');
+        setCanvasTitleDraft(activeCollection?.name || activeProject?.name || 'All Items');
         setIsCanvasTitleEditing(false);
-    }, [activeCollection?.name]);
+    }, [activeCollection?.name, activeProject?.name]);
 
     const handleCreateCollection = async (projectId, requestedNameInput = null) => {
         if (!activeWorkspaceId) return;
-        if (!projectId) {
-            setToast({ message: 'Choose a folder first', type: 'error' });
-            return;
-        }
-        const targetProject = workspaceProjects.find((project) => project.id === projectId);
-        if (!targetProject) {
+        const normalizedProjectId = projectId || null;
+        const targetProject = normalizedProjectId
+            ? workspaceProjects.find((project) => project.id === normalizedProjectId)
+            : null;
+        if (normalizedProjectId && !targetProject) {
             setToast({ message: 'Folder not found in this workspace', type: 'error' });
             return;
         }
         if (requestedNameInput !== null && !String(requestedNameInput || '').trim()) return;
 
-        const suggestedName = getDefaultCollectionName(projectId);
+        const suggestedName = getDefaultCollectionName(normalizedProjectId);
         let requestedName = requestedNameInput;
         if (requestedNameInput === null) {
             try {
@@ -1402,19 +1566,23 @@ function App() {
 
         try {
             const maxSortOrder = workspaceCollections
-                .filter((collection) => collection.projectId === projectId)
+                .filter((collection) => normalizeProjectId(collection.projectId) === normalizeProjectId(normalizedProjectId))
                 .reduce((max, collection) => (
                     Math.max(max, Number.isFinite(Number(collection.sortOrder)) ? Number(collection.sortOrder) : 0)
                 ), 0);
             const created = await createCollection(
                 activeWorkspaceId,
-                projectId,
+                normalizedProjectId,
                 finalName,
                 maxSortOrder + COLLECTION_SORT_STEP
             );
             if (!created) throw new Error('Collection was not created.');
             setCollections((prev) => [created, ...prev.filter((collection) => collection.id !== created.id)]);
             setSelectedCollectionId(created.id);
+            setSelectedProjectId(created.projectId || null);
+            if (created.projectId) {
+                setLastUsedCollectionByProject((prev) => ({ ...prev, [created.projectId]: created.id }));
+            }
             setToast({ message: `Created collection "${created.name}"`, type: 'success' });
         } catch (error) {
             setToast({ message: error?.message || 'Failed to create collection', type: 'error' });
@@ -1476,18 +1644,33 @@ function App() {
             return;
         }
         const liveIds = orderedFilteredItems.map((item) => item.id);
-        setReorderDraftIds((prev) => {
-            if (prev.length === 0) return liveIds;
-            const liveSet = new Set(liveIds);
-            const prevSet = new Set(prev);
-            const next = prev.filter((id) => liveSet.has(id));
-            liveIds.forEach((id) => {
-                if (!prevSet.has(id)) next.push(id);
-            });
-            const unchanged = next.length === prev.length && next.every((id, index) => id === prev[index]);
-            return unchanged ? prev : next;
+        const liveSet = new Set(liveIds);
+        const storedProjectDraft = selectedScope === 'project' && selectedProjectId
+            ? (projectGridDraftIdsByProjectId[selectedProjectId] || [])
+            : [];
+        const baseIds = selectedScope === 'project'
+            ? (storedProjectDraft.length > 0 ? storedProjectDraft : liveIds)
+            : liveIds;
+        const baseSet = new Set(baseIds);
+        const next = baseIds.filter((id) => liveSet.has(id));
+        liveIds.forEach((id) => {
+            if (!baseSet.has(id)) next.push(id);
         });
-    }, [canUseGridReorder, orderedFilteredItems]);
+
+        reorderDraftIdsRef.current = next;
+        setReorderDraftIds((prev) => (areIdOrdersEqual(prev, next) ? prev : next));
+
+        if (selectedScope === 'project' && selectedProjectId) {
+            setProjectGridDraftIdsByProjectId((prev) => {
+                const existing = prev[selectedProjectId] || [];
+                if (areIdOrdersEqual(existing, next)) return prev;
+                return {
+                    ...prev,
+                    [selectedProjectId]: next,
+                };
+            });
+        }
+    }, [canUseGridReorder, orderedFilteredItems, selectedScope, selectedProjectId, projectGridDraftIdsByProjectId]);
 
     useEffect(() => {
         reorderDraftIdsRef.current = reorderDraftIds;
@@ -1510,11 +1693,17 @@ function App() {
         if (!nextOrder) return null;
         reorderDraftIdsRef.current = nextOrder;
         setReorderDraftIds(nextOrder);
+        if (selectedScope === 'project' && selectedProjectId) {
+            setProjectGridDraftIdsByProjectId((prev) => ({
+                ...prev,
+                [selectedProjectId]: nextOrder,
+            }));
+        }
         return nextOrder;
-    }, [canUseGridReorder, getNextDraftOrder]);
+    }, [canUseGridReorder, getNextDraftOrder, selectedScope, selectedProjectId]);
 
     const persistGridReorder = useCallback(async (nextOrder) => {
-        if (!selectedCollectionId || selectedCollectionId === '__unsorted__') return;
+        if (!selectedCollectionId || selectedCollectionId === UNSORTED_COLLECTION_ID) return;
         if (!Array.isArray(nextOrder) || nextOrder.length === 0) return;
 
         const currentItems = itemsRef.current;
@@ -1587,8 +1776,43 @@ function App() {
             ? reorderDraftIdsRef.current
             : orderedFilteredItems.map((item) => item.id);
         if (nextOrder.length === 0) return;
+        if (selectedScope === 'project' && selectedProjectId) {
+            setProjectGridDraftIdsByProjectId((prev) => ({
+                ...prev,
+                [selectedProjectId]: nextOrder,
+            }));
+            return;
+        }
         void persistGridReorder(nextOrder);
-    }, [canUseGridReorder, orderedFilteredItems, persistGridReorder]);
+    }, [canUseGridReorder, orderedFilteredItems, persistGridReorder, selectedScope, selectedProjectId]);
+
+    const activeProjectCanvasDraft = useMemo(() => {
+        if (selectedScope !== 'project' || !selectedProjectId) return {};
+        return projectCanvasDraftByProjectId[selectedProjectId] || {};
+    }, [selectedScope, selectedProjectId, projectCanvasDraftByProjectId]);
+
+    const handleProjectCanvasDraftUpdate = useCallback((itemId, draft) => {
+        if (!itemId || !draft) return;
+        if (selectedScope !== 'project' || !selectedProjectId) return;
+        setProjectCanvasDraftByProjectId((prev) => ({
+            ...prev,
+            [selectedProjectId]: {
+                ...(prev[selectedProjectId] || {}),
+                [itemId]: draft,
+            },
+        }));
+    }, [selectedScope, selectedProjectId]);
+
+    const handleResetProjectLayout = useCallback(() => {
+        if (selectedScope !== 'project' || !selectedProjectId) return;
+        setProjectCanvasDraftByProjectId((prev) => {
+            if (!prev[selectedProjectId]) return prev;
+            const next = { ...prev };
+            delete next[selectedProjectId];
+            return next;
+        });
+        setToast({ message: 'Project layout reset', type: 'success' });
+    }, [selectedScope, selectedProjectId]);
 
     const safeExportFilename = useCallback((value) => String(value || 'selection')
         .normalize('NFKD')
@@ -1796,7 +2020,7 @@ function App() {
 
     useEffect(() => {
         clearSelection();
-    }, [selectedCollectionId, clearSelection]);
+    }, [selectedCollectionId, selectedProjectId, clearSelection]);
 
     // Auth gating: loading state
     if (user === undefined) {
@@ -1829,6 +2053,7 @@ function App() {
                     if (wsWithItems) {
                         setActiveWorkspaceId(wsWithItems.id);
                         setSelectedCollectionId(null);
+                        setSelectedProjectId(null);
                     }
                 }
             }} />
@@ -1838,6 +2063,7 @@ function App() {
                 onWorkspaceChange={(workspaceId) => {
                     setActiveWorkspaceId(workspaceId);
                     setSelectedCollectionId(null);
+                    setSelectedProjectId(null);
                 }}
                 onAddWorkspace={async () => {
                     const name = prompt('Workspace Name:');
@@ -1850,8 +2076,14 @@ function App() {
                 projects={workspaceProjects}
                 collections={workspaceCollections}
                 selectedCollectionId={selectedCollectionId}
+                selectedProjectId={selectedProjectId}
                 onAllItems={() => {
                     setSelectedCollectionId(null);
+                    setSelectedProjectId(null);
+                }}
+                onProjectSelect={(projectId) => {
+                    setSelectedCollectionId(null);
+                    setSelectedProjectId(projectId || null);
                 }}
                 onProjectCreate={(projectName) => {
                     void handleCreateProject(projectName);
@@ -1863,7 +2095,10 @@ function App() {
                     void handleDeleteProject(project);
                 }}
                 onCollectionSelect={(collectionId) => {
+                    const selectedCollection = workspaceCollections.find((collection) => collection.id === collectionId);
                     setSelectedCollectionId(collectionId);
+                    setSelectedProjectId(selectedCollection?.projectId || null);
+                    markCollectionAsLastUsed(collectionId);
                 }}
                 onCollectionRename={async (collection, nextNameInput) => {
                     const nextName = typeof nextNameInput === 'string'
@@ -1914,11 +2149,18 @@ function App() {
                 onCreateCollection={(projectId, collectionName) => {
                     void handleCreateCollection(projectId, collectionName);
                 }}
+                onCreateUngroupedCollection={(collectionName) => {
+                    void handleCreateCollection(null, collectionName);
+                }}
                 onCollectionMove={(collection, nextProjectId) => {
                     void handleMoveCollectionToProject(collection, nextProjectId);
                 }}
                 onCollectionReorder={(payload) => {
                     void handleCollectionReorder(payload);
+                }}
+                projectIdToOpenCollectionComposer={projectIdToOpenCollectionComposer}
+                onCollectionComposerOpened={() => {
+                    setProjectIdToOpenCollectionComposer(undefined);
                 }}
                 activeWorkspaceId={activeWorkspaceId}
                 activeWorkspaceName={getWorkspaceName(activeWorkspaceId)}
@@ -1940,7 +2182,7 @@ function App() {
                 )}
                 {viewMode !== 'canvas' && (
                     <div className="flex w-full flex-col items-start gap-4 px-8 pt-8 pb-4">
-                        {selectedCollectionId ? (
+                        {selectedScope !== 'all' ? (
                             <div className="flex w-full items-center justify-between">
                                 <div className="flex items-center gap-2">
                                     <Button
@@ -1956,12 +2198,34 @@ function App() {
                                             className="hover:text-default-font"
                                             onClick={() => {
                                                 setSelectedCollectionId(null);
+                                                setSelectedProjectId(null);
                                             }}
                                         >
                                             {getWorkspaceName(activeWorkspaceId) || 'Workspace'}
                                         </button>
+                                        {selectedScope === 'collection' && activeProject ? (
+                                            <>
+                                                <FeatherChevronRight className="text-caption font-caption text-neutral-400" />
+                                                <button
+                                                    type="button"
+                                                    className="hover:text-default-font"
+                                                    onClick={() => {
+                                                        setSelectedCollectionId(null);
+                                                        setSelectedProjectId(activeProject.id);
+                                                    }}
+                                                >
+                                                    {activeProject.name}
+                                                </button>
+                                            </>
+                                        ) : null}
                                         <FeatherChevronRight className="text-caption font-caption text-neutral-400" />
-                                        <span className="text-default-font">{activeCollection?.name || 'Collection'}</span>
+                                        <span className="text-default-font">
+                                            {selectedScope === 'collection'
+                                                ? (activeCollection?.name || 'Collection')
+                                                : selectedScope === 'project'
+                                                    ? (activeProject?.name || 'Project')
+                                                    : 'Unsorted'}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -2014,7 +2278,7 @@ function App() {
                                 transition={{ duration: 0.2 }}
                                 className="relative w-full h-full"
                             >
-                                <div className="absolute left-4 top-4 z-20">
+                                <div className="absolute left-4 top-4 z-20 flex items-center gap-3">
                                     <div
                                         className="flex min-w-[220px] max-w-[340px] items-center rounded-full border border-neutral-200 bg-white px-[30px] py-[16px] text-default-font shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
                                         onMouseDown={(e) => e.stopPropagation()}
@@ -2043,15 +2307,24 @@ function App() {
                                                 type="button"
                                                 className="w-full truncate text-left text-heading-2 font-semibold text-default-font"
                                                 onClick={() => {
-                                                    if (!activeCollection || activeCollection.id === '__unsorted__') return;
+                                                    if (!activeCollection || activeCollection.id === UNSORTED_COLLECTION_ID) return;
                                                     setIsCanvasTitleEditing(true);
                                                 }}
-                                                title={activeCollection?.name || 'All Items'}
+                                                title={activeCollection?.name || activeProject?.name || 'All Items'}
                                             >
-                                                {activeCollection?.name || 'All Items'}
+                                                {activeCollection?.name || activeProject?.name || 'All Items'}
                                             </button>
                                         )}
                                     </div>
+                                    {selectedScope === 'project' ? (
+                                        <Button
+                                            variant="neutral-secondary"
+                                            size="small"
+                                            onClick={handleResetProjectLayout}
+                                        >
+                                            Reset Project Layout
+                                        </Button>
+                                    ) : null}
                                 </div>
                                 <CanvasView
                                     items={orderedFilteredItems}
@@ -2062,6 +2335,9 @@ function App() {
                                     viewportRef={canvasViewportRef}
                                     inlineEditingId={canvasInlineEditId}
                                     onFinishInlineEdit={() => setCanvasInlineEditId(null)}
+                                    layoutMode={selectedScope === 'project' ? 'project' : 'collection'}
+                                    projectDraftByItemId={activeProjectCanvasDraft}
+                                    onProjectDraftUpdate={handleProjectCanvasDraftUpdate}
                                 />
                                 <AnimatePresence>
                                     {detailPanelItem && (

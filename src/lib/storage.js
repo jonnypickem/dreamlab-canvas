@@ -107,19 +107,19 @@ export async function getActiveContext() {
 
     const { data, error } = await supabase
         .from('active_contexts')
-        .select('workspace_id, collection_id')
+        .select('workspace_id, project_id, collection_id')
         .eq('user_id', userId)
         .maybeSingle();
 
     if (error || !data) return { workspaceId: null, projectId: null, collectionId: null };
     return {
         workspaceId: data.workspace_id || null,
-        projectId: null,
+        projectId: data.project_id || null,
         collectionId: data.collection_id || null,
     };
 }
 
-export async function setActiveContext(workspaceId, collectionId = null) {
+export async function setActiveContext(workspaceId, collectionId = null, projectId = null) {
     const userId = await getCurrentUserId();
     if (!userId) return;
 
@@ -128,6 +128,7 @@ export async function setActiveContext(workspaceId, collectionId = null) {
         .upsert({
             user_id: userId,
             workspace_id: workspaceId || null,
+            project_id: projectId || null,
             collection_id: collectionId || null,
         }, { onConflict: 'user_id' });
 }

@@ -120,9 +120,13 @@ CREATE TABLE IF NOT EXISTS primitive_analysis (
 CREATE TABLE IF NOT EXISTS active_contexts (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     workspace_id UUID REFERENCES workspaces(id) ON DELETE SET NULL,
+    project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
     collection_id UUID REFERENCES collections(id) ON DELETE SET NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE active_contexts
+    ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE SET NULL;
 
 -- =============================================================
 -- Indexes
@@ -140,6 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_items_collection_sort ON items(collection_id, sor
 CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_items_tags ON items USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_primitive_hash ON primitive_analysis(user_id, image_hash);
+CREATE INDEX IF NOT EXISTS idx_active_contexts_project ON active_contexts(project_id);
 
 -- =============================================================
 -- Row Level Security
@@ -221,6 +226,14 @@ FROM general_projects gp
 WHERE c.project_id IS NULL
   AND c.workspace_id IS NOT NULL
   AND c.workspace_id = gp.workspace_id;
+
+-- Backfill active context project_id from selected collection when missing.
+UPDATE active_contexts ac
+SET project_id = c.project_id
+FROM collections c
+WHERE ac.project_id IS NULL
+  AND ac.collection_id = c.id
+  AND c.project_id IS NOT NULL;
 
 -- Backfill collection sort order within each workspace/project
 WITH ordered_collections AS (

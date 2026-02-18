@@ -38,7 +38,9 @@ const getLinkTextPayload = (item) => {
 const CanvasItem = ({
     item,
     initialPosition = null,
+    projectDraft = null,
     onUpdate,
+    onProjectDraftUpdate,
     isSelected,
     isDetailFocused = false,
     isEditing = false,
@@ -46,7 +48,8 @@ const CanvasItem = ({
     onSelect,
     onOpenDetails,
     scale,
-    isPanMode = false
+    isPanMode = false,
+    layoutMode = 'collection',
 }) => {
     // Default dimensions based on type
     const defaultWidth = item.type === 'color' ? 160 : (item.type === 'image' || item.type === 'video') ? 300 : 280;
@@ -55,14 +58,22 @@ const CanvasItem = ({
     const [position, setPosition] = useState(() => {
         const fallbackX = parseSize(initialPosition?.x, 120);
         const fallbackY = parseSize(initialPosition?.y, 120);
-        const x = parseSize(item.canvas?.x, fallbackX);
-        const y = parseSize(item.canvas?.y, fallbackY);
+        const x = layoutMode === 'project'
+            ? parseSize(projectDraft?.x, fallbackX)
+            : parseSize(item.canvas?.x, fallbackX);
+        const y = layoutMode === 'project'
+            ? parseSize(projectDraft?.y, fallbackY)
+            : parseSize(item.canvas?.y, fallbackY);
         return { x, y };
     });
 
     const [size, setSize] = useState(() => {
-        const w = parseSize(item.canvas?.w, defaultWidth);
-        const h = parseSize(item.canvas?.h, defaultHeight);
+        const w = layoutMode === 'project'
+            ? parseSize(projectDraft?.w, parseSize(item.canvas?.w, defaultWidth))
+            : parseSize(item.canvas?.w, defaultWidth);
+        const h = layoutMode === 'project'
+            ? parseSize(projectDraft?.h, parseSize(item.canvas?.h, defaultHeight))
+            : parseSize(item.canvas?.h, defaultHeight);
         return { width: w, height: h };
     });
     const [mediaAspectRatio, setMediaAspectRatio] = useState(null);
@@ -92,13 +103,65 @@ const CanvasItem = ({
         if (!isEditing) setEditText(item.content || '');
     }, [item.content, isEditing]);
 
+    useEffect(() => {
+        const fallbackX = parseSize(initialPosition?.x, 120);
+        const fallbackY = parseSize(initialPosition?.y, 120);
+        const nextPosition = {
+            x: layoutMode === 'project'
+                ? parseSize(projectDraft?.x, fallbackX)
+                : parseSize(item.canvas?.x, fallbackX),
+            y: layoutMode === 'project'
+                ? parseSize(projectDraft?.y, fallbackY)
+                : parseSize(item.canvas?.y, fallbackY),
+        };
+        const nextSize = {
+            width: layoutMode === 'project'
+                ? parseSize(projectDraft?.w, parseSize(item.canvas?.w, defaultWidth))
+                : parseSize(item.canvas?.w, defaultWidth),
+            height: layoutMode === 'project'
+                ? parseSize(projectDraft?.h, parseSize(item.canvas?.h, defaultHeight))
+                : parseSize(item.canvas?.h, defaultHeight),
+        };
+
+        setPosition((prev) => (
+            prev.x === nextPosition.x && prev.y === nextPosition.y ? prev : nextPosition
+        ));
+        setSize((prev) => (
+            prev.width === nextSize.width && prev.height === nextSize.height ? prev : nextSize
+        ));
+    }, [
+        layoutMode,
+        projectDraft?.x,
+        projectDraft?.y,
+        projectDraft?.w,
+        projectDraft?.h,
+        initialPosition?.x,
+        initialPosition?.y,
+        item.canvas?.x,
+        item.canvas?.y,
+        item.canvas?.w,
+        item.canvas?.h,
+        defaultWidth,
+        defaultHeight,
+    ]);
+
     // Debounce save
     const timeoutRef = useRef(null);
 
     const handleDragStop = (e, d) => {
         const newPos = { x: d.x, y: d.y };
         setPosition(newPos);
-        saveChanges(newPos, size);
+        if (layoutMode === 'project') {
+            onProjectDraftUpdate?.(item.id, {
+                x: newPos.x,
+                y: newPos.y,
+                w: parseSize(size.width, defaultWidth),
+                h: parseSize(size.height, defaultHeight),
+                z: item.canvas?.z || 1,
+            });
+        } else {
+            saveChanges(newPos, size);
+        }
         if (dragStateRef.current.moved) {
             suppressClickRef.current = true;
             window.setTimeout(() => {
@@ -115,7 +178,17 @@ const CanvasItem = ({
         const newSize = { width: newWidth, height: newHeight };
         setSize(newSize);
         setPosition(pos);
-        saveChanges(pos, newSize);
+        if (layoutMode === 'project') {
+            onProjectDraftUpdate?.(item.id, {
+                x: pos.x,
+                y: pos.y,
+                w: parseSize(newSize.width, defaultWidth),
+                h: parseSize(newSize.height, defaultHeight),
+                z: item.canvas?.z || 1,
+            });
+        } else {
+            saveChanges(pos, newSize);
+        }
     };
 
     const saveChanges = (newPos, newSize) => {
@@ -176,9 +249,19 @@ const CanvasItem = ({
 
         const nextSize = { width: nextWidth, height: nextHeight };
         setSize(nextSize);
-        saveChanges(position, nextSize);
+        if (layoutMode === 'project') {
+            onProjectDraftUpdate?.(item.id, {
+                x: position.x,
+                y: position.y,
+                w: parseSize(nextSize.width, defaultWidth),
+                h: parseSize(nextSize.height, defaultHeight),
+                z: item.canvas?.z || 1,
+            });
+        } else {
+            saveChanges(position, nextSize);
+        }
         hasAutoSizedFromMediaRef.current = true;
-    }, [hasMediaCard, mediaAspectRatio, hasSavedSize, size.width, size.height, defaultWidth, position]);
+    }, [hasMediaCard, mediaAspectRatio, hasSavedSize, size.width, size.height, defaultWidth, position, layoutMode, item.id, item.canvas?.z, onProjectDraftUpdate, defaultHeight]);
 
     const getTypeIcon = (type) => {
         switch (type) {

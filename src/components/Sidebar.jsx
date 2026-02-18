@@ -19,11 +19,15 @@ import {
     FeatherPlus
 } from "@subframe/core";
 
+const UNGROUPED_COLLECTION_COMPOSER_ID = '__ungrouped__';
+
 export default function Sidebar({
     projects = [],
     collections = [],
     selectedCollectionId = null,
+    selectedProjectId = null,
     onAllItems,
+    onProjectSelect,
     onProjectCreate,
     onProjectRename,
     onProjectDelete,
@@ -31,8 +35,11 @@ export default function Sidebar({
     onCollectionRename,
     onCollectionDelete,
     onCreateCollection,
+    onCreateUngroupedCollection,
     onCollectionMove,
     onCollectionReorder,
+    projectIdToOpenCollectionComposer,
+    onCollectionComposerOpened,
     activeWorkspaceId,
     activeWorkspaceName,
     onOpenSettings,
@@ -64,6 +71,26 @@ export default function Sidebar({
             return next;
         });
     }, [projects]);
+
+    useEffect(() => {
+        if (projectIdToOpenCollectionComposer === undefined) return;
+
+        if (projectIdToOpenCollectionComposer === UNGROUPED_COLLECTION_COMPOSER_ID) {
+            setAddingCollectionProjectId(UNGROUPED_COLLECTION_COMPOSER_ID);
+            setNewCollectionName('');
+            onCollectionComposerOpened?.(projectIdToOpenCollectionComposer);
+            return;
+        }
+
+        const targetExists = projects.some((project) => project.id === projectIdToOpenCollectionComposer);
+        if (targetExists) {
+            setAddingCollectionProjectId(projectIdToOpenCollectionComposer);
+            setCollapsedProjects((prev) => ({ ...prev, [projectIdToOpenCollectionComposer]: false }));
+            setNewCollectionName('');
+        }
+
+        onCollectionComposerOpened?.(projectIdToOpenCollectionComposer);
+    }, [projectIdToOpenCollectionComposer, projects, onCollectionComposerOpened]);
 
     const groupedCollections = useMemo(() => {
         const sortCollections = (list) => list.sort((a, b) => {
@@ -155,14 +182,28 @@ export default function Sidebar({
         }
     };
 
+    const submitCollectionCreate = (projectId) => {
+        const nextName = newCollectionName.trim();
+        if (!nextName || !activeWorkspaceId) return;
+
+        if (projectId === UNGROUPED_COLLECTION_COMPOSER_ID) {
+            if (onCreateUngroupedCollection) {
+                onCreateUngroupedCollection(nextName);
+            } else if (onCreateCollection) {
+                onCreateCollection(null, nextName);
+            }
+        } else if (onCreateCollection) {
+            onCreateCollection(projectId, nextName);
+        }
+
+        setAddingCollectionProjectId(null);
+        setNewCollectionName('');
+    };
+
     const handleCreateCollectionKeyDown = (e, projectId) => {
         if (e.key === 'Enter') {
             if (newCollectionName.trim() && activeWorkspaceId) {
-                if (onCreateCollection) {
-                    onCreateCollection(projectId, newCollectionName.trim());
-                }
-                setAddingCollectionProjectId(null);
-                setNewCollectionName('');
+                submitCollectionCreate(projectId);
             } else if (!activeWorkspaceId) {
                 alert('Please select or create a workspace first.');
             }
@@ -334,7 +375,7 @@ export default function Sidebar({
             <ChatChannelsMenu className="w-full grow shrink-0 basis-0">
                 <ChatChannelsMenu.Item
                     icon={<FeatherLayoutGrid />}
-                    selected={!selectedCollectionId}
+                    selected={!selectedCollectionId && !selectedProjectId}
                     onClick={() => onAllItems && onAllItems()}
                     rightSlot={<Badge variant="neutral">{totalItemCount}</Badge>}
                     className="rounded-full"
@@ -386,6 +427,7 @@ export default function Sidebar({
                             const isCollapsed = Boolean(collapsedProjects[project.id]);
                             const canDeleteProject = projectCollections.length === 0;
                             const moveTargets = projects.filter((candidate) => candidate.id !== project.id);
+                            const isProjectSelected = selectedProjectId === project.id && !selectedCollectionId;
 
                             return (
                                 <div
@@ -417,21 +459,44 @@ export default function Sidebar({
                                             <>
                                                 <button
                                                     type="button"
-                                                    className="h-10 w-full rounded-full border border-transparent px-3.5 pr-16 text-left text-body font-body text-subtext-color transition-colors hover:bg-neutral-100 hover:text-default-font"
-                                                    onClick={() => {
-                                                        setCollapsedProjects((prev) => ({
-                                                            ...prev,
-                                                            [project.id]: !prev[project.id]
-                                                        }));
-                                                    }}
+                                                    className={`h-10 w-full rounded-full border px-3.5 pr-16 text-left text-body font-body transition-colors ${
+                                                        isProjectSelected
+                                                            ? 'border-[#EA580C] bg-[rgba(234,88,12,0.01)] text-[#D94808]'
+                                                            : 'border-transparent text-subtext-color hover:bg-neutral-100 hover:text-default-font'
+                                                    }`}
+                                                    onClick={() => onProjectSelect && onProjectSelect(project.id)}
                                                     title={project.name}
                                                 >
                                                     <span className="truncate flex items-center gap-2">
-                                                        {isCollapsed ? (
-                                                            <FeatherChevronRight className="h-3 w-3 shrink-0 text-neutral-400" />
-                                                        ) : (
-                                                            <FeatherChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
-                                                        )}
+                                                        <span
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100"
+                                                            onClick={(event) => {
+                                                                event.preventDefault();
+                                                                event.stopPropagation();
+                                                                setCollapsedProjects((prev) => ({
+                                                                    ...prev,
+                                                                    [project.id]: !prev[project.id]
+                                                                }));
+                                                            }}
+                                                            onKeyDown={(event) => {
+                                                                if (event.key !== 'Enter' && event.key !== ' ') return;
+                                                                event.preventDefault();
+                                                                event.stopPropagation();
+                                                                setCollapsedProjects((prev) => ({
+                                                                    ...prev,
+                                                                    [project.id]: !prev[project.id]
+                                                                }));
+                                                            }}
+                                                            aria-label={isCollapsed ? 'Expand folder' : 'Collapse folder'}
+                                                        >
+                                                            {isCollapsed ? (
+                                                                <FeatherChevronRight className="h-3 w-3 shrink-0 text-neutral-400" />
+                                                            ) : (
+                                                                <FeatherChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
+                                                            )}
+                                                        </span>
                                                         <FeatherFolder className="h-4 w-4 shrink-0" />
                                                         <span className="truncate">{project.name}</span>
                                                         <span className="text-[11px] text-neutral-400">{projectCollections.length}</span>
@@ -636,28 +701,67 @@ export default function Sidebar({
                         })
                     )}
 
-                    {groupedCollections.ungrouped.length > 0 && (
-                        <div
+                    <div
                             className={`flex w-full flex-col gap-1 pt-1 rounded-xl ${draggingCollectionId && projectDropTarget === null ? 'bg-orange-50/70' : ''}`}
                             onDragOver={(event) => handleProjectDragOver(event, null)}
                             onDrop={(event) => handleProjectDrop(event, null)}
                         >
-                            <button
-                                type="button"
-                                className="h-10 w-full rounded-full border border-transparent px-3.5 text-left text-body font-body text-subtext-color transition-colors hover:bg-neutral-100 hover:text-default-font"
-                                onClick={() => setIsUngroupedCollapsed((prev) => !prev)}
-                            >
-                                <span className="truncate flex items-center gap-2">
-                                    {isUngroupedCollapsed ? (
-                                        <FeatherChevronRight className="h-3 w-3 shrink-0 text-neutral-400" />
-                                    ) : (
-                                        <FeatherChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
-                                    )}
-                                    <FeatherFolder className="h-4 w-4 shrink-0" />
-                                    <span className="truncate">Ungrouped</span>
-                                    <span className="text-[11px] text-neutral-400">{groupedCollections.ungrouped.length}</span>
-                                </span>
-                            </button>
+                            <div className="group relative flex h-10 w-full items-center">
+                                <button
+                                    type="button"
+                                    className="h-10 w-full rounded-full border border-transparent px-3.5 pr-12 text-left text-body font-body text-subtext-color transition-colors hover:bg-neutral-100 hover:text-default-font"
+                                    onClick={() => setIsUngroupedCollapsed((prev) => !prev)}
+                                >
+                                    <span className="truncate flex items-center gap-2">
+                                        {isUngroupedCollapsed ? (
+                                            <FeatherChevronRight className="h-3 w-3 shrink-0 text-neutral-400" />
+                                        ) : (
+                                            <FeatherChevronDown className="h-3 w-3 shrink-0 text-neutral-400" />
+                                        )}
+                                        <FeatherFolder className="h-4 w-4 shrink-0" />
+                                        <span className="truncate">Ungrouped</span>
+                                        <span className="text-[11px] text-neutral-400">{groupedCollections.ungrouped.length}</span>
+                                    </span>
+                                </button>
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
+                                    <IconButton
+                                        icon={<FeatherPlus />}
+                                        size="small"
+                                        className="h-7 w-7"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setAddingCollectionProjectId(UNGROUPED_COLLECTION_COMPOSER_ID);
+                                            setNewCollectionName('');
+                                            setIsUngroupedCollapsed(false);
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            {addingCollectionProjectId === UNGROUPED_COLLECTION_COMPOSER_ID && (
+                                <div className="px-3 py-1 pl-8">
+                                    <TextField className="w-full">
+                                        <TextField.Input
+                                            autoFocus
+                                            type="text"
+                                            placeholder="Collection name..."
+                                            value={newCollectionName}
+                                            onChange={(e) => setNewCollectionName(e.target.value)}
+                                            onKeyDown={(e) => handleCreateCollectionKeyDown(e, UNGROUPED_COLLECTION_COMPOSER_ID)}
+                                            onBlur={() => {
+                                                setAddingCollectionProjectId(null);
+                                                setNewCollectionName('');
+                                            }}
+                                        />
+                                    </TextField>
+                                </div>
+                            )}
+                            {!isUngroupedCollapsed
+                                && groupedCollections.ungrouped.length === 0
+                                && addingCollectionProjectId !== UNGROUPED_COLLECTION_COMPOSER_ID ? (
+                                    <div className="px-3 py-2 pl-8">
+                                        <p className="text-[12px] text-neutral-400">No collections</p>
+                                    </div>
+                                ) : null}
                             {!isUngroupedCollapsed && groupedCollections.ungrouped.map((collection) => {
                                 const isDropBefore = dropTarget?.collectionId === collection.id
                                     && dropTarget?.projectId === null
@@ -770,8 +874,7 @@ export default function Sidebar({
                                 </div>
                                 );
                             })}
-                        </div>
-                    )}
+                    </div>
                 </ChatChannelsMenu.Folder>
             </ChatChannelsMenu>
         </aside>

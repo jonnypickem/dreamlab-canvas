@@ -57,7 +57,19 @@ const isTypingTarget = (target) => {
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 };
 
-const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanelItemId, viewportRef, inlineEditingId, onFinishInlineEdit }) => {
+const CanvasView = ({
+    items,
+    onUpdateItem,
+    onDeleteItem,
+    onOpenItem,
+    detailPanelItemId,
+    viewportRef,
+    inlineEditingId,
+    onFinishInlineEdit,
+    layoutMode = 'collection',
+    projectDraftByItemId = {},
+    onProjectDraftUpdate,
+}) => {
     const containerRef = useRef(null);
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [interactionMode, setInteractionMode] = useState('select'); // 'select' | 'pan'
@@ -70,6 +82,7 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
     });
 
     const isPanMode = interactionMode === 'pan' || isSpacePressed;
+    const isProjectLayout = layoutMode === 'project';
 
     // Initialize viewport ref on mount
     useEffect(() => {
@@ -104,7 +117,8 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
         items.forEach((item) => {
             const x = parseCanvasNumber(item.canvas?.x);
             const y = parseCanvasNumber(item.canvas?.y);
-            if (x === null || y === null) return;
+            const hasSavedPosition = x !== null && y !== null;
+            if (isProjectLayout || !hasSavedPosition) return;
             const size = getDefaultItemSize(item);
             occupiedRects.push({
                 x,
@@ -118,7 +132,7 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
         items.forEach((item) => {
             const hasSavedX = parseCanvasNumber(item.canvas?.x) !== null;
             const hasSavedY = parseCanvasNumber(item.canvas?.y) !== null;
-            if (hasSavedX && hasSavedY) return;
+            if (!isProjectLayout && hasSavedX && hasSavedY) return;
 
             const size = getDefaultItemSize(item);
             let attempts = 0;
@@ -159,13 +173,25 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
         });
 
         return autoPositions;
-    }, [items]);
+    }, [items, isProjectLayout]);
 
     const itemCanvasRects = useMemo(() => {
         const rectMap = new Map();
         items.forEach((item) => {
+            const projectDraft = projectDraftByItemId?.[item.id] || null;
             const fallbackPos = autoLayoutPositions.get(item.id) || { x: 120, y: 120 };
             const fallbackSize = getDefaultItemSize(item);
+
+            if (isProjectLayout) {
+                rectMap.set(item.id, {
+                    x: parseCanvasNumber(projectDraft?.x) ?? fallbackPos.x,
+                    y: parseCanvasNumber(projectDraft?.y) ?? fallbackPos.y,
+                    w: parseCanvasNumber(projectDraft?.w) ?? parseCanvasNumber(item.canvas?.w) ?? fallbackSize.w,
+                    h: parseCanvasNumber(projectDraft?.h) ?? parseCanvasNumber(item.canvas?.h) ?? fallbackSize.h,
+                });
+                return;
+            }
+
             rectMap.set(item.id, {
                 x: parseCanvasNumber(item.canvas?.x) ?? fallbackPos.x,
                 y: parseCanvasNumber(item.canvas?.y) ?? fallbackPos.y,
@@ -174,7 +200,7 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
             });
         });
         return rectMap;
-    }, [items, autoLayoutPositions]);
+    }, [items, autoLayoutPositions, isProjectLayout, projectDraftByItemId]);
 
     const updateViewportRef = useCallback((scale, positionX, positionY) => {
         if (!viewportRef) return;
@@ -481,6 +507,7 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
                                         key={item.id}
                                         item={item}
                                         initialPosition={autoLayoutPositions.get(item.id)}
+                                        projectDraft={projectDraftByItemId?.[item.id] || null}
                                         onUpdate={onUpdateItem}
                                         isSelected={selectedIds.has(item.id)}
                                         isDetailFocused={item.id === detailPanelItemId}
@@ -490,6 +517,8 @@ const CanvasView = ({ items, onUpdateItem, onDeleteItem, onOpenItem, detailPanel
                                         onOpenDetails={onOpenItem}
                                         scale={scale}
                                         isPanMode={isPanMode}
+                                        layoutMode={layoutMode}
+                                        onProjectDraftUpdate={onProjectDraftUpdate}
                                     />
                                 ))}
                             </TransformComponent>
