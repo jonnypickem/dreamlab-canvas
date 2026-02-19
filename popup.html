@@ -3,47 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dreamlab Capture</title>
+  <title>Dreamlab Widget</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
   <main class="popup-shell" aria-live="polite">
     <header class="popup-header">
-      <h1>Dreamlab Capture</h1>
-      <button id="refresh-btn" class="icon-btn" type="button" title="Reload destinations and shortcuts" aria-label="Reload">
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-          <path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-          <path d="M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </button>
+      <h1>Dreamlab Widget</h1>
     </header>
 
-    <section class="actions-section" aria-label="Quick actions">
-      <div id="shortcut-actions" class="actions-grid"></div>
-    </section>
-
-    <section class="field-section">
-      <label for="workspace-select">Workspace</label>
-      <div class="pill-select">
-        <span class="pill-dot workspace-dot" aria-hidden="true"></span>
-        <select id="workspace-select">
-          <option value="">Select workspace</option>
-        </select>
+    <section class="toggle-card" aria-label="Widget visibility">
+      <div class="toggle-copy">
+        <h2>Show floating widget</h2>
+        <p>Enable the in-page capture widget on websites.</p>
       </div>
+      <label class="switch" for="widget-enabled">
+        <input id="widget-enabled" type="checkbox" />
+        <span class="slider" aria-hidden="true"></span>
+      </label>
     </section>
 
-    <section class="field-section">
-      <label for="collection-select">Collection</label>
-      <div class="pill-select">
-        <span class="pill-dot collection-dot" aria-hidden="true"></span>
-        <select id="collection-select">
-          <option value="">No collection</option>
-        </select>
-      </div>
-    </section>
-
-    <div id="pending-note" class="pending-note" hidden>Pending capture queued. Open Dreamlab to finish routing if needed.</div>
-    <div id="status" class="status" role="status"></div>
+    <p id="status" class="status" role="status"></p>
+    <p class="hint">All capture actions and settings are available in the floating widget.</p>
   </main>
 
   <script src="popup.js"></script>

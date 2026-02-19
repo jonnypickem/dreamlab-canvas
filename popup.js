@@ -1,30 +1,7 @@
 const ACTIONS = {
   ping: 'ping',
-  getDreamlabOrgData: 'getDreamlabOrgData',
-  getShortcutBindings: 'getShortcutBindings',
-  executeCommand: 'executeCommand',
-};
-
-const STORAGE_KEYS = {
-  pendingCapture: 'pendingCapture',
-};
-
-const ACTION_ICONS = {
-  'save-page': '<path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 13h6M9 17h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  'capture-visible': '<rect x="3.5" y="5" width="17" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 14l3-3 2.5 2.5L15 11l2 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
-  'capture-full-page': '<rect x="4" y="4" width="16" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  'smart-picker': '<path d="M11 3l9 9-4 4-9-9 4-4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M6 15l-2 6 6-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
-  'pick-color': '<path d="M14.7 3.3l6 6-3.2 3.2-6-6z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11.5 6.5L4 14a2.6 2.6 0 0 0 0 3.7 2.6 2.6 0 0 0 3.7 0l7.5-7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2 22h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  'area-capture': '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
-};
-
-const state = {
-  pendingCapture: null,
-  workspaces: [],
-  projects: [],
-  collections: [],
-  activeContext: {},
-  shortcuts: [],
+  getWidgetConfig: 'getWidgetConfig',
+  setWidgetEnabled: 'setWidgetEnabled',
 };
 
 const ui = {};
@@ -36,141 +13,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function cacheDom() {
-  ui.workspaceSelect = document.getElementById('workspace-select');
-  ui.collectionSelect = document.getElementById('collection-select');
-  ui.refreshButton = document.getElementById('refresh-btn');
-  ui.shortcutActions = document.getElementById('shortcut-actions');
-  ui.pendingNote = document.getElementById('pending-note');
+  ui.widgetEnabled = document.getElementById('widget-enabled');
   ui.status = document.getElementById('status');
 }
 
 function bindEvents() {
-  ui.workspaceSelect.addEventListener('change', () => {
-    populateCollectionOptions(ui.workspaceSelect.value, null);
-  });
-
-  ui.refreshButton?.addEventListener('click', () => {
-    void refreshAll({ preserveSelection: true });
-  });
-
-  ui.shortcutActions?.addEventListener('click', (event) => {
-    const tile = event.target?.closest?.('[data-command]');
-    if (!tile) return;
-    const command = tile.getAttribute('data-command');
-    if (!command) return;
-    void runAction(command);
-  });
-}
-
-async function initialize() {
-  try {
-    await runtimeMessage({ action: ACTIONS.ping }, { retries: 2 });
-  } catch {
-    // Continue; follow-up calls include retries.
-  }
-
-  await refreshAll({ preserveSelection: false });
-}
-
-async function refreshAll({ preserveSelection = false } = {}) {
-  await Promise.all([
-    loadPendingCapture(),
-    refreshOrganizationData({ preserveSelection }),
-    refreshShortcutBindings(),
-  ]);
-  renderPendingNotice();
-}
-
-function prettyShortcutPart(part) {
-  const value = String(part || '').trim();
-  const normalized = value.toLowerCase();
-  if (normalized === 'command' || normalized === 'cmd') return '⌘';
-  if (normalized === 'ctrl' || normalized === 'control') return 'Ctrl';
-  if (normalized === 'alt' || normalized === 'option') return '⌥';
-  if (normalized === 'shift') return '⇧';
-  if (normalized === 'up') return '↑';
-  if (normalized === 'down') return '↓';
-  if (normalized === 'left') return '←';
-  if (normalized === 'right') return '→';
-  return value.length === 1 ? value.toUpperCase() : value;
-}
-
-function splitShortcut(shortcut) {
-  const raw = String(shortcut || '').trim();
-  if (!raw) return [];
-  return raw.split('+').map(prettyShortcutPart).filter(Boolean);
-}
-
-function renderShortcutActions() {
-  if (!ui.shortcutActions) return;
-  if (!Array.isArray(state.shortcuts) || state.shortcuts.length === 0) {
-    ui.shortcutActions.innerHTML = '<div class="shortcut-unassigned">No actions available.</div>';
-    return;
-  }
-
-  ui.shortcutActions.innerHTML = state.shortcuts.map((entry) => {
-    const keys = splitShortcut(entry.shortcut);
-    const keysMarkup = keys.length > 0
-      ? keys.map((key) => `<kbd class="shortcut-key">${escapeHtml(key)}</kbd>`).join('')
-      : '<span class="shortcut-unassigned">Unassigned</span>';
-    const actionId = entry.actionId || entry.command || '';
-    const iconMarkup = ACTION_ICONS[actionId] || ACTION_ICONS['save-page'];
-    const command = entry.executeCommand || entry.command || '';
-
-    return `
-      <button class="action-tile" type="button" data-command="${escapeHtml(command)}" title="${escapeHtml(entry.description || entry.label || '')}">
-        <svg class="action-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">${iconMarkup}</svg>
-        <span class="action-label">${escapeHtml(entry.label || command || 'Action')}</span>
-        <span class="tile-shortcut">${keysMarkup}</span>
-      </button>
-    `;
-  }).join('');
-}
-
-async function refreshShortcutBindings() {
-  try {
-    const response = await runtimeMessage({ action: ACTIONS.getShortcutBindings });
-    if (!response?.success) {
-      state.shortcuts = [];
-      renderShortcutActions();
-      return;
-    }
-    state.shortcuts = Array.isArray(response.shortcuts) ? response.shortcuts : [];
-    renderShortcutActions();
-  } catch {
-    state.shortcuts = [];
-    renderShortcutActions();
-  }
-}
-
-async function runAction(command) {
-  if (!command) return;
-  setStatus('Running action...');
-  try {
-    const response = await runtimeMessage({
-      action: ACTIONS.executeCommand,
-      command,
-      origin: 'popup-quick-action',
-    });
-    if (!response?.success) {
-      throw new Error(response?.error || 'Action failed.');
-    }
-    setStatus('Action triggered.', 'success');
-    setTimeout(() => window.close(), 180);
-  } catch (error) {
-    setStatus(error?.message || 'Action failed.', 'error');
-  }
-}
-
-function getStorage(keys) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get(keys, (result) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(result || {});
-    });
+  ui.widgetEnabled?.addEventListener('change', () => {
+    void updateWidgetToggle(ui.widgetEnabled.checked);
   });
 }
 
@@ -197,12 +46,6 @@ async function runtimeMessage(message, { retries = 1 } = {}) {
           }
           return;
         }
-
-        if (isPortClosedError(errorMessage)) {
-          reject(new Error('Extension reloaded. Reopen the popup and try again.'));
-          return;
-        }
-
         reject(new Error(errorMessage));
         return;
       }
@@ -211,155 +54,47 @@ async function runtimeMessage(message, { retries = 1 } = {}) {
   });
 }
 
-async function loadPendingCapture() {
-  try {
-    const data = await getStorage(STORAGE_KEYS.pendingCapture);
-    state.pendingCapture = data?.[STORAGE_KEYS.pendingCapture] || null;
-  } catch {
-    state.pendingCapture = null;
-  }
-}
-
-function renderPendingNotice() {
-  if (!ui.pendingNote) return;
-  const hasPending = Boolean(state.pendingCapture);
-  ui.pendingNote.hidden = !hasPending;
-}
-
-function getCollectionWorkspaceId(collection) {
-  if (!collection || typeof collection !== 'object') return null;
-  if (collection.workspaceId) return collection.workspaceId;
-  if (!collection.projectId) return null;
-
-  const project = state.projects.find((candidate) => candidate.id === collection.projectId);
-  return project?.workspaceId || null;
-}
-
-function getCollectionsForWorkspace(workspaceId) {
-  if (!workspaceId) return [];
-  return state.collections.filter((collection) => getCollectionWorkspaceId(collection) === workspaceId);
-}
-
-function getProjectName(projectId) {
-  if (!projectId) return null;
-  const project = state.projects.find((candidate) => candidate.id === projectId);
-  return project?.name || null;
-}
-
-function formatCollectionLabel(collection) {
-  const collectionName = String(collection?.name || 'Untitled').trim() || 'Untitled';
-  const projectName = getProjectName(collection?.projectId);
-  if (!projectName) return `Ungrouped / ${collectionName}`;
-  return `${projectName} / ${collectionName}`;
-}
-
-function setSelectOptions(selectElement, options, placeholderLabel, selectedValue) {
-  selectElement.innerHTML = '';
-
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = placeholderLabel;
-  selectElement.appendChild(placeholder);
-
-  options.forEach((option) => {
-    const item = document.createElement('option');
-    item.value = option.value;
-    item.textContent = option.label;
-    selectElement.appendChild(item);
-  });
-
-  selectElement.value = selectedValue || '';
-}
-
-function pickValid(value, validValues, fallback = '') {
-  if (value && validValues.includes(value)) return value;
-  if (fallback && validValues.includes(fallback)) return fallback;
-  return validValues[0] || '';
-}
-
-function hydrateDestinationSelectors(preferred = {}) {
-  const workspaceOptions = state.workspaces.map((workspace) => ({
-    value: workspace.id,
-    label: workspace.name,
-  }));
-  const workspaceIds = workspaceOptions.map((option) => option.value);
-
-  const workspaceId = pickValid(
-    preferred.workspaceId,
-    workspaceIds,
-    state.activeContext.workspaceId
-  );
-
-  setSelectOptions(ui.workspaceSelect, workspaceOptions, 'Select workspace', workspaceId);
-  ui.workspaceSelect.disabled = workspaceOptions.length === 0;
-
-  populateCollectionOptions(
-    workspaceId,
-    preferred.collectionId || state.activeContext.collectionId || null
-  );
-}
-
-function populateCollectionOptions(workspaceId, preferredCollectionId) {
-  const collections = getCollectionsForWorkspace(workspaceId);
-  const collectionOptions = collections.map((collection) => ({
-    value: collection.id,
-    label: formatCollectionLabel(collection),
-  })).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
-  const collectionIds = collectionOptions.map((option) => option.value);
-
-  const collectionId = pickValid(preferredCollectionId, collectionIds, null);
-
-  setSelectOptions(ui.collectionSelect, collectionOptions, 'No collection', collectionId);
-  ui.collectionSelect.disabled = !workspaceId || collectionOptions.length === 0;
-}
-
-async function refreshOrganizationData({ preserveSelection = false } = {}) {
-  const preferred = preserveSelection
-    ? {
-      workspaceId: ui.workspaceSelect.value || null,
-      collectionId: ui.collectionSelect.value || null,
-    }
-    : {};
-
-  try {
-    const response = await runtimeMessage({ action: ACTIONS.getDreamlabOrgData });
-
-    if (!response?.success) {
-      setStatus(response?.error || 'Open Dreamlab in a browser tab to sync destinations.', 'error');
-      state.workspaces = [];
-      state.projects = [];
-      state.collections = [];
-      state.activeContext = {};
-      hydrateDestinationSelectors(preferred);
-      return;
-    }
-
-    state.workspaces = Array.isArray(response.workspaces) ? response.workspaces : [];
-    state.projects = Array.isArray(response.projects) ? response.projects : [];
-    state.collections = Array.isArray(response.collections) ? response.collections : [];
-    state.activeContext = response.activeContext && typeof response.activeContext === 'object'
-      ? response.activeContext
-      : {};
-
-    hydrateDestinationSelectors(preferred);
-    setStatus('');
-  } catch (error) {
-    setStatus(error?.message || 'Could not load organization data.', 'error');
-  }
-}
-
 function setStatus(message, type = '') {
+  if (!ui.status) return;
   ui.status.textContent = message || '';
   ui.status.className = 'status';
   if (type === 'success') ui.status.classList.add('success');
   if (type === 'error') ui.status.classList.add('error');
 }
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+async function initialize() {
+  try {
+    await runtimeMessage({ action: ACTIONS.ping }, { retries: 2 });
+  } catch {
+    // Continue with config fetch below.
+  }
+
+  try {
+    const response = await runtimeMessage({ action: ACTIONS.getWidgetConfig });
+    if (!response?.success) {
+      throw new Error(response?.error || 'Could not load widget state.');
+    }
+    ui.widgetEnabled.checked = response.enabled !== false;
+    setStatus('Widget state loaded.');
+  } catch (error) {
+    setStatus(error?.message || 'Could not load widget state.', 'error');
+  }
+}
+
+async function updateWidgetToggle(enabled) {
+  setStatus('Updating widget setting...');
+  try {
+    const response = await runtimeMessage({
+      action: ACTIONS.setWidgetEnabled,
+      enabled,
+    });
+    if (!response?.success) {
+      throw new Error(response?.error || 'Could not update widget setting.');
+    }
+    ui.widgetEnabled.checked = response.enabled !== false;
+    setStatus(response.enabled ? 'Floating widget enabled.' : 'Floating widget disabled.', 'success');
+  } catch (error) {
+    ui.widgetEnabled.checked = !enabled;
+    setStatus(error?.message || 'Could not update widget setting.', 'error');
+  }
 }

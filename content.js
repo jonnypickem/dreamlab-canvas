@@ -20,6 +20,8 @@ const ACTIONS = {
   scanPageImages: 'SCAN_PAGE_IMAGES',
   triggerMultiSelect: 'TRIGGER_MULTI_SELECT',
   legacyScanVisibleImages: 'SCAN_VISIBLE_IMAGES',
+  openSettings: 'OPEN_SETTINGS',
+  logout: 'LOGOUT',
 };
 
 const BACKGROUND_ACTIONS = {
@@ -27,6 +29,14 @@ const BACKGROUND_ACTIONS = {
   getShortcutBindings: 'getShortcutBindings',
   executeCommand: 'executeCommand',
   openExtensionShortcuts: 'openExtensionShortcuts',
+  getWidgetConfig: 'getWidgetConfig',
+  setWidgetEnabled: 'setWidgetEnabled',
+  getWidgetPrefs: 'getWidgetPrefs',
+  setWidgetPrefs: 'setWidgetPrefs',
+  getCaptureDestination: 'getCaptureDestination',
+  setCaptureDestination: 'setCaptureDestination',
+  openDreamlabSettings: 'openDreamlabSettings',
+  logoutDreamlab: 'logoutDreamlab',
 };
 
 const MEDIA_DB_NAME = 'dreamlab_media_db';
@@ -366,6 +376,18 @@ function openExtensionShortcutSettings() {
   });
 }
 
+function sendBackgroundMessage(payload) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(payload, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ success: false, error: chrome.runtime.lastError.message || 'Extension message failed.' });
+        return;
+      }
+      resolve(response || { success: false, error: 'Extension message failed.' });
+    });
+  });
+}
+
 if (isDreamlabApp()) {
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
@@ -576,6 +598,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (request.action === ACTIONS.triggerMultiSelect) {
       sendResponse(triggerMultiSelect());
+      return true;
+    }
+
+    if (request.action === ACTIONS.openSettings) {
+      if (!isDreamlabApp()) {
+        sendResponse({ success: false, error: 'Not on Dreamlab web app.' });
+        return true;
+      }
+      window.postMessage({
+        type: 'DREAMLAB_EXTENSION_OPEN_SETTINGS',
+        initialTab: request.initialTab || 'general',
+      }, '*');
+      sendResponse({ success: true });
+      return true;
+    }
+
+    if (request.action === ACTIONS.logout) {
+      if (!isDreamlabApp()) {
+        sendResponse({ success: false, error: 'Not on Dreamlab web app.' });
+        return true;
+      }
+      window.postMessage({ type: 'DREAMLAB_EXTENSION_LOGOUT' }, '*');
+      sendResponse({ success: true });
       return true;
     }
 

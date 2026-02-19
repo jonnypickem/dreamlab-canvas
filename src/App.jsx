@@ -777,6 +777,24 @@ function App() {
                         },
                     },
                 }, '*');
+                return;
+            }
+
+            if (event.data?.type === 'DREAMLAB_EXTENSION_OPEN_SETTINGS') {
+                const requestedTab = String(event.data?.initialTab || 'general');
+                const allowedTabs = new Set(['general', 'shortcuts', 'intelligence', 'account']);
+                setSettingsInitialTab(allowedTabs.has(requestedTab) ? requestedTab : 'general');
+                setShowSettings(true);
+                return;
+            }
+
+            if (event.data?.type === 'DREAMLAB_EXTENSION_LOGOUT') {
+                try {
+                    await supabase.auth.signOut();
+                    setToast({ message: 'Signed out successfully', type: 'success' });
+                } catch (error) {
+                    setToast({ message: error?.message || 'Failed to sign out', type: 'error' });
+                }
             }
         };
 

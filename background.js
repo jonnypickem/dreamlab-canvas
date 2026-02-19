@@ -16,6 +16,9 @@ const DREAMLAB_APP_URLS = [
 const STORAGE_KEYS = {
   pendingCapture: 'pendingCapture',
   multiSelectState: 'multiSelectState',
+  widgetEnabled: 'widgetEnabled',
+  floatingWidgetPrefs: 'floatingWidgetPrefs',
+  captureDestination: 'captureDestination',
 };
 
 const ACTIONS = {
@@ -28,6 +31,14 @@ const ACTIONS = {
   executeCommand: 'executeCommand',
   getShortcutBindings: 'getShortcutBindings',
   openExtensionShortcuts: 'openExtensionShortcuts',
+  getWidgetConfig: 'getWidgetConfig',
+  setWidgetEnabled: 'setWidgetEnabled',
+  getWidgetPrefs: 'getWidgetPrefs',
+  setWidgetPrefs: 'setWidgetPrefs',
+  getCaptureDestination: 'getCaptureDestination',
+  setCaptureDestination: 'setCaptureDestination',
+  openDreamlabSettings: 'openDreamlabSettings',
+  logoutDreamlab: 'logoutDreamlab',
 };
 
 const COMMAND_DEFINITIONS = [
@@ -112,6 +123,8 @@ const CONTENT_ACTIONS = {
   saveItem: 'SAVE_ITEM',
   getOrgData: 'GET_ORG_DATA',
   scanPageImages: 'SCAN_PAGE_IMAGES',
+  openSettings: 'OPEN_SETTINGS',
+  logout: 'LOGOUT',
 };
 
 const CONTEXT_MENU_IDS = {
@@ -136,6 +149,46 @@ const PREVIEW_FIRST_DOMAINS = [
 ];
 
 const MAX_TEXT_EXTRACT_LENGTH = 50000;
+const DEFAULT_WIDGET_PREFS = Object.freeze({
+  collapsed: true,
+  density: 'compact',
+  position: {
+    right: 20,
+    bottom: 20,
+  },
+});
+
+function isObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sanitizeWidgetPrefs(input) {
+  const prefs = isObject(input) ? input : {};
+  const positionInput = isObject(prefs.position) ? prefs.position : {};
+  return {
+    collapsed: typeof prefs.collapsed === 'boolean' ? prefs.collapsed : DEFAULT_WIDGET_PREFS.collapsed,
+    density: prefs.density === 'cozy' ? 'cozy' : DEFAULT_WIDGET_PREFS.density,
+    position: {
+      right: Number.isFinite(Number(positionInput.right)) ? Number(positionInput.right) : DEFAULT_WIDGET_PREFS.position.right,
+      bottom: Number.isFinite(Number(positionInput.bottom)) ? Number(positionInput.bottom) : DEFAULT_WIDGET_PREFS.position.bottom,
+    },
+  };
+}
+
+function sanitizeDestination(input) {
+  const value = isObject(input) ? input : {};
+  const workspaceId = typeof value.workspaceId === 'string' && value.workspaceId.trim()
+    ? value.workspaceId.trim()
+    : null;
+  const collectionId = typeof value.collectionId === 'string' && value.collectionId.trim()
+    ? value.collectionId.trim()
+    : null;
+  return {
+    workspaceId,
+    collectionId,
+    updatedAt: Date.now(),
+  };
+}
 
 function isDreamlabUrl(url) {
   try {
@@ -1163,6 +1216,42 @@ function removeStorage(keys) {
   });
 }
 
+async function getWidgetEnabled() {
+  const stored = await getStorage(STORAGE_KEYS.widgetEnabled);
+  return stored?.[STORAGE_KEYS.widgetEnabled] !== false;
+}
+
+async function setWidgetEnabled(enabled) {
+  const normalized = enabled !== false;
+  await setStorage({ [STORAGE_KEYS.widgetEnabled]: normalized });
+  return normalized;
+}
+
+async function getWidgetPrefs() {
+  const stored = await getStorage(STORAGE_KEYS.floatingWidgetPrefs);
+  return sanitizeWidgetPrefs(stored?.[STORAGE_KEYS.floatingWidgetPrefs]);
+}
+
+async function setWidgetPrefs(input) {
+  const prefs = sanitizeWidgetPrefs(input);
+  await setStorage({ [STORAGE_KEYS.floatingWidgetPrefs]: prefs });
+  return prefs;
+}
+
+async function getCaptureDestination() {
+  const stored = await getStorage(STORAGE_KEYS.captureDestination);
+  const hasStoredValue = Object.prototype.hasOwnProperty.call(stored || {}, STORAGE_KEYS.captureDestination);
+  return hasStoredValue
+    ? sanitizeDestination(stored?.[STORAGE_KEYS.captureDestination])
+    : sanitizeDestination(null);
+}
+
+async function setCaptureDestination(input) {
+  const destination = sanitizeDestination(input);
+  await setStorage({ [STORAGE_KEYS.captureDestination]: destination });
+  return destination;
+}
+
 function createWindow(createData) {
   return new Promise((resolve, reject) => {
     chrome.windows.create(createData, (win) => {
@@ -1246,6 +1335,114 @@ async function getDreamlabDestinationSummary(targetTabId = null) {
   } catch {
     return 'active context';
   }
+}
+
+async function getDreamlabOrgSnapshot(targetTabId = null) {
+  try {
+    const destinationTab = targetTabId
+      ? await getTab(targetTabId).catch(() => null)
+      : null;
+    const tab = destinationTab?.id ? destinationTab : await getPreferredDreamlabTab();
+    if (!tab?.id) return null;
+    const response = await sendTabMessageWithBridge(tab.id, {
+      action: CONTENT_ACTIONS.getOrgData,
+    }, { frameId: 0 });
+    if (!response || response.success !== true) return null;
+    return {
+      tabId: tab.id,
+      workspaces: Array.isArray(response.workspaces) ? response.workspaces : [],
+      projects: Array.isArray(response.projects) ? response.projects : [],
+      collections: Array.isArray(response.collections) ? response.collections : [],
+      activeContext: isObject(response.activeContext) ? response.activeContext : {},
+    };
+  } catch {
+    return null;
+  }
+}
+
+function resolveDestinationFromSnapshot(storedDestination, snapshot) {
+  if (!snapshot) return sanitizeDestination(null);
+  const activeContext = isObject(snapshot.activeContext) ? snapshot.activeContext : {};
+  const fallbackDestination = sanitizeDestination({
+    workspaceId: activeContext.workspaceId || null,
+    collectionId: activeContext.collectionId || null,
+  });
+  const preferred = sanitizeDestination(storedDestination);
+  const workspaces = Array.isArray(snapshot.workspaces) ? snapshot.workspaces : [];
+  const collections = Array.isArray(snapshot.collections) ? snapshot.collections : [];
+  const projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+
+  if (!preferred.workspaceId && !preferred.collectionId) {
+    return fallbackDestination;
+  }
+
+  let resolvedCollection = null;
+  if (preferred.collectionId) {
+    resolvedCollection = collections.find((collection) => collection.id === preferred.collectionId) || null;
+    if (!resolvedCollection) return fallbackDestination;
+  }
+
+  const resolvedWorkspaceIdFromCollection = resolvedCollection
+    ? getCollectionWorkspaceId(resolvedCollection, projects)
+    : null;
+  const resolvedWorkspaceId = resolvedWorkspaceIdFromCollection || preferred.workspaceId || null;
+
+  if (!resolvedWorkspaceId || !workspaces.some((workspace) => workspace.id === resolvedWorkspaceId)) {
+    return fallbackDestination;
+  }
+
+  if (resolvedCollection) {
+    const collectionWorkspaceId = getCollectionWorkspaceId(resolvedCollection, projects);
+    if (collectionWorkspaceId && collectionWorkspaceId !== resolvedWorkspaceId) return fallbackDestination;
+    return sanitizeDestination({
+      workspaceId: resolvedWorkspaceId,
+      collectionId: resolvedCollection.id,
+    });
+  }
+
+  return sanitizeDestination({
+    workspaceId: resolvedWorkspaceId,
+    collectionId: null,
+  });
+}
+
+async function resolveEffectiveCaptureDestination(targetTabId = null) {
+  const storedDestination = await getCaptureDestination();
+  const snapshot = await getDreamlabOrgSnapshot(targetTabId);
+  return resolveDestinationFromSnapshot(storedDestination, snapshot);
+}
+
+function applyDestinationToItem(item, destination) {
+  const normalizedDestination = sanitizeDestination(destination);
+  const sourceItem = isObject(item) ? item : {};
+  return {
+    ...sourceItem,
+    workspaceId: sourceItem.workspaceId || normalizedDestination.workspaceId || null,
+    collectionId: sourceItem.collectionId ?? normalizedDestination.collectionId ?? null,
+  };
+}
+
+async function openDreamlabSettings(initialTab = 'general') {
+  const destinationTab = await ensureDreamlabTab();
+  const response = await sendTabMessageWithBridge(destinationTab.id, {
+    action: CONTENT_ACTIONS.openSettings,
+    initialTab,
+  }, { frameId: 0 });
+  if (!response || response.success !== true) {
+    throw new Error(response?.error || 'Could not open Dreamlab settings.');
+  }
+  return destinationTab.id;
+}
+
+async function logoutDreamlab() {
+  const destinationTab = await ensureDreamlabTab();
+  const response = await sendTabMessageWithBridge(destinationTab.id, {
+    action: CONTENT_ACTIONS.logout,
+  }, { frameId: 0 });
+  if (!response || response.success !== true) {
+    throw new Error(response?.error || 'Could not log out from Dreamlab.');
+  }
+  return destinationTab.id;
 }
 
 function isUsefulDescription(description) {
@@ -2096,12 +2293,15 @@ async function saveItemToWebApp(item, options = {}) {
 
 async function queuePendingAndTrySave(item, options = {}) {
   const skipPendingStorage = Boolean(options?.skipPendingStorage);
+  const targetTabId = Number(options?.targetTabId) || null;
+  const destination = await resolveEffectiveCaptureDestination(targetTabId);
+  const itemWithDestination = applyDestinationToItem(item, destination);
 
   try {
     if (!skipPendingStorage) {
-      await setStorage({ [STORAGE_KEYS.pendingCapture]: item });
+      await setStorage({ [STORAGE_KEYS.pendingCapture]: itemWithDestination });
     }
-    const saveResult = await saveItemToWebApp(item, options);
+    const saveResult = await saveItemToWebApp(itemWithDestination, options);
     await removeStorage(STORAGE_KEYS.pendingCapture);
     return {
       success: true,
@@ -2575,6 +2775,21 @@ async function getShortcutBindings() {
   });
 }
 
+async function getWidgetConfig() {
+  const [enabled, prefs, destination, shortcuts] = await Promise.all([
+    getWidgetEnabled(),
+    getWidgetPrefs(),
+    getCaptureDestination(),
+    getShortcutBindings(),
+  ]);
+  return {
+    enabled,
+    prefs,
+    destination,
+    shortcuts,
+  };
+}
+
 // Debounce map to prevent duplicate execution when both chrome.commands
 // and content-script fallback fire for the same keystroke.
 const _commandDebounce = new Map();
@@ -2819,6 +3034,60 @@ async function handleRuntimeMessage(request, sender) {
         return {
           success: false,
           error: error?.message || 'Could not open extension shortcut settings.',
+        };
+      }
+    }
+
+    case ACTIONS.getWidgetConfig: {
+      const config = await getWidgetConfig();
+      return { success: true, ...config };
+    }
+
+    case ACTIONS.setWidgetEnabled: {
+      const enabled = await setWidgetEnabled(request?.enabled);
+      return { success: true, enabled };
+    }
+
+    case ACTIONS.getWidgetPrefs: {
+      const prefs = await getWidgetPrefs();
+      return { success: true, prefs };
+    }
+
+    case ACTIONS.setWidgetPrefs: {
+      const prefs = await setWidgetPrefs(request?.prefs);
+      return { success: true, prefs };
+    }
+
+    case ACTIONS.getCaptureDestination: {
+      const destination = await getCaptureDestination();
+      return { success: true, destination };
+    }
+
+    case ACTIONS.setCaptureDestination: {
+      const destination = await setCaptureDestination(request?.destination);
+      return { success: true, destination };
+    }
+
+    case ACTIONS.openDreamlabSettings: {
+      try {
+        const tabId = await openDreamlabSettings(request?.initialTab || 'general');
+        return { success: true, tabId };
+      } catch (error) {
+        return {
+          success: false,
+          error: error?.message || 'Could not open Dreamlab settings.',
+        };
+      }
+    }
+
+    case ACTIONS.logoutDreamlab: {
+      try {
+        const tabId = await logoutDreamlab();
+        return { success: true, tabId };
+      } catch (error) {
+        return {
+          success: false,
+          error: error?.message || 'Could not log out from Dreamlab.',
         };
       }
     }
