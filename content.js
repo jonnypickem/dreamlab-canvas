@@ -1,9 +1,5 @@
 const DREAMLAB_ORIGINS = new Set([
   'https://dreamlab-canvas.vercel.app',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:4173',
 ]);
 
 const STORAGE_KEYS = {
@@ -34,6 +30,8 @@ const BACKGROUND_ACTIONS = {
   getCaptureDestination: 'getCaptureDestination',
   setCaptureDestination: 'setCaptureDestination',
 };
+const SENSITIVE_HOST_PATTERN = /(bank|banking|wallet|payments?|checkout|billing|secure|auth|passport|idp|accounts?)/i;
+const SENSITIVE_PATH_PATTERN = /\/(login|signin|sign-in|account|security|password|checkout|payment|billing|wallet|verification)\b/i;
 
 const MEDIA_DB_NAME = 'dreamlab_media_db';
 const MEDIA_DB_VERSION = 1;
@@ -435,6 +433,14 @@ if (isDreamlabApp()) {
 }
 
 function triggerMultiSelect() {
+  if (isSensitiveSurfaceUrl(window.location.href)) {
+    return {
+      success: false,
+      error: 'Image scanning is disabled on sensitive pages.',
+      sourceUrl: window.location.href,
+    };
+  }
+
   const visibleImages = getVisibleImages();
   const totalImages = getAllImages().length;
 
@@ -451,6 +457,18 @@ function triggerMultiSelect() {
     totalImages,
     sourceUrl: window.location.href,
   };
+}
+
+function isSensitiveSurfaceUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (!/^https?:$/i.test(parsed.protocol)) return false;
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    return SENSITIVE_HOST_PATTERN.test(host) || SENSITIVE_PATH_PATTERN.test(path);
+  } catch {
+    return false;
+  }
 }
 
 function scanPageImages(scope = 'visible') {
@@ -515,6 +533,14 @@ function scanPageImages(scope = 'visible') {
   }
 
   const run = async () => {
+    if (isSensitiveSurfaceUrl(window.location.href)) {
+      return {
+        success: false,
+        error: 'Image scanning is disabled on sensitive pages.',
+        sourceUrl: window.location.href,
+      };
+    }
+
     if (scope === 'all') {
       const images = await getAllImagesWithScroll();
       return {
@@ -989,8 +1015,10 @@ window.addEventListener('keydown', (event) => {
   event.stopPropagation();
 
   // Only the top frame should forward commands to avoid duplicate
-  // execution from iframes (all_frames: true).
+  // execution if script scope is expanded to iframes in future updates.
   if (window !== window.top) return;
+  // Keep always-on behavior, but avoid capture shortcut forwarding on sensitive pages.
+  if (isSensitiveSurfaceUrl(window.location.href)) return;
 
   chrome.runtime.sendMessage({
     action: 'executeCommand',

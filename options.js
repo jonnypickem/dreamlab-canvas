@@ -1,6 +1,9 @@
 const ACTIONS = {
   getWidgetBehaviorSettings: 'getWidgetBehaviorSettings',
   setWidgetBehaviorSettings: 'setWidgetBehaviorSettings',
+  getComplianceState: 'getComplianceState',
+  getPrivacySummary: 'getPrivacySummary',
+  openComplianceDoc: 'openComplianceDoc',
 };
 
 const DEFAULT_SETTINGS = {
@@ -26,6 +29,10 @@ function cacheDom() {
   ui.saveSettings = document.getElementById('save-settings');
   ui.resetDefaults = document.getElementById('reset-defaults');
   ui.status = document.getElementById('status');
+  ui.complianceSummary = document.getElementById('compliance-summary');
+  ui.privacySummary = document.getElementById('privacy-summary');
+  ui.openPrivacyDoc = document.getElementById('open-privacy-doc');
+  ui.openComplianceDoc = document.getElementById('open-compliance-doc');
 }
 
 function bindEvents() {
@@ -35,6 +42,12 @@ function bindEvents() {
   ui.resetDefaults?.addEventListener('click', () => {
     applyFormValues(DEFAULT_SETTINGS);
     setStatus('Defaults restored in form. Click Save Settings to apply.', '');
+  });
+  ui.openPrivacyDoc?.addEventListener('click', () => {
+    void openComplianceDoc('privacy');
+  });
+  ui.openComplianceDoc?.addEventListener('click', () => {
+    void openComplianceDoc('compliance');
   });
 }
 
@@ -145,15 +158,34 @@ function readFormValues() {
 async function loadSettings() {
   setStatus('Loading widget settings...');
   try {
-    const response = await runtimeMessage({ action: ACTIONS.getWidgetBehaviorSettings }, { retries: 2 });
-    if (!response?.success) {
-      throw new Error(response?.error || 'Could not load widget settings.');
+    const settingsResponse = await runtimeMessage({ action: ACTIONS.getWidgetBehaviorSettings }, { retries: 2 });
+
+    if (!settingsResponse?.success) {
+      throw new Error(settingsResponse?.error || 'Could not load widget settings.');
     }
-    applyFormValues(response.settings || DEFAULT_SETTINGS);
+    applyFormValues(settingsResponse.settings || DEFAULT_SETTINGS);
+    const [complianceResponse, privacyResponse] = await Promise.all([
+      runtimeMessage({ action: ACTIONS.getComplianceState }, { retries: 2 }).catch(() => null),
+      runtimeMessage({ action: ACTIONS.getPrivacySummary }, { retries: 2 }).catch(() => null),
+    ]);
+    renderComplianceSummary(complianceResponse?.compliance, privacyResponse?.privacy);
     setStatus('Widget settings loaded.');
   } catch (error) {
     applyFormValues(DEFAULT_SETTINGS);
     setStatus(error?.message || 'Could not load widget settings.', 'error');
+  }
+}
+
+function renderComplianceSummary(compliance, privacy) {
+  if (ui.complianceSummary) {
+    const access = compliance?.allSitesAccessRequired
+      ? 'Required host access includes all websites (<all_urls>).'
+      : 'Host access is scoped to a limited domain list.';
+    ui.complianceSummary.textContent = `${access} Disclosure version: ${compliance?.disclosureVersion || 'unknown'}.`;
+  }
+  if (ui.privacySummary) {
+    ui.privacySummary.textContent = privacy?.defaultBehavior
+      || 'Capture and transmission should only occur after user actions.';
   }
 }
 
@@ -175,5 +207,21 @@ async function saveSettings() {
     setStatus('Widget settings saved.', 'success');
   } catch (error) {
     setStatus(error?.message || 'Could not save widget settings.', 'error');
+  }
+}
+
+async function openComplianceDoc(docType) {
+  setStatus('Opening documentation...');
+  try {
+    const response = await runtimeMessage({
+      action: ACTIONS.openComplianceDoc,
+      docType,
+    });
+    if (!response?.success) {
+      throw new Error(response?.error || 'Could not open documentation.');
+    }
+    setStatus('Documentation opened.', 'success');
+  } catch (error) {
+    setStatus(error?.message || 'Could not open documentation.', 'error');
   }
 }

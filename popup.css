@@ -40,6 +40,36 @@ body {
   padding: 12px;
 }
 
+.disclosure-card {
+  border: 1px solid var(--dl-neutral-200);
+  border-radius: var(--dl-radius-md);
+  background: var(--dl-neutral-0);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.disclosure-card h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 650;
+}
+
+.disclosure-line {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--dl-neutral-700);
+}
+
+.doc-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .toggle-copy h2 {
   margin: 0;
   font-size: 14px;

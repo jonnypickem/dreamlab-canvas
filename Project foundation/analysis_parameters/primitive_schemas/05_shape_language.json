@@ -1,0 +1,80 @@
+{
+  "schema_block": "shape_language",
+  "version": "1.0.0",
+  "stage": "A",
+  "cost_tier": "low",
+  "description": "Extracts the fundamental shape vocabulary of an image — the geometric or organic forms, edge qualities, and form relationships that define the visual's structural character.",
+
+  "gemini_instructions": {
+    "role": "You are a shape and form analysis system for a visual design intelligence platform. Your job is to identify the underlying shape language that defines an image's visual character.",
+    "task": "Analyze the provided image and return a JSON object matching the output_schema below. Focus on the vocabulary of forms — what kinds of shapes dominate, how edges behave, whether the image speaks in circles or rectangles or organic blobs or sharp angles. This is about the DNA of the forms, not what they depict.",
+    "rules": [
+      "Shape language is about the underlying formal vocabulary, not the subject matter. A photo of a building and a logo can share the same shape language (e.g. both dominated by sharp rectangles and angular geometry).",
+      "Classify the dominant shape family: geometric (circles, rectangles, triangles, polygons), organic (blobs, curves, natural forms), linear (lines, strokes, rules), amorphous (undefined, atmospheric), mixed.",
+      "Edge quality is crucial — the same circle feels completely different with a crisp vector edge vs a hand-drawn wobbly edge vs a feathered soft edge.",
+      "Complexity describes whether the shapes are simple primitives or complex compound forms.",
+      "Repetition and variation — does the image use the same shape repeatedly, or diverse shapes? If repeated, are they identical or varied?",
+      "Corner_behavior is especially important for design systems — sharp corners, rounded corners, and the degree of rounding communicate very different things.",
+      "Containment describes whether shapes are used to hold/frame content (like boxes, badges, containers) or exist as standalone elements.",
+      "If the image is photographic with no designed shapes, analyze the shape language of the natural/architectural forms present."
+    ]
+  },
+
+  "output_schema": {
+    "dominant_shape_family": "string — geometric | organic | linear | amorphous | typographic | mixed",
+    "primary_forms": [
+      {
+        "form": "string — specific shape type (e.g. 'circle', 'rounded-rectangle', 'triangle', 'organic-blob', 'angular-polygon', 'line', 'arc', 'freeform-curve')",
+        "prevalence": "string — dominant | frequent | occasional | accent",
+        "role": "string — what this form does in the composition (e.g. 'primary container', 'decorative element', 'structural divider', 'focal point', 'background pattern')"
+      }
+    ],
+    "edge_quality": {
+      "dominant_edge": "string — crisp-vector | soft-feathered | hand-drawn | rough-textured | blurred | mixed",
+      "consistency": "string — uniform (all edges same quality) | varied (deliberate mix of edge qualities) | inconsistent (unintentional variation)",
+      "edge_personality": "string — what the edge quality communicates (e.g. 'precision and control', 'warmth and human touch', 'roughness and energy', 'softness and approachability')"
+    },
+    "corner_behavior": {
+      "dominant_corner": "string — sharp | slightly-rounded | moderately-rounded | heavily-rounded | fully-round | mixed | not-applicable",
+      "radius_consistency": "string — consistent (same radius throughout) | varied (different radii for different elements) | none (no corners/all curves)",
+      "corner_personality": "string — what corners communicate (e.g. 'sharp precision', 'friendly approachability', 'soft luxury', 'industrial hardness')"
+    },
+    "complexity": {
+      "level": "string — minimal (simple primitives) | moderate (compound shapes) | complex (intricate detailed forms) | highly-complex (dense ornamental or illustrative detail)",
+      "detail_density": "string — sparse | moderate | dense | overwhelming",
+      "simplicity_or_ornamentation": "string — reductive-minimal | clean-functional | moderately-detailed | ornamental | maximalist"
+    },
+    "shape_relationships": {
+      "repetition": {
+        "present": "boolean",
+        "pattern": "string | null — how shapes repeat: 'grid', 'radial', 'linear-sequence', 'random-scatter', 'nested', 'mirrored', 'none'"
+      },
+      "variation_within_repetition": "string | null — if shapes repeat, how much do they vary (e.g. 'identical copies', 'same form with scale variation', 'same family with individual character')",
+      "contrast_between_shapes": "string — harmonious (shapes from same family) | contrasting (deliberate mix of geometric and organic) | uniform (single shape type) | chaotic (no cohesive system)"
+    },
+    "containment": {
+      "shapes_as_containers": "boolean — true if shapes are used to hold/frame content",
+      "container_types": [
+        "string — types of containers if present: 'rectangular-cards', 'circular-badges', 'rounded-panels', 'irregular-frames', 'speech-bubbles', 'none'"
+      ],
+      "containment_strategy": "string | null — how containers relate to content (e.g. 'strict containment with consistent padding', 'content breaks out of containers', 'containers used selectively for emphasis')"
+    },
+    "negative_space_shapes": {
+      "intentional": "boolean — true if the space between/around shapes creates deliberate forms",
+      "description": "string | null — describes any meaningful negative space shapes (e.g. 'arrow formed between elements', 'face in negative space', 'letterform created by gaps')"
+    },
+    "form_vocabulary_summary": "string — one-line summary of the overall shape language (e.g. 'hard geometric precision with circular accents', 'loose organic blobs with hand-drawn energy', 'rigid rectangular grid softened by generous corner rounding')",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string — caveats about shape analysis"
+    }
+  },
+
+  "failure_conditions": [
+    "Image is purely photographic with no discernible designed shape language",
+    "Image is too abstract or noisy to identify distinct forms",
+    "Image is a solid color or gradient with no shape content"
+  ],
+
+  "dependencies": []
+}

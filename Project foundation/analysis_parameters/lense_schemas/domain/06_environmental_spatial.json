@@ -1,0 +1,85 @@
+{
+  "lens": "environmental_spatial",
+  "lens_type": "domain",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "Reinterprets primitive data through the lens of environmental, spatial, and wayfinding design — reading visual signals as physical-space communication, signage systems, exhibition design, retail environment, and architectural graphics.",
+
+  "gemini_instructions": {
+    "role": "You are an environmental and spatial design analyst for a visual design intelligence platform. You receive pre-extracted primitive data and reinterpret it as decisions about design in physical space — signage, wayfinding, exhibition, retail, and architectural graphics.",
+    "task": "Given the primitive analysis data and the original image, produce an environmental/spatial design interpretation matching the output_schema below. Read the visual language as physical-space decisions — how graphics perform at scale, in three dimensions, across viewing distances, and within architectural contexts.",
+    "rules": [
+      "Use primitive data as your visual fact base. Add spatial-design-specific interpretation on top.",
+      "Scale translation is the primary concern: what works on screen may not work at architectural scale and vice versa.",
+      "Viewing distance fundamentally changes design requirements — a subway poster and a building facade have completely different legibility needs.",
+      "Material and fabrication matter more in environmental design than in any other domain. Surface/material primitive data is especially critical here.",
+      "Wayfinding has specific requirements: clarity under stress, consistency across a system, and performance for diverse abilities.",
+      "If the image is not environmental design, assess how its visual language would translate to physical space."
+    ]
+  },
+
+  "output_schema": {
+    "environmental_classification": {
+      "type": "string — wayfinding-signage | retail-environment | exhibition-display | architectural-graphics | mural | facade-treatment | window-display | point-of-sale | event-environment | vehicle-wrap | monument | public-art | not-environmental",
+      "context": "string — interior | exterior | both | transitional (lobbies, entrances) | not-applicable",
+      "permanence": "string — permanent (architectural integration) | semi-permanent (seasonal/campaign) | temporary (event/pop-up) | unknown"
+    },
+    "scale_and_distance": {
+      "intended_viewing_distance": "string — intimate (<1m) | near (1-3m) | medium (3-10m) | far (10-50m) | extreme (50m+) | multi-distance | unknown",
+      "legibility_at_distance": {
+        "primary_message_readable_at": "string — estimated maximum readable distance",
+        "secondary_detail_readable_at": "string — estimated distance for detail",
+        "scale_appropriateness": "string — well-scaled | over-detailed-for-distance | under-scaled | not-assessable"
+      },
+      "human_scale_relationship": "string — how the design relates to the human body: 'eye-level engagement', 'overhead/above', 'floor-level', 'enveloping/immersive', 'monumental (dwarfs viewer)', 'intimate (hand-held scale)', 'not-applicable'"
+    },
+    "spatial_integration": {
+      "architectural_relationship": "string — integrated (part of the architecture) | applied (added to existing surface) | freestanding | suspended | projected | not-applicable",
+      "three_dimensional_qualities": {
+        "dimensionality": "string — flat-surface-only | low-relief | sculptural | volumetric | light-based | mixed",
+        "viewing_angles": "string — single-face | multi-face | 360-degree | overhead | not-applicable"
+      },
+      "environmental_response": "string — how the design responds to its physical context: 'adapts to architecture', 'ignores context (billboard approach)', 'transforms space', 'complements existing materials', 'contrasts with environment deliberately', 'not-assessable'"
+    },
+    "wayfinding_assessment": {
+      "is_wayfinding": "boolean",
+      "system_qualities": {
+        "consistency": "string | null — whether this appears part of a consistent system: 'highly-systematic', 'partially-systematic', 'standalone', 'not-applicable'",
+        "clarity_under_stress": "string | null — how well this would perform when viewers are hurried, stressed, or unfamiliar: 'excellent', 'good', 'adequate', 'poor', 'not-applicable'",
+        "universal_comprehension": "string | null — reliance on language vs universal symbols: 'text-heavy (language-dependent)', 'icon-heavy (more universal)', 'balanced', 'pictogram-based', 'color-coded', 'not-applicable'",
+        "accessibility": "string | null — ADA/accessibility considerations: 'appears-compliant', 'some-concerns', 'not-assessed', 'not-applicable'"
+      }
+    },
+    "material_and_fabrication": {
+      "implied_fabrication": [
+        {
+          "method": "string — 'vinyl-cut', 'painted', 'printed-on-substrate', 'neon', 'LED', 'backlit', 'etched', 'engraved', 'cast-metal', 'dimensional-letters', 'projected', 'screen-printed', 'CNC-cut', 'laser-cut', '3d-printed', 'hand-crafted'",
+          "material": "string — substrate or material implied",
+          "durability": "string — weather-resistant | interior-only | temporary | permanent-grade | unknown"
+        }
+      ],
+      "lighting_dependency": {
+        "requires_lighting": "boolean — whether the design depends on specific lighting",
+        "lighting_type": "string | null — 'self-illuminated', 'backlit', 'spotlit', 'ambient-dependent', 'daylight-only', 'not-applicable'",
+        "day_night_performance": "string | null — 'works-both', 'daylight-optimized', 'nighttime-optimized', 'not-applicable'"
+      }
+    },
+    "environmental_narrative": "string — one-paragraph synthesis of the environmental design assessment",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "reads_from_primitives": [
+    "color_system",
+    "spatial_structure",
+    "typography_behavior",
+    "surface_material",
+    "shape_language",
+    "hierarchy_flow"
+  ],
+
+  "dependencies": []
+}

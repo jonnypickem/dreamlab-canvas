@@ -1,0 +1,84 @@
+{
+  "schema_block": "stylistic_lineage",
+  "version": "1.0.0",
+  "stage": "A",
+  "cost_tier": "low",
+  "description": "Extracts the aesthetic DNA and cultural-historical references of an image — what artistic movements, design eras, cultural traditions, and stylistic schools it draws from, either explicitly or implicitly.",
+
+  "gemini_instructions": {
+    "role": "You are a stylistic lineage and aesthetic identity system for a visual design intelligence platform. Your job is to identify the design and artistic heritage encoded in an image — the movements, eras, and cultural references that inform its visual language. You are essentially a design historian reading the image's genetic code.",
+    "task": "Analyze the provided image and return a JSON object matching the output_schema below. Your goal is to answer: 'Where does this visual come from? What traditions does it reference? What aesthetic world does it belong to?' Be specific and scholarly where the references are clear, and honest about uncertainty where they are ambiguous.",
+    "rules": [
+      "Focus on VISUAL lineage, not subject matter. A photo of a Bauhaus building is not automatically 'Bauhaus style' — analyze the design treatment, not the content.",
+      "Be specific with movement/era references. 'Modern' is too vague. 'Swiss International Typographic Style' or 'Late Modernist grid formalism' is useful. 'Minimalist' alone is rarely sufficient — specify which minimalism (Japanese, Scandinavian, tech-minimal, brutalist-minimal, etc.).",
+      "Most contemporary design is hybrid — it rarely belongs to a single movement. Identify the PRIMARY lineage and then the secondary influences or hybridizations.",
+      "Distinguish between conscious reference (the designer intentionally channeling a style) and incidental similarity (happens to share traits with a movement). When uncertain, note this.",
+      "Era signals are not just about dated aesthetics. A 2024 design can have genuine Art Nouveau lineage if it's deliberately referencing those formal principles.",
+      "Cultural context matters. 'Kawaii aesthetic', 'Soviet Constructivist', 'Memphis Milano', 'Wabi-sabi', 'Afrofuturist' are all valid and important lineage markers.",
+      "Subcultural references are equally valid: 'rave flyer culture', 'zine aesthetic', 'skateboard graphics tradition', '90s web design', 'vaporwave', 'dark academia'.",
+      "If the image is genuinely novel with no clear lineage, say so. Not everything needs to be traced to a movement.",
+      "Purity vs hybridization: some images are pure expressions of a single school, others blend 3-4 traditions. Capture this spectrum.",
+      "Include contemporary design movements and digital-native aesthetics: 'neubrutalism', 'glassmorphism', 'claymorphism', 'corporate Memphis', 'anti-design', 'Y2K revival', 'indie web', etc."
+    ]
+  },
+
+  "output_schema": {
+    "primary_lineage": {
+      "movement_or_school": "string — the dominant aesthetic tradition (e.g. 'Swiss International Typographic Style', 'Japanese Minimalism', 'Memphis Group', 'Bauhaus', 'Art Deco', 'Psychedelic', 'Brutalist Typography', 'Flat Design', 'Neubrutalism')",
+      "confidence": "number — 0.0 to 1.0 for how clearly this lineage is present",
+      "reference_type": "string — direct (explicitly channeling this movement) | evolved (contemporary evolution of this tradition) | incidental (shares traits but may not be intentional) | revival (deliberate retro reference)",
+      "key_markers": [
+        "string — specific visual elements that signal this lineage (e.g. 'strict grid system', 'Akzidenz-Grotesk-style sans-serif', 'asymmetric balance', 'primary color palette', 'geometric abstraction')"
+      ]
+    },
+    "secondary_influences": [
+      {
+        "movement_or_school": "string",
+        "confidence": "number — 0.0 to 1.0",
+        "contribution": "string — what this influence adds to the primary lineage (e.g. 'adds warmth to modernist base through hand-drawn elements', 'introduces color vibrancy from Pop Art into minimal structure')",
+        "key_markers": [
+          "string — visual elements that signal this secondary influence"
+        ]
+      }
+    ],
+    "era_signals": {
+      "primary_era": "string — the decade or period the visual most strongly evokes (e.g. '1920s Art Deco', '1960s Psychedelic', '1980s Memphis', '1990s Grunge', '2010s Flat Design', 'Contemporary/2020s', 'Timeless/Era-neutral')",
+      "era_authenticity": "string — period-authentic (could have been made in that era) | contemporary-reference (modern work referencing that era) | era-neutral (no strong period association) | deliberately-anachronistic (intentionally mixing eras)",
+      "temporal_markers": [
+        "string — specific elements that signal the era: production techniques, color palettes, type choices, layout conventions, material references"
+      ]
+    },
+    "cultural_context": {
+      "geographic_roots": "string | null — cultural or geographic tradition if detectable (e.g. 'Japanese', 'Scandinavian', 'Latin American', 'West African', 'Eastern European', 'Global/Non-specific')",
+      "subcultural_references": [
+        "string — any subcultural aesthetics referenced: 'punk/DIY', 'rave culture', 'hip-hop visual culture', 'skateboard/surf', 'tech startup', 'luxury fashion', 'indie music', 'gaming', 'cottagecore', 'dark academia', 'none detected'"
+      ],
+      "industry_vernacular": "string | null — if the image belongs to a recognizable industry visual language (e.g. 'tech product marketing', 'independent publishing', 'luxury fashion editorial', 'craft brewery branding', 'music festival promotion', 'none specific')"
+    },
+    "hybridization": {
+      "purity_level": "string — pure (single clear lineage) | lightly-hybrid (primary lineage with minor influences) | hybrid (clear blend of 2-3 traditions) | heavily-hybrid (multiple traditions blended) | eclectic (no dominant lineage, many references) | novel (genuinely new, minimal historical reference)",
+      "blend_description": "string — how the influences combine (e.g. 'Bauhaus grid discipline with Memphis color energy', 'Japanese minimalism meets Brooklyn craft aesthetic', 'Swiss typography in a punk layout')",
+      "tension_or_harmony": "string — whether the combined influences create productive tension or harmonious blend"
+    },
+    "contemporaneity": {
+      "feels_current": "boolean — whether this feels like it belongs to the current design moment",
+      "trend_alignment": [
+        "string — any current design trends this aligns with: 'neubrutalism', 'organic-shapes', 'retro-revival', 'maximalism', 'AI-aesthetic', 'anti-design', 'soft-gradients', 'none specific'"
+      ],
+      "timelessness": "string — trend-dependent (will feel dated quickly) | trend-aware (current but not enslaved) | timeless (could work across decades) | deliberately-retro (intentionally of another time)"
+    },
+    "aesthetic_personality": "string — one-line summary of the total aesthetic identity (e.g. 'Refined Swiss modernism softened with contemporary warmth and organic photography', 'Chaotic neo-punk energy with 90s rave color palette and DIY production values', 'Restrained Japanese-influenced minimalism with premium material sensitivity')",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string — caveats about lineage identification (e.g. 'image is quite generic, lineage markers are weak', 'strong reference but could be unconscious rather than deliberate')"
+    }
+  },
+
+  "failure_conditions": [
+    "Image is too generic to attribute any meaningful stylistic lineage",
+    "Image is a raw photograph with no discernible design treatment or stylistic intention",
+    "Image belongs to a tradition the model has insufficient training data to identify"
+  ],
+
+  "dependencies": []
+}

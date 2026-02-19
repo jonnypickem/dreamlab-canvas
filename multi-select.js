@@ -12,6 +12,7 @@ const state = {
   visibleImages: [],
   allImages: [],
   showingAll: false,
+  resolutionFilter: 'any',
   selected: new Set(),
   workspaces: [],
   projects: [],
@@ -46,6 +47,7 @@ function cacheDom() {
   ui.workspaceSelect = document.getElementById('workspaceSelect');
   ui.collectionSelect = document.getElementById('collectionSelect');
   ui.tagsInput = document.getElementById('tagsInput');
+  ui.resolutionSelect = document.getElementById('resolutionSelect');
 }
 
 function bindEvents() {
@@ -57,7 +59,7 @@ function bindEvents() {
   });
 
   ui.selectAllButton.addEventListener('click', () => {
-    getCurrentImages().forEach((image) => state.selected.add(image.src));
+    getCurrentImages().forEach((image) => state.selected.add(image.key));
     renderImages();
   });
 
@@ -70,8 +72,26 @@ function bindEvents() {
     populateCollectionOptions(ui.workspaceSelect.value, null);
   });
 
+  ui.resolutionSelect.addEventListener('change', () => {
+    state.resolutionFilter = ui.resolutionSelect.value || 'any';
+    renderImages();
+  });
+
   ui.saveButton.addEventListener('click', () => {
     void saveSelectedImages();
+  });
+
+  ui.imageGrid.addEventListener('click', (event) => {
+    const checkbox = event.target.closest('.image-checkbox');
+    if (checkbox) {
+      event.stopPropagation();
+      toggleSelected(checkbox.dataset.imageKey);
+      return;
+    }
+
+    const card = event.target.closest('.image-card');
+    if (!card || !ui.imageGrid.contains(card)) return;
+    toggleSelected(card.dataset.imageKey);
   });
 }
 
@@ -180,6 +200,91 @@ function getCollectionsForWorkspace(workspaceId) {
   return state.collections.filter((collection) => getCollectionWorkspaceId(collection) === workspaceId);
 }
 
+function getProjectName(projectId) {
+  if (!projectId) return null;
+  const project = state.projects.find((candidate) => candidate.id === projectId);
+  return project?.name || null;
+}
+
+function formatCollectionLabel(collection) {
+  const collectionName = String(collection?.name || 'Untitled').trim() || 'Untitled';
+  const projectName = getProjectName(collection?.projectId);
+  if (!projectName) return `Ungrouped / ${collectionName}`;
+  return `${projectName} / ${collectionName}`;
+}
+
+function isLikelyRenderableImageUrl(sourceUrl) {
+  if (!sourceUrl || typeof sourceUrl !== 'string') return false;
+  const value = sourceUrl.trim();
+  if (!value) return false;
+  if (value.startsWith('data:image/')) return true;
+  if (value.startsWith('blob:')) return true;
+
+  try {
+    const parsed = new URL(value);
+    const pathname = parsed.pathname || '';
+    if (/\.(avif|webp|png|jpe?g|gif|svg|bmp|ico|tiff?|jfif|heic|heif)(?:$|\?)/i.test(pathname)) {
+      return true;
+    }
+
+    const formatParam = (
+      parsed.searchParams.get('format')
+      || parsed.searchParams.get('fm')
+      || parsed.searchParams.get('f')
+      || parsed.searchParams.get('ext')
+      || ''
+    ).toLowerCase();
+    if (/(avif|webp|png|jpe?g|gif|svg|bmp|ico|tiff?|heic|heif)/i.test(formatParam)) {
+      return true;
+    }
+
+    const nestedImageParam = (
+      parsed.searchParams.get('url')
+      || parsed.searchParams.get('image')
+      || parsed.searchParams.get('img')
+      || parsed.searchParams.get('src')
+      || ''
+    );
+    if (/\.(avif|webp|png|jpe?g|gif|svg|bmp|ico|tiff?|jfif|heic|heif)(?:$|\?)/i.test(nestedImageParam)) {
+      return true;
+    }
+
+    if (/\/(?:_?next|cdn-cgi)\/image/i.test(pathname)) return true;
+    if (/\/(images?|photos?|media|assets?)\//i.test(pathname)) return true;
+  } catch {
+    if (/\.(avif|webp|png|jpe?g|gif|svg|bmp|ico|tiff?|jfif|heic|heif)(?:$|\?)/i.test(value)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function normalizeImageList(images = []) {
+  const srcCounts = new Map();
+  const normalized = [];
+
+  images.forEach((image) => {
+    const src = typeof image?.src === 'string' ? image.src.trim() : '';
+    if (!src) return;
+    const width = Number(image?.width || image?.displayWidth || 0);
+    const height = Number(image?.height || image?.displayHeight || 0);
+    const hasSizeHint = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
+    if (!hasSizeHint && !isLikelyRenderableImageUrl(src)) return;
+
+    const count = (srcCounts.get(src) || 0) + 1;
+    srcCounts.set(src, count);
+
+    normalized.push({
+      ...image,
+      src,
+      key: `${src}#${count}`,
+    });
+  });
+
+  return normalized;
+}
+
 function hydrateDestinationSelectors() {
   const workspaceOptions = state.workspaces.map((workspace) => ({
     value: workspace.id,
@@ -203,8 +308,8 @@ function populateCollectionOptions(workspaceId, preferredCollectionId) {
   const collections = getCollectionsForWorkspace(workspaceId);
   const collectionOptions = collections.map((collection) => ({
     value: collection.id,
-    label: collection.name,
-  }));
+    label: formatCollectionLabel(collection),
+  })).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   const collectionIds = collectionOptions.map((option) => option.value);
 
   const collectionId = pickValid(preferredCollectionId, collectionIds, null);
@@ -214,7 +319,32 @@ function populateCollectionOptions(workspaceId, preferredCollectionId) {
 }
 
 function getCurrentImages() {
-  return state.showingAll ? state.allImages : state.visibleImages;
+  const source = state.showingAll ? state.allImages : state.visibleImages;
+  return source.filter((image) => imageMatchesResolution(image, state.resolutionFilter));
+}
+
+function getImageDimensions(image) {
+  const width = Number(image?.width || image?.displayWidth || 0);
+  const height = Number(image?.height || image?.displayHeight || 0);
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : 0,
+    height: Number.isFinite(height) && height > 0 ? height : 0,
+  };
+}
+
+function imageMatchesResolution(image, filter = 'any') {
+  if (filter === 'any') return true;
+
+  const { width, height } = getImageDimensions(image);
+  if (filter === 'known') return width > 0 && height > 0;
+  if (width <= 0 || height <= 0) return false;
+
+  const maxDimension = Math.max(width, height);
+  if (filter === 'sm') return maxDimension >= 400;
+  if (filter === 'md') return maxDimension >= 800;
+  if (filter === 'lg') return maxDimension >= 1200;
+  if (filter === 'xl') return maxDimension >= 1600;
+  return true;
 }
 
 function updateScopeUi() {
@@ -237,27 +367,32 @@ function updateSelectedUi() {
 }
 
 function getImageSizeLabel(image) {
-  const width = Number(image?.width || image?.displayWidth || 0);
-  const height = Number(image?.height || image?.displayHeight || 0);
+  const { width, height } = getImageDimensions(image);
   if (!width || !height) return '';
   return `${Math.round(width)}×${Math.round(height)}`;
 }
 
 function createImageCard(image) {
   const card = document.createElement('div');
-  card.className = `image-card${state.selected.has(image.src) ? ' selected' : ''}`;
+  card.className = `image-card${state.selected.has(image.key) ? ' selected' : ''}`;
   card.setAttribute('role', 'listitem');
+  card.dataset.imageKey = image.key;
 
   const imageElement = document.createElement('img');
   imageElement.src = image.src;
   imageElement.alt = image.alt || 'Captured image';
   imageElement.loading = 'lazy';
   imageElement.draggable = false;
+  imageElement.referrerPolicy = 'no-referrer';
 
   imageElement.addEventListener('error', () => {
-    card.remove();
-    if (ui.imageGrid.children.length === 0) {
-      ui.emptyState.hidden = false;
+    card.classList.add('image-card-broken');
+    imageElement.style.display = 'none';
+    if (!card.querySelector('.image-fallback')) {
+      const fallback = document.createElement('div');
+      fallback.className = 'image-fallback';
+      fallback.textContent = 'Preview blocked. You can still select and save this image.';
+      card.appendChild(fallback);
     }
   });
 
@@ -267,12 +402,8 @@ function createImageCard(image) {
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.className = 'image-checkbox';
-  checkbox.checked = state.selected.has(image.src);
-
-  checkbox.addEventListener('click', (event) => {
-    event.stopPropagation();
-    toggleSelected(image.src);
-  });
+  checkbox.checked = state.selected.has(image.key);
+  checkbox.dataset.imageKey = image.key;
 
   checkWrap.appendChild(checkbox);
   card.appendChild(imageElement);
@@ -285,10 +416,6 @@ function createImageCard(image) {
     meta.textContent = sizeLabel;
     card.appendChild(meta);
   }
-
-  card.addEventListener('click', () => {
-    toggleSelected(image.src);
-  });
 
   return card;
 }
@@ -310,13 +437,24 @@ function renderImages() {
   updateSelectedUi();
 }
 
-function toggleSelected(sourceUrl) {
-  if (state.selected.has(sourceUrl)) {
-    state.selected.delete(sourceUrl);
+function toggleSelected(imageKey) {
+  if (!imageKey) return;
+  if (state.selected.has(imageKey)) {
+    state.selected.delete(imageKey);
   } else {
-    state.selected.add(sourceUrl);
+    state.selected.add(imageKey);
   }
-  renderImages();
+
+  const cards = ui.imageGrid.querySelectorAll('.image-card');
+  cards.forEach((card) => {
+    if (card.dataset.imageKey !== imageKey) return;
+    const isSelected = state.selected.has(imageKey);
+    card.classList.toggle('selected', isSelected);
+    const checkbox = card.querySelector('.image-checkbox');
+    if (checkbox) checkbox.checked = isSelected;
+  });
+
+  updateSelectedUi();
 }
 
 async function initialize() {
@@ -337,8 +475,18 @@ async function initialize() {
     } else {
       state.sourceTabId = session.sourceTabId || null;
       state.sourceUrl = session.sourceUrl || '';
-      state.visibleImages = Array.isArray(session.visibleImages) ? session.visibleImages : [];
+      state.visibleImages = normalizeImageList(
+        Array.isArray(session.visibleImages) ? session.visibleImages : []
+      );
       state.totalCount = Number(session.totalImagesCount || state.visibleImages.length);
+    }
+
+    if (!state.visibleImages.length && state.sourceTabId) {
+      try {
+        await refreshVisibleImages({ retries: 2 });
+      } catch {
+        // Keep empty state; user can still toggle to all images.
+      }
     }
 
     ui.sourceLabel.textContent = getSourceLabel(state.sourceUrl);
@@ -364,6 +512,37 @@ async function initialize() {
   }
 }
 
+async function refreshVisibleImages({ retries = 1 } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await runtimeMessage({
+        action: ACTIONS.scanSourceImages,
+        sourceTabId: state.sourceTabId,
+        scope: 'visible_with_total',
+      });
+
+      if (!response?.success) {
+        throw new Error(response?.error || 'Could not scan visible images.');
+      }
+
+      state.visibleImages = normalizeImageList(
+        Array.isArray(response.visibleImages) ? response.visibleImages : []
+      );
+      state.totalCount = Number(response.totalCount || state.visibleImages.length);
+      if (response.sourceUrl) {
+        state.sourceUrl = response.sourceUrl;
+        ui.sourceLabel.textContent = getSourceLabel(state.sourceUrl);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      await delay(180 + attempt * 220);
+    }
+  }
+  if (lastError) throw lastError;
+}
+
 async function toggleImageScope() {
   if (state.showingAll) {
     state.showingAll = false;
@@ -384,7 +563,9 @@ async function toggleImageScope() {
         throw new Error(response?.error || 'Could not scan all images for this page.');
       }
 
-      state.allImages = Array.isArray(response.images) ? response.images : [];
+      state.allImages = normalizeImageList(
+        Array.isArray(response.images) ? response.images : []
+      );
       if (!state.sourceUrl) {
         state.sourceUrl = response.sourceUrl || '';
         ui.sourceLabel.textContent = getSourceLabel(state.sourceUrl);
@@ -403,12 +584,12 @@ async function toggleImageScope() {
 function getSelectedImages() {
   const imageMap = new Map();
   [...state.visibleImages, ...state.allImages].forEach((image) => {
-    if (!imageMap.has(image.src)) imageMap.set(image.src, image);
+    if (!imageMap.has(image.key)) imageMap.set(image.key, image);
   });
 
   const selectedImages = [];
-  state.selected.forEach((sourceUrl) => {
-    const image = imageMap.get(sourceUrl);
+  state.selected.forEach((imageKey) => {
+    const image = imageMap.get(imageKey);
     if (image) selectedImages.push(image);
   });
 

@@ -6,3 +6,4 @@ dist-ssr
 .npm
 temp_home
 .env
+.claude/

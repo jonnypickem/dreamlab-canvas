@@ -115,6 +115,19 @@ input[type="number"]:focus-visible,
   gap: 10px;
 }
 
+.actions.docs {
+  justify-content: flex-start;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  background: var(--dl-neutral-100);
+  border: 1px solid var(--dl-neutral-200);
+  border-radius: 6px;
+  padding: 1px 4px;
+}
+
 .btn {
   border: 1px solid var(--dl-neutral-300);
   border-radius: var(--dl-radius-pill);

@@ -13,11 +13,64 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Media Storage**: Supabase Storage bucket `dreamlab-media` (private, per-user folders)
 -   **Repository**: [github.com/jonnypickem/dreamlab-canvas](https://github.com/jonnypickem/dreamlab-canvas)
 
+## Compliance Documentation
+-   **Extension Compliance Prerequisites**: `Project foundation/extension-compliance-prerequisites.md`
+-   **Extension Privacy Policy (Internal Draft)**: `Project foundation/privacy-policy-extension.md`
+-   **Chrome Web Store Field Answers**: `Project foundation/chrome-web-store-submission-fields.md`
+-   **Public Extension Privacy Policy URL**: `/extension-privacy-policy.html`
+-   **Public Extension Compliance URL**: `/extension-data-compliance.html`
+
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Project-level browsing shipped (grid + canvas) with safe placement semantics: collection canvas positions remain persisted source of truth, while project canvas uses session-local draft layout and reset control. Sortable grid now uses masonry columns to remove large vertical gaps, and the top-right "Drag to reorder" badge has been removed.
+-   **Last Major Change**: Extension compliance hardening shipped for Chrome Web Store packaging: production host cleanup, sensitive-surface capture blocks, local/private metadata extraction blocks, popup/options disclosure surfaces, and improved multi-select filtering/selection reliability.
 
 ## Changelog
+
+### [0.33.0] - 2026-02-19
+#### Added
+- **Compliance + Submission Documentation Set** (`Project foundation/extension-compliance-prerequisites.md`, `Project foundation/privacy-policy-extension.md`, `Project foundation/chrome-web-store-submission-fields.md`):
+  - Added internal compliance prerequisite checklist for production packaging and review.
+  - Added extension privacy policy draft aligned to runtime behavior and user-trigger model.
+  - Added German Chrome Web Store submission answer sheet for permission, data-use, and reviewer-note fields.
+
+- **Release Packaging Artifacts** (`dreamlab-canvas-extension.zip`, `dreamlab-canvas-extension-cws-submission.zip`):
+  - Added packaged extension archives for general distribution and Chrome Web Store submission.
+
+- **Compliance Disclosure UI in Extension Surfaces** (`popup.html`, `popup.css`, `popup.js`, `options.html`, `options.css`, `options.js`, `background.js`):
+  - Added popup and options disclosure cards summarizing host-access scope and user-triggered capture model.
+  - Added runtime messaging endpoints to expose compliance/privacy summaries and open public policy URLs directly from extension UI.
+
+- **Analysis Schema Mirror in Project Foundation** (`Project foundation/analysis_parameters/**`):
+  - Added mirrored primitive and lens schema JSON set under project foundation docs for easier governance/reference alongside compliance docs.
+
+#### Changed
+- **Production Extension Scope + Script Injection** (`manifest.json`, `background.js`, `content.js`, `floating-widget.js`):
+  - Removed localhost/dev app origins from production host permissions and trusted-origin checks.
+  - Removed `all_frames` content-script injection to avoid unnecessary iframe coverage and duplicate command paths.
+  - Updated widget status copy to explicitly state idle/user-trigger capture behavior.
+
+- **Multi-Select Review and Save Flow** (`multi-select.html`, `multi-select.css`, `multi-select.js`):
+  - Added resolution filter controls (`Any`, `400+`, `800+`, `1200+`, `1600+`, `Known dimensions only`).
+  - Normalized image identities with stable per-entry keys so duplicate `src` values can be selected independently.
+  - Added project-aware collection labels (`Project / Collection`), render fallback cards for blocked previews, and improved visible-image refresh retries.
+
+- **Deployment Guidance** (`Project foundation/DEPLOYMENT.md`):
+  - Added extension production compliance checklist section covering permission review, runtime guardrails, disclosure parity, and public policy URL verification.
+
+#### Fixed
+- **Capture Safety Guardrails Across Commands** (`background.js`, `content.js`):
+  - Added sensitive-surface detection (auth/payment/account-like host/path heuristics) and blocked capture/scan actions with explicit user-facing messages.
+  - Applied same blocking logic to context-menu saves, command captures, and image-scan routes.
+
+- **Metadata/Text Extraction Risk Controls** (`background.js`):
+  - Added strict URL validation and blocked local/private/internal targets for remote metadata/text extraction.
+  - Added bounded remote fetch controls (timeout + max HTML size checks) to prevent unsafe over-fetch behavior.
+
+#### Problems & Fixes
+- **Problem**: Production package still contained localhost assumptions and lacked first-class in-product compliance disclosure for reviewers.
+- **Fix**: Removed dev host entries from production extension runtime/manifest and shipped disclosure state endpoints consumed by popup/options.
+- **Problem**: Capture and metadata workflows were too permissive for sensitive/local targets.
+- **Fix**: Added explicit safety gates for sensitive pages and private-network extraction, plus bounded remote fetch constraints.
 
 ### [0.32.0] - 2026-02-18
 #### Fixed

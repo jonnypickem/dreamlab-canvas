@@ -3,10 +3,6 @@
   if (!/^https?:$/i.test(window.location.protocol)) return;
   const DREAMLAB_ORIGINS = new Set([
     'https://dreamlab-canvas.vercel.app',
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:4173',
-    'http://127.0.0.1:4173',
   ]);
   if (DREAMLAB_ORIGINS.has(window.location.origin)) return;
 
@@ -555,6 +551,8 @@
       void persistDestination(ui.workspaceSelect.value || null, ui.collectionSelect.value || null);
     });
 
+    setStatus('Idle. Data is captured only when you run an action.');
+
   }
 
   function teardownWidget() {
@@ -685,11 +683,10 @@
 
     if (state.prefs.collapsed) {
       setExpanded(false, { persist: false });
+      setStatus('Idle. Expand to load destination context.');
     } else {
       setExpanded(true, { persist: false });
     }
-
-    await refreshOrgData();
   }
 
   function registerStorageListener() {

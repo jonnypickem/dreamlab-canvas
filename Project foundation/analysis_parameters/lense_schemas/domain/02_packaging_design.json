@@ -1,0 +1,131 @@
+{
+  "lens": "packaging_design",
+  "lens_type": "domain",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "Reinterprets primitive data through the lens of packaging design — reading visual signals as shelf presence, structural form, information hierarchy for purchase decisions, unboxing experience, and production feasibility.",
+
+  "gemini_instructions": {
+    "role": "You are a packaging design analyst for a visual design intelligence platform. You receive pre-extracted primitive data and reinterpret it as packaging strategy. You think like a packaging designer who understands both shelf impact and production constraints.",
+    "task": "Given the primitive analysis data and the original image, produce a packaging design interpretation matching the output_schema below. Read the visual language as packaging decisions — what works on shelf, how information flows for purchase decisions, what production methods are implied, and how the structural form serves the product.",
+    "rules": [
+      "Use primitive data as your visual fact base. Add packaging-specific interpretation on top.",
+      "Shelf presence is about how this packaging would perform in a retail environment — visibility at distance, differentiation from adjacent products, and billboard effect.",
+      "Information hierarchy for packaging is specific: brand → product name → variant → key claims → regulatory info. Map the visual hierarchy to this purchase-decision sequence.",
+      "Production assessment should be realistic — identify what print and finishing methods are required and their relative cost implications.",
+      "Structural form matters. If the image shows 3D packaging, analyze the form factor. If it shows flat label/surface design, note the distinction.",
+      "Category conventions: assess whether the design follows or breaks the visual conventions of its apparent product category.",
+      "Sustainability signals: note any visual cues about material sustainability (kraft paper, minimal ink, recycled textures) or lack thereof.",
+      "If the image is not packaging, but contains visual language that could inform packaging design, analyze it through that hypothetical lens."
+    ]
+  },
+
+  "output_schema": {
+    "packaging_type": {
+      "format": "string — box | bottle | can | pouch | bag | tube | jar | carton | wrapper | sleeve | tuck-box | clamshell | blister | sachet | other | not-packaging",
+      "structural_complexity": "string — simple (standard form) | moderate (custom die-cut or non-standard shape) | complex (multi-part, unusual engineering) | unknown (flat design, structure not visible)",
+      "dimensionality_in_image": "string — 3d-photographed | 3d-rendered | flat-layout | dieline | mockup | mixed"
+    },
+    "shelf_presence": {
+      "visibility_at_distance": {
+        "rating": "string — high | moderate | low",
+        "key_factors": [
+          "string — what drives visibility: 'strong color contrast', 'large bold typography', 'distinctive silhouette', 'metallic finish catches light', 'dark packaging recedes on shelf'"
+        ],
+        "billboard_element": "string — the single element readable from 3+ meters away (e.g. 'brand name in gold caps', 'distinctive color block', 'unique shape silhouette', 'none — design is detail-dependent')"
+      },
+      "differentiation_on_shelf": {
+        "strategy": "string — how this package would stand out among competitors: 'premium materials vs standard', 'color disruption in category', 'structural uniqueness', 'illustrative richness vs clean competitors', 'minimalism vs busy category', 'none — follows conventions'",
+        "category_contrast": "string — whether this design follows or breaks category visual norms: 'convention-following', 'convention-bending', 'convention-breaking', 'category-unclear'"
+      },
+      "facing_analysis": {
+        "primary_face_content": "string — what the main visible face communicates",
+        "secondary_faces_visible": "boolean — whether other faces are visible in the image",
+        "face_coordination": "string | null — how multiple visible faces relate to each other"
+      }
+    },
+    "purchase_decision_hierarchy": {
+      "information_sequence": [
+        {
+          "rank": "number — 1 = first thing noticed",
+          "content": "string — what information this level carries (e.g. 'brand name', 'product name', 'flavor/variant', 'key benefit claim', 'product image', 'size/quantity')",
+          "mapped_from_hierarchy_level": "string — which visual hierarchy level from the primitives this corresponds to",
+          "purchase_role": "string — what this information does in the purchase decision: 'brand-recognition', 'product-identification', 'variant-selection', 'desire-creation', 'trust-building', 'regulatory-compliance', 'value-communication'"
+        }
+      ],
+      "path_to_purchase_clarity": "string — clear (obvious what this is and why to buy it) | moderate (requires some attention to decode) | unclear (beautiful but confusing as a purchase proposition) | not-applicable (not consumer packaging)",
+      "missing_information": [
+        "string — any standard packaging information that appears absent: 'no visible size/weight', 'no variant indicator', 'no brand story', 'none — all expected info present'"
+      ]
+    },
+    "production_analysis": {
+      "print_methods_required": [
+        {
+          "method": "string — offset-litho | digital | flexography | screen-print | letterpress | gravure | foil-stamping | embossing | debossing | spot-uv | die-cut | laser-cut | thermography",
+          "application": "string — what part of the design requires this method",
+          "cost_implication": "string — standard | moderate-premium | high-premium | luxury-only"
+        }
+      ],
+      "substrate_implied": "string — what material the packaging appears to be: 'coated-paperboard', 'uncoated-paperboard', 'kraft', 'corrugated', 'glass', 'metal-tin', 'plastic', 'fabric', 'wood', 'mixed'",
+      "color_complexity": {
+        "estimated_color_count": "string — '1-2 spot colors', '4-color process (CMYK)', 'CMYK + 1 spot', 'CMYK + metallic', 'CMYK + multiple specials', 'single color'",
+        "special_inks": [
+          "string — 'metallic gold', 'metallic silver', 'metallic copper', 'fluorescent', 'white ink (for dark stock)', 'clear varnish', 'none'"
+        ]
+      },
+      "production_budget_tier": "string — economy | standard | premium | luxury | artisanal-craft",
+      "scalability_concern": "string — any issues with producing this at scale: 'foil stamping limits run speed', 'detail level requires high-resolution plates', 'multiple finishes increase passes and cost', 'none — standard production', 'not assessed'"
+    },
+    "unboxing_and_experience": {
+      "tactile_expectation": "string — what the packaging would feel like to hold and open (drawn from surface_material primitive but reframed as consumer experience)",
+      "reveal_sequence": "string | null — if multi-part packaging, the sequence of discovery: 'outer sleeve → inner box → tissue wrap → product', 'single surface — no reveal sequence', 'not determinable from image'",
+      "premium_experience_signals": [
+        "string — specific elements that elevate the physical experience: 'heavy stock weight', 'magnetic closure', 'foil interior', 'embossed texture', 'ribbon pull', 'custom insert', 'none apparent'"
+      ],
+      "collectibility": "string — whether the packaging has collectible or keep-worthy quality: 'high (too beautiful to discard)', 'moderate (might keep)', 'low (functional, disposable)', 'not applicable'"
+    },
+    "sustainability_signals": {
+      "material_perception": "string — how sustainable the materials appear: 'eco-forward (kraft, minimal ink, recycled signals)', 'neutral (standard materials, no strong signal)', 'premium-over-eco (luxury finishes prioritize experience over sustainability)', 'actively-unsustainable (excessive materials, multiple substrates)'",
+      "visual_sustainability_cues": [
+        "string — specific visual signals: 'uncoated/unbleached stock', 'soy ink indicators', 'minimal color use', 'recyclability marks', 'kraft/raw material visibility', 'none present'"
+      ]
+    },
+    "packaging_narrative": "string — one-paragraph synthesis of what this packaging communicates as a complete experience",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "supplemental_extraction": {
+    "description": "Packaging lens may need additional extraction not covered by primitives.",
+    "supplements": [
+      {
+        "name": "dieline_detection",
+        "purpose": "Identify structural form, folds, and die-cut patterns if a flat layout is shown",
+        "trigger": "When packaging_type.dimensionality_in_image is 'flat-layout' or 'dieline'",
+        "cost": "medium"
+      },
+      {
+        "name": "regulatory_text_scan",
+        "purpose": "Identify and assess regulatory/compliance text (ingredients, warnings, barcodes, certifications)",
+        "trigger": "When purchase_decision_hierarchy needs regulatory assessment",
+        "cost": "low"
+      }
+    ]
+  },
+
+  "reads_from_primitives": [
+    "color_system",
+    "typography_behavior",
+    "spatial_structure",
+    "surface_material",
+    "shape_language",
+    "hierarchy_flow",
+    "imagery_mode",
+    "stylistic_lineage"
+  ],
+
+  "dependencies": []
+}

@@ -1,16 +1,8 @@
 const DREAMLAB_ORIGINS = new Set([
   'https://dreamlab-canvas.vercel.app',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:4173',
 ]);
 const DREAMLAB_APP_URLS = [
   'https://dreamlab-canvas.vercel.app',
-  'http://127.0.0.1:5173',
-  'http://localhost:5173',
-  'http://127.0.0.1:4173',
-  'http://localhost:4173',
 ];
 
 const STORAGE_KEYS = {
@@ -41,6 +33,9 @@ const ACTIONS = {
   getWidgetBehaviorSettings: 'getWidgetBehaviorSettings',
   setWidgetBehaviorSettings: 'setWidgetBehaviorSettings',
   openExtensionOptions: 'openExtensionOptions',
+  getComplianceState: 'getComplianceState',
+  getPrivacySummary: 'getPrivacySummary',
+  openComplianceDoc: 'openComplianceDoc',
 };
 
 const COMMAND_DEFINITIONS = [
@@ -149,6 +144,31 @@ const PREVIEW_FIRST_DOMAINS = [
 ];
 
 const MAX_TEXT_EXTRACT_LENGTH = 50000;
+const REMOTE_FETCH_TIMEOUT_MS = 8000;
+const REMOTE_FETCH_MAX_HTML_BYTES = 850000;
+const DISCLOSURE_VERSION = '2026-02-19';
+const INTERNAL_DOCS = Object.freeze({
+  compliancePath: 'Project foundation/extension-compliance-prerequisites.md',
+  privacyPath: 'Project foundation/privacy-policy-extension.md',
+  complianceUrl: 'https://dreamlab-canvas.vercel.app/extension-data-compliance.html',
+  privacyUrl: 'https://dreamlab-canvas.vercel.app/extension-privacy-policy.html',
+});
+const PRIVACY_SUMMARY = Object.freeze({
+  disclosureVersion: DISCLOSURE_VERSION,
+  allSitesAccess: true,
+  captureModel: 'user_triggered',
+  defaultBehavior: 'Widget loads on pages, but capture and transmission only occur after user actions.',
+  dataCategories: [
+    'Page URL and page title of captured source',
+    'User-selected text and selected image URLs',
+    'Screenshots/recordings initiated by user commands',
+    'Widget preferences and destination settings in chrome.storage.local',
+  ],
+  retention: 'Captured items remain in Dreamlab app storage until deleted by the user.',
+  sharing: 'Data is sent to Dreamlab app tabs only when a save or org-data action is user-triggered.',
+  docPath: INTERNAL_DOCS.privacyPath,
+  docUrl: INTERNAL_DOCS.privacyUrl,
+});
 const DEFAULT_WIDGET_PREFS = Object.freeze({
   collapsed: true,
   density: 'compact',
@@ -246,6 +266,123 @@ function isDreamlabUrl(url) {
   }
 }
 
+function parseRemoteHttpUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) {
+    return { ok: false, error: 'URL is missing.' };
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, error: 'Only http(s) URLs are allowed.' };
+    }
+    return { ok: true, parsed };
+  } catch {
+    return { ok: false, error: 'Invalid URL.' };
+  }
+}
+
+function isPrivateIpv4Host(hostname) {
+  const match = String(hostname || '').match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return false;
+  const octets = match.slice(1).map((value) => Number(value));
+  if (octets.some((value) => Number.isNaN(value) || value < 0 || value > 255)) return false;
+  const [first, second] = octets;
+  if (first === 10) return true;
+  if (first === 127) return true;
+  if (first === 169 && second === 254) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+  if (first === 192 && second === 168) return true;
+  if (first === 0) return true;
+  return false;
+}
+
+function isPrivateOrLocalHost(hostname) {
+  const host = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return true;
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.home')) return true;
+  if (host === '::1' || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) return true;
+  if (isPrivateIpv4Host(host)) return true;
+  return false;
+}
+
+function isSensitiveSurfaceUrl(url) {
+  const parsedResult = parseRemoteHttpUrl(url);
+  if (!parsedResult.ok) return false;
+  const parsed = parsedResult.parsed;
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  const sensitiveHostPattern = /(bank|banking|wallet|payments?|checkout|billing|secure|auth|passport|idp|accounts?)/i;
+  const sensitivePathPattern = /\/(login|signin|sign-in|account|security|password|checkout|payment|billing|wallet|verification)\b/i;
+  return sensitiveHostPattern.test(host) || sensitivePathPattern.test(path);
+}
+
+function getCaptureBlockReason(url) {
+  if (isUnsupportedCaptureUrl(url)) {
+    return 'Capture is not available on this page.';
+  }
+  if (isSensitiveSurfaceUrl(url)) {
+    return 'Capture is disabled on sensitive pages for safety.';
+  }
+  return '';
+}
+
+function validateFetchablePageUrl(url) {
+  const parsedResult = parseRemoteHttpUrl(url);
+  if (!parsedResult.ok) {
+    return { ok: false, error: parsedResult.error };
+  }
+  const parsed = parsedResult.parsed;
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    return { ok: false, error: 'Local/private network URLs are blocked for metadata extraction.' };
+  }
+  if (isUnsupportedCaptureUrl(parsed.href)) {
+    return { ok: false, error: 'Unsupported URL target.' };
+  }
+  if (isSensitiveSurfaceUrl(parsed.href)) {
+    return { ok: false, error: 'Sensitive page metadata extraction is blocked.' };
+  }
+  return { ok: true, url: parsed.href };
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const timeoutMs = Number(options.timeoutMs || REMOTE_FETCH_TIMEOUT_MS);
+  const fetchOptions = { ...options };
+  delete fetchOptions.timeoutMs;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...fetchOptions, signal: controller.signal, cache: 'no-store', redirect: 'follow' });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchPageHtmlWithLimits(url) {
+  const response = await fetchWithTimeout(url, {
+    timeoutMs: REMOTE_FETCH_TIMEOUT_MS,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed (${response.status}).`);
+  }
+
+  const contentLengthHeader = Number(response.headers.get('content-length') || 0);
+  if (Number.isFinite(contentLengthHeader) && contentLengthHeader > REMOTE_FETCH_MAX_HTML_BYTES) {
+    throw new Error('Page is too large to inspect safely.');
+  }
+
+  const html = await response.text();
+  const sizeBytes = new TextEncoder().encode(html).length;
+  if (sizeBytes > REMOTE_FETCH_MAX_HTML_BYTES) {
+    throw new Error('Page is too large to inspect safely.');
+  }
+  return html;
+}
+
 function normalizeDomain(url) {
   try {
     return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
@@ -294,7 +431,7 @@ async function fetchTweetEmbed(url) {
 
   const oEmbedUrl = `https://publish.twitter.com/oembed?omit_script=true&dnt=true&url=${encodeURIComponent(tweetInfo.canonicalUrl)}`;
   try {
-    const response = await fetch(oEmbedUrl);
+    const response = await fetchWithTimeout(oEmbedUrl, { timeoutMs: REMOTE_FETCH_TIMEOUT_MS });
     if (!response.ok) {
       throw new Error(`oEmbed request failed with status ${response.status}`);
     }
@@ -628,7 +765,7 @@ async function getCaptureFallbackTabs(excludeTabId = null) {
   return tabs
     .filter((tab) => {
       if (!tab?.id || tab.id === excludeTabId) return false;
-      if (!tab.url || isUnsupportedCaptureUrl(tab.url)) return false;
+      if (!tab.url || getCaptureBlockReason(tab.url)) return false;
       if (isDreamlabUrl(tab.url)) return false;
       return /^https?:\/\//i.test(tab.url);
     })
@@ -1524,13 +1661,12 @@ function createContextMenus() {
 }
 
 async function fetchMetadataFromUrl(url) {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    },
-  });
-  const html = await response.text();
-  return parseMetadataFromHtml(html, url);
+  const validation = validateFetchablePageUrl(url);
+  if (!validation.ok) {
+    throw new Error(validation.error || 'URL cannot be inspected.');
+  }
+  const html = await fetchPageHtmlWithLimits(validation.url);
+  return parseMetadataFromHtml(html, validation.url);
 }
 
 function parseMetadataFromHtml(html, url) {
@@ -1655,12 +1791,16 @@ function extractMainTextFromHtml(html) {
 
 async function fetchTextExtractFromUrl(url) {
   try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-    });
-    const html = await response.text();
+    const validation = validateFetchablePageUrl(url);
+    if (!validation.ok) {
+      return {
+        status: 'blocked',
+        source: 'extension',
+        reason: validation.error || 'URL blocked.',
+        extractedAt: Date.now(),
+      };
+    }
+    const html = await fetchPageHtmlWithLimits(validation.url);
     const text = extractMainTextFromHtml(html).slice(0, MAX_TEXT_EXTRACT_LENGTH);
 
     if (!text || text.length < 120) {
@@ -1683,7 +1823,7 @@ async function fetchTextExtractFromUrl(url) {
       extractedAt: Date.now(),
       title: titleFromMeta || null,
       byline: byline || null,
-      siteName: siteName || normalizeDomain(url) || null,
+      siteName: siteName || normalizeDomain(validation.url) || null,
       content: text,
       excerpt: excerpt || text.slice(0, 300),
       wordCount: text.split(/\s+/).filter(Boolean).length,
@@ -2101,7 +2241,8 @@ async function getPinterestPinMetadataFromDom(tabId) {
 async function fetchPinterestOEmbedMetadata(url) {
   try {
     const endpoint = `https://www.pinterest.com/oembed.json?url=${encodeURIComponent(url)}&maxwidth=1200`;
-    const response = await fetch(endpoint, {
+    const response = await fetchWithTimeout(endpoint, {
+      timeoutMs: REMOTE_FETCH_TIMEOUT_MS,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
@@ -2262,6 +2403,12 @@ async function getPageMetadata(tabId, targetUrl) {
 }
 
 async function requestImageScan(tabId, scope = 'visible') {
+  const sourceTab = await getTab(tabId).catch(() => null);
+  const captureBlockReason = getCaptureBlockReason(sourceTab?.url || '');
+  if (captureBlockReason) {
+    throw new Error(captureBlockReason);
+  }
+
   const response = await sendTabMessageWithBridge(tabId, {
     action: CONTENT_ACTIONS.scanPageImages,
     scope,
@@ -2388,6 +2535,18 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab) return;
+  const targetUrl = info.linkUrl || tab.url || '';
+  const captureBlockReason = getCaptureBlockReason(targetUrl);
+  if (captureBlockReason) {
+    if (tab.id) {
+      await showInPageToast(tab.id, {
+        message: captureBlockReason,
+        type: 'error',
+        durationMs: 4200,
+      });
+    }
+    return;
+  }
 
   let item = null;
 
@@ -2435,6 +2594,16 @@ async function executeCommandFromTab(command, tabId) {
   if (!tab) return;
 
   if (command === 'save-page') {
+    const captureBlockReason = getCaptureBlockReason(tab.url || '');
+    if (captureBlockReason && tab.id) {
+      await showInPageToast(tab.id, {
+        message: captureBlockReason,
+        type: 'error',
+        durationMs: 4200,
+      });
+      return;
+    }
+
     let selectedText = '';
     try {
       const result = await chrome.scripting.executeScript({
@@ -2471,6 +2640,15 @@ async function executeCommandFromTab(command, tabId) {
 
   if (command === 'capture-visible') {
     if (!tab?.id) return;
+    const captureBlockReason = getCaptureBlockReason(tab.url || '');
+    if (captureBlockReason) {
+      await showInPageToast(tab.id, {
+        message: captureBlockReason,
+        type: 'error',
+        durationMs: 4200,
+      });
+      return;
+    }
 
     let chosenTab = tab;
     let chosenScan = null;
@@ -2524,9 +2702,10 @@ async function executeCommandFromTab(command, tabId) {
   if (command === 'capture-full-page') {
     if (!tab?.id) return;
 
-    if (isUnsupportedCaptureUrl(tab.url)) {
+    const captureBlockReason = getCaptureBlockReason(tab.url || '');
+    if (captureBlockReason) {
       await showInPageToast(tab.id, {
-        message: 'Full-page capture is not available on this page.',
+        message: captureBlockReason,
         type: 'error',
         durationMs: 4200,
       });
@@ -2655,6 +2834,15 @@ async function executeCommandFromTab(command, tabId) {
 
   if (command === 'smart-picker') {
     if (!tab?.id) return;
+    const captureBlockReason = getCaptureBlockReason(tab.url || '');
+    if (captureBlockReason) {
+      await showInPageToast(tab.id, {
+        message: captureBlockReason,
+        type: 'error',
+        durationMs: 4200,
+      });
+      return;
+    }
 
     await chrome.scripting.insertCSS({
       target: { tabId: tab.id },
@@ -2670,9 +2858,10 @@ async function executeCommandFromTab(command, tabId) {
 
   if (command === 'pick-color') {
     if (!tab?.id) return;
-    if (isUnsupportedCaptureUrl(tab.url)) {
+    const captureBlockReason = getCaptureBlockReason(tab.url || '');
+    if (captureBlockReason) {
       await showInPageToast(tab.id, {
-        message: 'Color eyedropper is not available on this page.',
+        message: captureBlockReason,
         type: 'error',
         durationMs: 4200,
       });
@@ -2775,9 +2964,10 @@ async function executeCommandFromTab(command, tabId) {
 
   if (command === 'area-select' || command === 'area-record') {
     if (!tab?.id) return;
-    if (isUnsupportedCaptureUrl(tab.url)) {
+    const captureBlockReason = getCaptureBlockReason(tab.url || '');
+    if (captureBlockReason) {
       await showInPageToast(tab.id, {
-        message: 'Area capture is not available on this page.',
+        message: captureBlockReason,
         type: 'error',
         durationMs: 4200,
       });
@@ -2837,6 +3027,44 @@ async function getWidgetConfig() {
     shortcuts,
     behaviorSettings,
   };
+}
+
+function getComplianceState() {
+  const manifest = chrome.runtime.getManifest();
+  const requiredPermissions = Array.isArray(manifest.permissions) ? manifest.permissions : [];
+  const hostPermissions = Array.isArray(manifest.host_permissions) ? manifest.host_permissions : [];
+  return {
+    disclosureVersion: DISCLOSURE_VERSION,
+    allSitesAccessRequired: hostPermissions.includes('<all_urls>'),
+    hostPermissions,
+    requiredPermissions,
+    safetyMode: {
+      userTriggeredCaptureOnly: true,
+      unsupportedUrlsBlocked: true,
+      sensitiveSurfacesBlocked: true,
+      localNetworkMetadataBlocked: true,
+      fetchTimeoutMs: REMOTE_FETCH_TIMEOUT_MS,
+      fetchMaxHtmlBytes: REMOTE_FETCH_MAX_HTML_BYTES,
+    },
+    docs: {
+      compliancePath: INTERNAL_DOCS.compliancePath,
+      privacyPath: INTERNAL_DOCS.privacyPath,
+      complianceUrl: INTERNAL_DOCS.complianceUrl,
+      privacyUrl: INTERNAL_DOCS.privacyUrl,
+    },
+  };
+}
+
+function getPrivacySummary() {
+  return PRIVACY_SUMMARY;
+}
+
+async function openComplianceDoc(docType) {
+  const normalized = String(docType || 'privacy').toLowerCase();
+  const url = normalized === 'compliance'
+    ? INTERNAL_DOCS.complianceUrl
+    : INTERNAL_DOCS.privacyUrl;
+  await createTab({ url, active: true });
 }
 
 // Debounce map to prevent duplicate execution when both chrome.commands
@@ -3092,6 +3320,14 @@ async function handleRuntimeMessage(request, sender) {
       return { success: true, ...config };
     }
 
+    case ACTIONS.getComplianceState: {
+      return { success: true, compliance: getComplianceState() };
+    }
+
+    case ACTIONS.getPrivacySummary: {
+      return { success: true, privacy: getPrivacySummary() };
+    }
+
     case ACTIONS.setWidgetEnabled: {
       const enabled = await setWidgetEnabled(request?.enabled);
       return { success: true, enabled };
@@ -3135,6 +3371,18 @@ async function handleRuntimeMessage(request, sender) {
         return {
           success: false,
           error: error?.message || 'Could not open extension options.',
+        };
+      }
+    }
+
+    case ACTIONS.openComplianceDoc: {
+      try {
+        await openComplianceDoc(request?.docType);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error?.message || 'Could not open compliance documentation.',
         };
       }
     }

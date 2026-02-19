@@ -1,0 +1,128 @@
+{
+  "lens": "taste_transfer",
+  "lens_type": "style",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "The application lens. Takes the aesthetic identity extracted from inspiration images and translates it into actionable design decisions for a target domain. This is the bridge between 'I love this vibe' and 'here's how to apply it.' This lens is unique because it requires a target context — it always answers 'apply THIS aesthetic to THAT domain.'",
+
+  "gemini_instructions": {
+    "role": "You are a taste transfer system for a visual design intelligence platform. You receive primitive data and aesthetic analysis from source inspiration, plus a target context (domain, medium, project), and produce concrete translation rules for applying the source aesthetic to the target.",
+    "task": "Given the primitive analysis data, any aesthetic/style lens outputs, and a target context, produce a taste transfer guide matching the output_schema below. Your job is translation — taking an aesthetic that exists in one form and figuring out how it manifests in a completely different form. A Victorian engraving aesthetic applied to a mobile app looks nothing like the source, but should FEEL the same.",
+    "rules": [
+      "The goal is NOT replication. It's translation. The output should look native to the target domain while carrying the DNA of the source aesthetic.",
+      "Identify which source qualities are transferable (mood, color, typographic register) and which are domain-locked (specific illustration technique, physical material).",
+      "For domain-locked qualities, find EQUIVALENTS in the target domain. The equivalent of metallic foil in UI design might be subtle gradient shimmer or micro-animation on hover. The equivalent of dense engraving in a website might be detailed SVG illustration or rich texture-mapped backgrounds.",
+      "Always provide concrete, specific recommendations — not vague gestures. 'Use a serif font' is too vague. 'Use a high-contrast serif with wide tracking on caps for headlines, paired with a clean geometric sans for body — the contrast between ornate heading and clean body mirrors the source's ornament-on-structure principle' is useful.",
+      "Consider practical constraints of the target domain. A packaging aesthetic applied to web needs to account for screen rendering, responsive behavior, and load times.",
+      "The transfer should maintain the FEELING of the source while being fully functional in the target."
+    ]
+  },
+
+  "output_schema": {
+    "source_essence": {
+      "core_qualities_to_preserve": [
+        "string — the non-negotiable qualities that define this aesthetic (e.g. 'the sense of density and richness', 'the precious-metals-on-dark-ground color relationship', 'the ceremonial gravity', 'the craft/detail orientation')"
+      ],
+      "qualities_that_must_translate": [
+        "string — qualities that cannot transfer literally but must find equivalents (e.g. 'metallic foil finish → needs digital equivalent', 'engraving line technique → needs screen-native alternative', 'physical weight and thickness → needs interface equivalent')"
+      ],
+      "qualities_to_release": [
+        "string — qualities that should be abandoned in the target context (e.g. 'extreme density may overwhelm on mobile screens', 'bilateral symmetry may feel too static for interactive product', 'small ornamental detail invisible at screen resolution')"
+      ]
+    },
+    "color_transfer": {
+      "palette_translation": {
+        "primary_colors": "string — how the source palette adapts (e.g. 'keep navy-to-black range as primary background. Gold becomes the accent/interactive color.')",
+        "modifications_needed": "string — what needs to change (e.g. 'gold needs to be desaturated slightly for screen to avoid garish feel. Add a warm gray mid-tone the source doesn't have — needed for secondary UI surfaces.')",
+        "new_colors_needed": [
+          "string — colors the target domain requires that the source doesn't provide (e.g. 'success green', 'error red', 'disabled state gray', 'link blue alternative')"
+        ]
+      },
+      "contrast_adaptation": "string — how contrast strategy translates to the target (e.g. 'maintain high contrast principle but ensure WCAG AA compliance — source's metallic-on-dark may not pass digitally')"
+    },
+    "typography_transfer": {
+      "typeface_direction": {
+        "headline_recommendation": "string — specific type direction for headlines (e.g. 'High-contrast modern serif with sharp details — Playfair Display, Cormorant, or Noto Serif Display. Use at large size with wide tracking to capture the engraved-lettering character.')",
+        "body_recommendation": "string — specific type direction for body/functional text",
+        "accent_recommendation": "string | null — any additional type for accents, labels, or special elements",
+        "what_to_avoid": "string — type choices that would break the aesthetic (e.g. 'avoid geometric sans-serifs — too cold and tech. Avoid rounded/playful faces — wrong register entirely.')"
+      },
+      "typographic_behavior_rules": [
+        "string — specific rules for how to use type (e.g. 'headlines always uppercase with wide tracking', 'body text in sentence case with generous leading', 'use weight contrast (bold headlines, light body) rather than size alone for hierarchy')"
+      ]
+    },
+    "spatial_transfer": {
+      "layout_principles": [
+        "string — how spatial logic translates (e.g. 'maintain the principle of containment — use bordered sections and cards rather than floating elements', 'center-axis composition for hero sections, asymmetric for content sections', 'dense but organized — fill the space but maintain clear hierarchy')"
+      ],
+      "whitespace_calibration": "string — how to handle whitespace in the target (e.g. 'source uses minimal whitespace, but target domain (web) needs more. Compromise: generous padding within containers, but minimal gaps between containers.')",
+      "grid_approach": "string — grid strategy for the target domain"
+    },
+    "surface_and_material_transfer": {
+      "texture_strategy": "string — how to bring the source's materiality into the target (e.g. 'use subtle noise/grain texture on dark backgrounds to avoid dead-flat digital feel. Add micro-shimmer animation on gold elements to simulate foil catch.')",
+      "depth_strategy": "string — how to create the source's depth in the target medium",
+      "production_equivalents": [
+        {
+          "source_quality": "string — a material quality from the source",
+          "target_equivalent": "string — what replaces it in the target domain",
+          "implementation_hint": "string — how to achieve it technically"
+        }
+      ]
+    },
+    "imagery_and_illustration_transfer": {
+      "imagery_direction": "string — how to handle imagery in the target to maintain aesthetic (e.g. 'use detailed line illustrations in the engraving style for icons and decorative elements. Photography should be dark, moody, and dramatically lit.')",
+      "icon_and_graphic_style": "string — direction for functional graphics, icons, and UI elements",
+      "decorative_elements": "string — how ornamental/decorative elements translate (e.g. 'use SVG border ornaments and corner details at section boundaries. Keep ornamental detail for special moments (hero, empty states) — not everywhere.')"
+    },
+    "interaction_and_motion_transfer": {
+      "motion_personality": "string — how this aesthetic should move in the target (e.g. 'measured and deliberate — no bouncy or playful easing. Use slow fades and stately reveals. Gold elements can have subtle shimmer on hover.')",
+      "interaction_style": "string — how interactive elements should feel (e.g. 'buttons feel like embossed metal — slight press animation with shadow change. Hover states reveal detail like tilting a foil stamp to catch light.')",
+      "transition_character": "string — how page/state transitions should behave"
+    },
+    "do_and_dont": {
+      "do": [
+        "string — specific recommendations (e.g. 'DO use dark backgrounds as default', 'DO invest in custom illustration for key moments', 'DO use wide-tracked uppercase for labels and section headers')"
+      ],
+      "dont": [
+        "string — specific anti-patterns (e.g. 'DON'T use flat, textureless backgrounds — add subtle grain or pattern', 'DON'T use rounded-corner cards with heavy radius — keep corners sharp or very subtly rounded', 'DON'T use bright white as a background — use warm off-whites or cream')"
+      ]
+    },
+    "fidelity_spectrum": {
+      "high_fidelity_application": "string — what it looks like if you push the transfer to maximum faithfulness (with tradeoffs noted)",
+      "medium_fidelity_application": "string — the recommended balance point",
+      "low_fidelity_application": "string — what it looks like if you just capture the essence with minimal visual translation"
+    },
+    "transfer_narrative": "string — one-paragraph summary of the complete transfer strategy",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "requires_target_context": true,
+  "target_context_schema": {
+    "target_domain": "string — the domain this aesthetic is being applied to (e.g. 'mobile app', 'website', 'packaging', 'brand identity', 'editorial')",
+    "target_constraints": "string | null — any specific constraints (e.g. 'must work on mobile', 'print budget is limited', 'accessibility AA required')",
+    "target_audience": "string | null — who the target is for, if different from source"
+  },
+
+  "reads_from_primitives": [
+    "color_system",
+    "spatial_structure",
+    "typography_behavior",
+    "surface_material",
+    "shape_language",
+    "rhythm_pattern",
+    "hierarchy_flow",
+    "imagery_mode",
+    "stylistic_lineage"
+  ],
+
+  "reads_from_lenses": [
+    "aesthetic_fingerprint",
+    "mood_emotion"
+  ],
+
+  "dependencies": ["aesthetic_fingerprint"]
+}

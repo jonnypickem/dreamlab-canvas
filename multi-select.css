@@ -181,7 +181,7 @@ body {
 
 .destination-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.2fr;
+  grid-template-columns: 1fr 1fr 1.2fr 0.9fr;
   gap: 8px;
 }
 
@@ -276,6 +276,22 @@ body {
   height: auto;
   object-fit: contain;
   display: block;
+}
+
+.image-card-broken {
+  min-height: 120px;
+  background: linear-gradient(135deg, #f7f7f8 0%, #efeff1 100%);
+}
+
+.image-fallback {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  padding: 12px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ds-gray-900);
 }
 
 .check-wrap {
@@ -401,7 +417,7 @@ body {
   }
 
   .destination-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
   }
 }
 

@@ -1,0 +1,157 @@
+{
+  "lens": "ui_digital_product",
+  "lens_type": "domain",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "Reinterprets primitive data through the lens of user interface and digital product design — reading visual signals as interaction patterns, component systems, responsive logic, accessibility, and platform conventions.",
+
+  "gemini_instructions": {
+    "role": "You are a UI and digital product design analyst for a visual design intelligence platform. You receive pre-extracted primitive data and reinterpret it as interface design decisions. You think like a product designer who understands design systems, interaction patterns, and platform conventions.",
+    "task": "Given the primitive analysis data and the original image, produce a UI/digital product interpretation matching the output_schema below. Read the visual language as interface decisions — component architecture, interaction affordances, information architecture, responsive behavior, and accessibility implications.",
+    "rules": [
+      "Use primitive data as your visual fact base. Add UI-specific interpretation on top.",
+      "Component thinking: identify repeating patterns that could become reusable components in a design system.",
+      "Interaction affordances: assess what looks clickable, tappable, draggable, or interactive — and how well those affordances are communicated.",
+      "Platform awareness: identify whether this follows iOS, Android, web, or platform-agnostic conventions.",
+      "Accessibility is not optional: assess color contrast ratios, touch target sizes, text readability, and cognitive load implications.",
+      "Responsive signals: assess whether the layout suggests mobile-first, desktop-first, or responsive thinking.",
+      "State awareness: if the image shows a specific UI state (empty, loading, populated, error), identify it.",
+      "If the image is not a UI but contains visual language that could inform digital product design, analyze it through that hypothetical lens."
+    ]
+  },
+
+  "output_schema": {
+    "interface_classification": {
+      "type": "string — web-app | mobile-app | dashboard | landing-page | marketing-site | e-commerce | saas-product | content-platform | utility | settings-panel | onboarding-flow | not-ui",
+      "platform": "string — ios | android | web | desktop-native | cross-platform | platform-agnostic | not-applicable",
+      "device_context": "string — mobile | tablet | desktop | responsive-multi | unknown",
+      "current_state": "string — empty-state | loading | populated | error | onboarding | first-run | active-interaction | passive-display | unknown"
+    },
+    "component_architecture": {
+      "identifiable_components": [
+        {
+          "component": "string — component type (e.g. 'navigation-bar', 'card', 'button', 'input-field', 'modal', 'list-item', 'tab-bar', 'hero-section', 'sidebar', 'data-table', 'avatar', 'tag/chip', 'toast/notification', 'dropdown', 'search-bar')",
+          "instances": "number — how many times this component appears",
+          "variation_level": "string — identical | minor-variants | significant-variants",
+          "design_system_ready": "string — yes (consistent enough to be a system component) | partially (needs standardization) | no (one-off execution)"
+        }
+      ],
+      "component_density": "string — sparse (few components, lots of space) | moderate | dense (many components, information-rich) | overwhelming",
+      "design_system_maturity": "string — systematic (clear tokens, consistent spacing, component library feel) | semi-systematic (some consistency, some one-offs) | ad-hoc (individually designed elements, no system apparent) | not-applicable"
+    },
+    "interaction_affordances": {
+      "clickable_elements": {
+        "clarity": "string — obvious (clear buttons, links, interactive states) | moderate (some elements ambiguous) | unclear (hard to tell what's interactive) | not-applicable",
+        "affordance_methods": [
+          "string — how interactivity is signaled: 'button styling (fill + radius)', 'underlined text links', 'hover states visible', 'icon + label pairing', 'card elevation suggests clickability', 'color differentiation for interactive vs static'"
+        ]
+      },
+      "navigation_model": {
+        "type": "string — tab-bar | sidebar | top-nav | hamburger-menu | bottom-nav | breadcrumb | pagination | infinite-scroll | wizard/stepper | hub-and-spoke | none-visible",
+        "hierarchy_depth": "string — flat (1-2 levels) | moderate (3-4 levels) | deep (5+) | unknown"
+      },
+      "input_patterns": [
+        "string — visible input methods: 'text-fields', 'search-bar', 'dropdowns', 'toggles', 'sliders', 'checkboxes', 'radio-buttons', 'date-pickers', 'file-upload', 'rich-text-editor', 'none-visible'"
+      ],
+      "feedback_patterns": [
+        "string — visible feedback mechanisms: 'loading-spinners', 'progress-bars', 'success-states', 'error-states', 'empty-states', 'skeleton-screens', 'tooltips', 'badges/counts', 'none-visible'"
+      ]
+    },
+    "layout_system": {
+      "grid_analysis": {
+        "column_system": "string — 12-column | 8-column | 4-column (mobile) | flexible | masonry | none-apparent",
+        "gutter_size": "string — tight (4-8px feel) | standard (12-16px) | generous (24-32px) | variable",
+        "breakpoint_evidence": "string — whether the layout shows awareness of responsive breakpoints: 'mobile-optimized', 'desktop-optimized', 'responsive-signals-present', 'fixed-layout', 'unknown'"
+      },
+      "spacing_system": {
+        "consistency": "string — systematic (clear spacing scale) | mostly-consistent | inconsistent | not-assessable",
+        "base_unit_estimate": "string — estimated base spacing unit: '4px', '8px', '16px', 'non-standard', 'unknown'",
+        "density_level": "string — airy | comfortable | compact | dense | ultra-dense"
+      },
+      "content_regions": [
+        {
+          "region": "string — 'header', 'navigation', 'main-content', 'sidebar', 'footer', 'toolbar', 'modal-overlay', 'floating-action'",
+          "prominence": "string — dominant | standard | subordinate",
+          "fixed_or_scrolling": "string — fixed | scrolling | sticky | unknown"
+        }
+      ]
+    },
+    "visual_design_language": {
+      "design_paradigm": "string — flat | material-design | neumorphic | glassmorphic | skeuomorphic | brutalist | minimal | organic | custom-hybrid",
+      "elevation_system": {
+        "present": "boolean",
+        "method": "string | null — 'drop-shadows', 'layered-cards', 'blur-backdrop', 'border-only', 'color-fill-differentiation', 'none'",
+        "levels": "number | null — how many elevation levels are distinguishable"
+      },
+      "border_radius_system": {
+        "dominant_radius": "string — none (sharp) | small (2-4px) | medium (8-12px) | large (16-24px) | pill (full-round) | mixed | circular",
+        "consistency": "string — uniform | mostly-consistent | varied"
+      },
+      "iconography": {
+        "style": "string — outlined | filled | duotone | illustrated | emoji | photographic | none-visible",
+        "size_consistency": "string — consistent | varied | not-applicable",
+        "icon_system_present": "boolean — whether icons appear to come from a cohesive set"
+      }
+    },
+    "accessibility_assessment": {
+      "color_contrast": {
+        "text_contrast_estimate": "string — passes-AA | likely-passes-AA | borderline | likely-fails | fails | not-assessable",
+        "contrast_concerns": [
+          "string — specific concerns: 'light gray text on white background', 'colored text on colored background', 'small text with insufficient contrast', 'none apparent'"
+        ]
+      },
+      "touch_targets": {
+        "size_adequacy": "string — adequate (48px+ feel) | borderline (32-48px) | too-small (<32px) | not-applicable (desktop only) | not-assessable",
+        "spacing_between_targets": "string — adequate | tight | overlapping | not-assessable"
+      },
+      "readability": {
+        "text_size_assessment": "string — comfortable | adequate | small-but-readable | too-small | not-assessable",
+        "information_overload_risk": "string — low | moderate | high | extreme"
+      },
+      "cognitive_load": "string — low (simple, clear purpose) | moderate (some complexity, manageable) | high (dense, requires learning) | overwhelming (too much simultaneous information)"
+    },
+    "ux_quality_signals": {
+      "clarity_of_purpose": "string — immediately-clear | clear-within-seconds | requires-exploration | confusing",
+      "information_architecture_quality": "string — well-organized | adequate | cluttered | chaotic | not-enough-content-to-assess",
+      "empty_space_usage": "string — purposeful (breathing room, focus) | wasteful (unused space without intent) | absent (everything packed) | balanced",
+      "delight_factors": [
+        "string — elements that create positive emotional response: 'micro-animations', 'custom-illustrations', 'thoughtful-empty-states', 'personality-in-copy', 'unexpected-details', 'smooth-transitions', 'none-apparent'"
+      ]
+    },
+    "ui_narrative": "string — one-paragraph synthesis of the total UI design assessment",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "supplemental_extraction": {
+    "description": "UI lens may need additional extraction not covered by primitives.",
+    "supplements": [
+      {
+        "name": "component_inventory",
+        "purpose": "Detailed enumeration of all UI components with sizing, spacing, and state information",
+        "trigger": "When design_system_maturity is 'systematic' or 'semi-systematic'",
+        "cost": "medium"
+      },
+      {
+        "name": "color_token_extraction",
+        "purpose": "Map colors to functional UI roles (background, surface, primary-action, destructive, text-primary, text-secondary, border, etc.)",
+        "trigger": "When the image is confirmed as UI",
+        "cost": "low"
+      }
+    ]
+  },
+
+  "reads_from_primitives": [
+    "color_system",
+    "spatial_structure",
+    "typography_behavior",
+    "shape_language",
+    "hierarchy_flow",
+    "rhythm_pattern"
+  ],
+
+  "dependencies": []
+}

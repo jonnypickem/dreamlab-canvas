@@ -66,6 +66,30 @@ The extension is built separately (not part of the Vite build). Key files at pro
 
 After changing extension files: reload the extension in `chrome://extensions` AND hard-refresh any open Dreamlab Canvas tabs.
 
+### Extension Production Compliance Checklist
+
+Before packaging a production zip:
+
+1. Confirm `manifest.json` includes `"<all_urls>"` only where intentionally required, and does not include localhost/dev host entries.
+2. Confirm extension permissions are justified in release notes:
+   - `contextMenus`, `storage`, `activeTab`, `tabs`, `scripting`, `host_permissions: <all_urls>`.
+3. Confirm popup/options disclosure text matches runtime behavior:
+   - all-sites access is enabled,
+   - capture/transmission only happen on user-triggered actions.
+4. Confirm safety guardrails:
+   - unsupported/sensitive pages blocked,
+   - local/private/internal metadata targets blocked,
+   - extraction requests have timeout and response-size limits.
+5. Confirm no remote hosted code execution (`eval`, dynamic remote script execution) exists in extension runtime.
+6. Confirm packaging includes only required extension runtime assets.
+7. Confirm compliance docs are present and referenced:
+   - `Project foundation/extension-compliance-prerequisites.md`
+   - `Project foundation/privacy-policy-extension.md`
+   - `Project foundation/chrome-web-store-submission-fields.md`
+8. Confirm public policy URLs are live and accessible without login:
+   - `https://dreamlab-canvas.vercel.app/extension-privacy-policy.html`
+   - `https://dreamlab-canvas.vercel.app/extension-data-compliance.html`
+
 ## Common Pitfalls
 
 - All `storage.js` functions are async — every caller must `await`

@@ -1,0 +1,84 @@
+{
+  "lens": "photography_direction",
+  "lens_type": "domain",
+  "version": "1.0.0",
+  "stage": "B",
+  "cost_tier": "medium",
+  "description": "Reinterprets primitive data through the lens of photography and art direction — reading visual signals as shooting style, lighting strategy, composition intent, color grading approach, and photographic language that could be briefed to a photographer.",
+
+  "gemini_instructions": {
+    "role": "You are a photography and art direction analyst for a visual design intelligence platform. You receive pre-extracted primitive data and reinterpret it as photographic decisions. You think like a photo art director who needs to brief a photographer to recreate this visual feel.",
+    "task": "Given the primitive analysis data and the original image, produce a photography direction interpretation matching the output_schema below. Read the visual language as a photographer's brief — lighting, composition, lens choice, color treatment, and the overall photographic language.",
+    "rules": [
+      "Use primitive data as your visual fact base. Add photography-specific interpretation on top.",
+      "Even if the image is not a photograph, analyze its visual qualities through a photographic lens — what photographic approach would create this feel?",
+      "Lighting is the most critical photographic decision. Be specific: direction, quality, ratio, and emotional effect.",
+      "Lens choice affects everything — wide-angle distortion, telephoto compression, macro intimacy, tilt-shift miniaturization. Identify what's implied.",
+      "Color grading and post-processing are distinct from the color primitive — they describe what was done TO the colors, not just what colors exist.",
+      "Mood and atmosphere are the end goal of all photographic decisions. Everything serves the feeling.",
+      "Be specific enough that a photographer could use this output as a shooting brief."
+    ]
+  },
+
+  "output_schema": {
+    "photography_classification": {
+      "genre": "string — portrait | product | food | architecture | landscape | street | documentary | fashion | editorial | still-life | abstract | macro | aerial | automotive | lifestyle | sport | fine-art | not-photography",
+      "sub_genre": "string — more specific (e.g. 'environmental-portrait', 'flat-lay-product', 'dark-moody-food', 'brutalist-architecture', 'candid-street')",
+      "commercial_or_artistic": "string — commercial (serving a brief/client) | artistic (personal expression) | editorial (storytelling) | hybrid | not-applicable"
+    },
+    "lighting": {
+      "primary_light": {
+        "type": "string — natural-daylight | natural-golden-hour | natural-overcast | studio-strobe | continuous-artificial | mixed | ambient-available | not-determinable",
+        "direction": "string — front | side | back | top | bottom | rim | butterfly (paramount) | rembrandt | split | loop | broad | short | flat | dramatic-chiaroscuro | multi-directional | ambient-wrap",
+        "quality": "string — hard (sharp shadows) | soft (diffused, gradual transitions) | mixed | specular (very focused point source) | flat (shadowless)"
+      },
+      "lighting_ratio": "string — low-ratio (even, fill-heavy) | moderate-ratio (visible shadow with detail) | high-ratio (deep shadows, dramatic) | extreme (near-silhouette or very contrasty)",
+      "fill_light": "string — heavy-fill (shadows open and detailed) | moderate-fill | minimal-fill (dark shadows) | no-fill (single source) | reflector-bounce | not-determinable",
+      "lighting_mood": "string — bright-and-airy | warm-and-intimate | dramatic-and-moody | clinical-and-clean | natural-and-authentic | mysterious-and-dark | high-key-ethereal | low-key-noir",
+      "special_lighting": [
+        "string — 'colored-gel', 'neon', 'candlelight', 'fire', 'screen-glow', 'practical-lamps', 'bokeh-light-sources', 'light-leak', 'lens-flare', 'none'"
+      ]
+    },
+    "lens_and_optics": {
+      "focal_length_impression": "string — ultra-wide (<20mm feel) | wide (20-35mm) | normal (35-60mm) | short-telephoto (60-135mm) | telephoto (135-300mm) | super-telephoto (300mm+) | macro | tilt-shift | not-determinable",
+      "depth_of_field": "string — very-shallow (extreme bokeh, razor-thin focus) | shallow (subject sharp, background soft) | moderate (subject and near-ground sharp) | deep (most elements sharp) | infinite (everything sharp) | selective (focus plane positioned unusually)",
+      "perspective_distortion": "string — none-apparent | slight-wide-angle | noticeable-wide-angle | extreme-wide-angle | telephoto-compression | tilt-shift-miniaturization",
+      "lens_character": "string | null — any distinctive optical qualities: 'vintage-lens-softness', 'clinical-modern-sharpness', 'anamorphic-flare', 'petzval-swirly-bokeh', 'soft-focus-diffusion', 'none-distinctive'"
+    },
+    "composition_as_photography": {
+      "camera_angle": "string — eye-level | high-angle (looking down) | low-angle (looking up) | bird's-eye | worm's-eye | dutch-angle (tilted) | overhead-flat-lay | three-quarter",
+      "subject_placement": "string — centered | rule-of-thirds | golden-ratio | off-center-deliberate | edge-placed | filling-frame | lost-in-environment | not-applicable",
+      "negative_space_use": "string — minimal (subject fills frame) | moderate (subject with breathing room) | generous (subject small in large space) | dominant (subject is secondary to space)",
+      "framing_technique": "string — tight-crop | medium-shot | wide-establishing | environmental (subject in context) | detail-isolated | full-body | head-and-shoulders | hands-and-object | not-applicable"
+    },
+    "color_and_post_processing": {
+      "color_grading_style": "string — natural-ungraded | warm-grade | cool-grade | desaturated-muted | cross-processed | teal-and-orange | monochrome | duotone | high-saturation | film-emulation | vintage-fade | none-apparent",
+      "film_or_digital": "string — digital-clean | digital-with-film-emulation | actual-film (grain + color evidence) | hybrid | not-determinable",
+      "film_stock_reference": "string | null — if film-like: 'Portra-soft-pastels', 'Ektar-vivid-saturation', 'Tri-X-contrasty-grain', 'Fuji-Pro-green-bias', 'Cinestill-halation', 'Kodachrome-warm-rich', 'none'",
+      "post_processing_intensity": "string — minimal (straight-out-of-camera feel) | subtle (refined but natural) | moderate (clearly processed) | heavy (significantly transformed) | extreme (barely recognizable as photography)",
+      "retouching_level": "string — untouched (raw/authentic) | light (exposure+color correction only) | moderate (skin/object cleanup) | heavy (compositing, significant manipulation) | not-assessable"
+    },
+    "mood_and_atmosphere": {
+      "emotional_temperature": "string — warm-inviting | cool-reserved | neutral-objective | intense-dramatic | serene-peaceful | tense-uneasy | nostalgic-wistful | energetic-vital | somber-heavy",
+      "atmosphere": "string — clear-crisp | hazy-atmospheric | foggy-mysterious | smoky-moody | rainy-melancholic | dusty-gritty | clean-sterile | lush-rich | sparse-minimal",
+      "time_of_day_feeling": "string — morning-fresh | midday-harsh | golden-hour-warm | blue-hour-melancholic | nighttime-dramatic | timeless | artificial-lit-no-time | not-applicable",
+      "intimacy_level": "string — intimate (viewer feels close, personal) | observational (viewer watches from comfortable distance) | documentary (viewer is witness) | voyeuristic (viewer feels hidden) | monumental (viewer feels small) | detached (clinical, impersonal)"
+    },
+    "briefing_summary": "string — a 2-3 sentence photography brief that a photographer could use to recreate this feel (e.g. 'Shoot with soft side-lighting on overcast day. Use an 85mm lens at f/2.8 for shallow depth of field. Grade warm with slightly desaturated shadows for a nostalgic, intimate feel.')",
+    "confidence": {
+      "overall": "number — 0.0 to 1.0",
+      "notes": "string"
+    }
+  },
+
+  "reads_from_primitives": [
+    "color_system",
+    "spatial_structure",
+    "surface_material",
+    "imagery_mode",
+    "hierarchy_flow",
+    "stylistic_lineage"
+  ],
+
+  "dependencies": []
+}
