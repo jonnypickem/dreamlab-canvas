@@ -128,12 +128,14 @@ function SortableGrid({
     };
 
     const handleDragEnd = (event) => {
-        if (!didPreviewRef.current) {
-            emitReorder(event, onReorderPreview);
-        }
-        emitReorder(event, onReorderCommit);
-        didPreviewRef.current = false;
         const draggedId = String(event?.active?.id || '');
+        const overId = event?.over?.id ? String(event.over.id) : null;
+
+        if (!didPreviewRef.current && draggedId && overId && draggedId !== overId) {
+            onReorderPreview?.(draggedId, overId);
+        }
+        onReorderCommit?.(draggedId, overId);
+        didPreviewRef.current = false;
         if (!draggedId) return;
         setSuppressClickItemId(draggedId);
         if (suppressTimerRef.current) {

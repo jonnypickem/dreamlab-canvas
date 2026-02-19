@@ -117,6 +117,72 @@ function areIdOrdersEqual(a, b) {
     return a.every((id, index) => id === b[index]);
 }
 
+function resolveMovedItemId(previousIds, nextIds, movedIdHint) {
+    if (!Array.isArray(previousIds) || !Array.isArray(nextIds)) return null;
+    if (movedIdHint) {
+        const previousIndex = previousIds.indexOf(movedIdHint);
+        const nextIndex = nextIds.indexOf(movedIdHint);
+        if (previousIndex >= 0 && nextIndex >= 0 && previousIndex !== nextIndex) {
+            return movedIdHint;
+        }
+    }
+
+    const changedIds = new Set();
+    const maxLength = Math.max(previousIds.length, nextIds.length);
+    for (let index = 0; index < maxLength; index += 1) {
+        const previousId = previousIds[index];
+        const nextId = nextIds[index];
+        if (previousId && previousId !== nextId) changedIds.add(previousId);
+        if (nextId && previousId !== nextId) changedIds.add(nextId);
+    }
+
+    let bestId = null;
+    let bestDelta = -1;
+    changedIds.forEach((id) => {
+        const previousIndex = previousIds.indexOf(id);
+        const nextIndex = nextIds.indexOf(id);
+        if (previousIndex < 0 || nextIndex < 0) return;
+        const delta = Math.abs(previousIndex - nextIndex);
+        if (delta > bestDelta) {
+            bestDelta = delta;
+            bestId = id;
+        }
+    });
+
+    if (bestId) return bestId;
+    return nextIds.find((id, index) => previousIds[index] !== id) || null;
+}
+
+function getNeighborSortOrderForMove(orderedIds, movedId, itemById) {
+    const movedIndex = orderedIds.indexOf(movedId);
+    if (movedIndex < 0) return { needsRebalance: true, sortOrder: null };
+
+    const previousId = movedIndex > 0 ? orderedIds[movedIndex - 1] : null;
+    const nextId = movedIndex < orderedIds.length - 1 ? orderedIds[movedIndex + 1] : null;
+    const previousOrder = previousId ? getItemSortOrder(itemById.get(previousId)) : null;
+    const nextOrder = nextId ? getItemSortOrder(itemById.get(nextId)) : null;
+
+    if (previousOrder !== null && nextOrder !== null) {
+        const gap = previousOrder - nextOrder;
+        if (gap <= 1) return { needsRebalance: true, sortOrder: null };
+        const midpoint = Math.floor((previousOrder + nextOrder) / 2);
+        if (midpoint <= nextOrder || midpoint >= previousOrder) {
+            return { needsRebalance: true, sortOrder: null };
+        }
+        return { needsRebalance: false, sortOrder: midpoint };
+    }
+
+    if (previousOrder !== null) {
+        return { needsRebalance: false, sortOrder: previousOrder - ITEM_SORT_STEP };
+    }
+
+    if (nextOrder !== null) {
+        return { needsRebalance: false, sortOrder: nextOrder + ITEM_SORT_STEP };
+    }
+
+    return { needsRebalance: true, sortOrder: null };
+}
+
 function getEntitySettingsSaveErrorMessage(entityLabel = 'settings') {
     const error = getLastStorageError();
     const fallback = `Failed to save ${entityLabel}`;
@@ -1890,7 +1956,7 @@ function App() {
         return nextOrder;
     }, [canUseGridReorder, getNextDraftOrder, selectedScope, selectedProjectId]);
 
-    const persistGridReorder = useCallback(async (nextOrder) => {
+    const persistGridReorder = useCallback(async (nextOrder, movedIdHint = null) => {
         if (!selectedCollectionId || selectedCollectionId === UNSORTED_COLLECTION_ID) return;
         if (!Array.isArray(nextOrder) || nextOrder.length === 0) return;
 
@@ -1898,34 +1964,83 @@ function App() {
         const collectionItems = currentItems.filter((item) => item.collectionId === selectedCollectionId);
         if (collectionItems.length === 0) return;
 
+        const currentOrderedIds = [...collectionItems]
+            .sort(compareItemsForDisplay)
+            .map((item) => item.id);
         const collectionItemSet = new Set(collectionItems.map((item) => item.id));
         const orderedIds = nextOrder.filter((id) => collectionItemSet.has(id));
         const presentIds = new Set(orderedIds);
 
-        [...collectionItems].sort(compareItemsForDisplay).forEach((item) => {
-            if (presentIds.has(item.id)) return;
-            orderedIds.push(item.id);
+        currentOrderedIds.forEach((id) => {
+            if (presentIds.has(id)) return;
+            orderedIds.push(id);
         });
 
+        if (areIdOrdersEqual(currentOrderedIds, orderedIds)) return;
+
+        const movedId = resolveMovedItemId(currentOrderedIds, orderedIds, movedIdHint);
+        if (!movedId) return;
+
         const currentById = new Map(collectionItems.map((item) => [item.id, item]));
-        const updates = orderedIds
+
+        const requestToken = reorderPersistTokenRef.current + 1;
+        reorderPersistTokenRef.current = requestToken;
+        const snapshot = currentItems;
+        const applySnapshot = () => {
+            setItems(snapshot);
+            itemsRef.current = snapshot;
+        };
+
+        const rebalanceEntries = orderedIds
             .map((id, index) => ({
                 id,
                 sortOrder: (orderedIds.length - index) * ITEM_SORT_STEP,
             }))
             .filter((entry) => getItemSortOrder(currentById.get(entry.id)) !== entry.sortOrder);
 
-        if (updates.length === 0) return;
+        const { needsRebalance, sortOrder } = getNeighborSortOrderForMove(orderedIds, movedId, currentById);
+        const currentMovedSortOrder = getItemSortOrder(currentById.get(movedId));
+        const shouldUseSingleUpdate = !needsRebalance
+            && Number.isFinite(sortOrder)
+            && currentMovedSortOrder !== sortOrder;
 
-        const requestToken = reorderPersistTokenRef.current + 1;
-        reorderPersistTokenRef.current = requestToken;
-        const snapshot = currentItems;
-        const sortOrderById = new Map(updates.map((entry) => [entry.id, entry.sortOrder]));
+        if (shouldUseSingleUpdate) {
+            setItems((prev) => {
+                const next = prev.map((item) => (
+                    item.id === movedId
+                        ? { ...item, sortOrder }
+                        : item
+                ));
+                itemsRef.current = next;
+                return next;
+            });
+
+            suppressItemsRealtimeUntilRef.current = Date.now() + 1800;
+
+            try {
+                const updated = await updateItem(movedId, { sortOrder });
+                if (!updated) throw new Error(`Failed to persist order for item ${movedId}`);
+                if (requestToken !== reorderPersistTokenRef.current) return;
+                setItems((prev) => {
+                    const next = prev.map((item) => (item.id === movedId ? updated : item));
+                    itemsRef.current = next;
+                    return next;
+                });
+            } catch (error) {
+                if (requestToken !== reorderPersistTokenRef.current) return;
+                applySnapshot();
+                setToast({ message: error?.message || 'Failed to reorder items', type: 'error' });
+            }
+            return;
+        }
+
+        if (rebalanceEntries.length === 0) return;
+        const rebalanceSortOrderById = new Map(rebalanceEntries.map((entry) => [entry.id, entry.sortOrder]));
 
         setItems((prev) => {
             const next = prev.map((item) => (
-                sortOrderById.has(item.id)
-                    ? { ...item, sortOrder: sortOrderById.get(item.id) }
+                rebalanceSortOrderById.has(item.id)
+                    ? { ...item, sortOrder: rebalanceSortOrderById.get(item.id) }
                     : item
             ));
             itemsRef.current = next;
@@ -1936,13 +2051,12 @@ function App() {
 
         try {
             const persisted = await Promise.all(
-                updates.map(async (entry) => {
+                rebalanceEntries.map(async (entry) => {
                     const updated = await updateItem(entry.id, { sortOrder: entry.sortOrder });
                     if (!updated) throw new Error(`Failed to persist order for item ${entry.id}`);
                     return updated;
                 })
             );
-
             if (requestToken !== reorderPersistTokenRef.current) return;
             const persistedById = new Map(persisted.map((item) => [item.id, item]));
             setItems((prev) => {
@@ -1952,13 +2066,12 @@ function App() {
             });
         } catch (error) {
             if (requestToken !== reorderPersistTokenRef.current) return;
-            setItems(snapshot);
-            itemsRef.current = snapshot;
+            applySnapshot();
             setToast({ message: error?.message || 'Failed to reorder items', type: 'error' });
         }
     }, [selectedCollectionId]);
 
-    const handleGridReorderCommit = useCallback(() => {
+    const handleGridReorderCommit = useCallback((activeId) => {
         if (!canUseGridReorder) return;
         const nextOrder = reorderDraftIdsRef.current.length > 0
             ? reorderDraftIdsRef.current
@@ -1971,7 +2084,7 @@ function App() {
             }));
             return;
         }
-        void persistGridReorder(nextOrder);
+        void persistGridReorder(nextOrder, activeId || null);
     }, [canUseGridReorder, orderedFilteredItems, persistGridReorder, selectedScope, selectedProjectId]);
 
     const activeProjectCanvasDraft = useMemo(() => {
