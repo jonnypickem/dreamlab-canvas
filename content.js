@@ -20,8 +20,6 @@ const ACTIONS = {
   scanPageImages: 'SCAN_PAGE_IMAGES',
   triggerMultiSelect: 'TRIGGER_MULTI_SELECT',
   legacyScanVisibleImages: 'SCAN_VISIBLE_IMAGES',
-  openSettings: 'OPEN_SETTINGS',
-  logout: 'LOGOUT',
 };
 
 const BACKGROUND_ACTIONS = {
@@ -35,8 +33,6 @@ const BACKGROUND_ACTIONS = {
   setWidgetPrefs: 'setWidgetPrefs',
   getCaptureDestination: 'getCaptureDestination',
   setCaptureDestination: 'setCaptureDestination',
-  openDreamlabSettings: 'openDreamlabSettings',
-  logoutDreamlab: 'logoutDreamlab',
 };
 
 const MEDIA_DB_NAME = 'dreamlab_media_db';
@@ -598,29 +594,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (request.action === ACTIONS.triggerMultiSelect) {
       sendResponse(triggerMultiSelect());
-      return true;
-    }
-
-    if (request.action === ACTIONS.openSettings) {
-      if (!isDreamlabApp()) {
-        sendResponse({ success: false, error: 'Not on Dreamlab web app.' });
-        return true;
-      }
-      window.postMessage({
-        type: 'DREAMLAB_EXTENSION_OPEN_SETTINGS',
-        initialTab: request.initialTab || 'general',
-      }, '*');
-      sendResponse({ success: true });
-      return true;
-    }
-
-    if (request.action === ACTIONS.logout) {
-      if (!isDreamlabApp()) {
-        sendResponse({ success: false, error: 'Not on Dreamlab web app.' });
-        return true;
-      }
-      window.postMessage({ type: 'DREAMLAB_EXTENSION_LOGOUT' }, '*');
-      sendResponse({ success: true });
       return true;
     }
 

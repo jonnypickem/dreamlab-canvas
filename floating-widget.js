@@ -1,6 +1,14 @@
 (() => {
   if (window !== window.top) return;
   if (!/^https?:$/i.test(window.location.protocol)) return;
+  const DREAMLAB_ORIGINS = new Set([
+    'https://dreamlab-canvas.vercel.app',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:4173',
+    'http://127.0.0.1:4173',
+  ]);
+  if (DREAMLAB_ORIGINS.has(window.location.origin)) return;
 
   const HOST_ID = 'dreamlab-floating-widget-host';
 
@@ -9,22 +17,25 @@
     executeCommand: 'executeCommand',
     getDreamlabOrgData: 'getDreamlabOrgData',
     setCaptureDestination: 'setCaptureDestination',
-    openExtensionShortcuts: 'openExtensionShortcuts',
-    openDreamlabSettings: 'openDreamlabSettings',
-    logoutDreamlab: 'logoutDreamlab',
+    openExtensionOptions: 'openExtensionOptions',
     setWidgetPrefs: 'setWidgetPrefs',
   };
 
   const DEFAULT_WIDGET_PREFS = {
     collapsed: true,
     density: 'compact',
-    position: { right: 20, bottom: 20 },
+  };
+
+  const DEFAULT_WIDGET_BEHAVIOR_SETTINGS = {
+    excludedDomains: [],
+    positionPreset: 'bottom-right',
+    offsetX: 20,
+    offsetY: 20,
   };
 
   const ICONS = {
     settings: '<path d="M12 3.5l1.35 1.62 2.1-.28.84 1.94 1.98.75-.28 2.1L20.5 12l-1.62 1.35.28 2.1-1.94.84-.75 1.98-2.1-.28L12 20.5l-1.35-1.62-2.1.28-.84-1.94-1.98-.75.28-2.1L3.5 12l1.62-1.35-.28-2.1 1.94-.84.75-1.98 2.1.28L12 3.5z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/>',
     close: '<path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-    back: '<path d="M14.5 6.5L9 12l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
     savePage: '<path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 13h6M9 17h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
     captureVisible: '<rect x="3.5" y="5" width="17" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 14l3-3 2.5 2.5L15 11l2 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
     fullPage: '<rect x="4" y="4" width="16" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10h8M8 14h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
@@ -45,13 +56,13 @@
   const state = {
     enabled: true,
     prefs: { ...DEFAULT_WIDGET_PREFS },
+    behaviorSettings: { ...DEFAULT_WIDGET_BEHAVIOR_SETTINGS },
     destination: { workspaceId: null, collectionId: null },
     shortcuts: [],
     workspaces: [],
     projects: [],
     collections: [],
     activeContext: {},
-    view: 'main',
     initialized: false,
   };
 
@@ -122,22 +133,10 @@
 
   function setStatus(message, type = '') {
     const node = ui.status;
-    const settingsNode = ui.settingsStatus;
     if (node) {
       node.textContent = message || '';
       node.className = `dlw-status ${type ? `is-${type}` : ''}`.trim();
     }
-    if (settingsNode) {
-      settingsNode.textContent = message || '';
-      settingsNode.className = `dlw-status ${type ? `is-${type}` : ''}`.trim();
-    }
-  }
-
-  function applyView() {
-    if (!ui.mainView || !ui.settingsView) return;
-    const showSettings = state.view === 'settings';
-    ui.mainView.hidden = showSettings;
-    ui.settingsView.hidden = !showSettings;
   }
 
   function setExpanded(expanded, options = {}) {
@@ -150,8 +149,6 @@
     if (ui.panel) ui.panel.hidden = isCollapsed;
     if (ui.bubble) ui.bubble.hidden = !isCollapsed;
     if (expanded) {
-      state.view = 'main';
-      applyView();
       void refreshOrgData();
     }
     if (persist) {
@@ -304,8 +301,10 @@
       :host {
         all: initial;
         position: fixed;
+        top: var(--dlw-top, auto);
         right: var(--dlw-right, 20px);
         bottom: var(--dlw-bottom, 20px);
+        left: var(--dlw-left, auto);
         z-index: 2147483644;
         pointer-events: none;
         font-family: Geist, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -453,24 +452,6 @@
         padding: 10px;
         text-align: center;
       }
-      .dlw-settings-actions { display: flex; flex-direction: column; gap: 8px; }
-      .dlw-settings-btn {
-        width: 100%;
-        border: 1px solid var(--dl-neutral-200);
-        border-radius: var(--dl-radius-md);
-        background: var(--dl-neutral-0);
-        color: var(--dl-neutral-700);
-        min-height: 34px;
-        text-align: left;
-        padding: 8px 10px;
-        font-size: 12px;
-        line-height: 1.2;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      .dlw-settings-btn:hover { border-color: var(--dl-brand-primary); background: var(--dl-brand-soft); color: var(--dl-neutral-900); }
-      .dlw-settings-btn:focus-visible { outline: none; box-shadow: var(--dl-focus-ring); }
-      .dlw-settings-btn.destructive { border-color: rgba(220, 38, 38, 0.25); color: var(--dl-error-600); }
     `;
   }
 
@@ -498,11 +479,11 @@
         <header class="dlw-header">
           <h2 class="dlw-title">Dreamlab Capture</h2>
           <div class="dlw-header-actions">
-            <button class="dlw-icon-btn" type="button" data-role="settings-toggle" aria-label="Open widget settings">${iconSvg(ICONS.settings)}</button>
+            <button class="dlw-icon-btn" type="button" data-role="open-options" aria-label="Open extension widget settings">${iconSvg(ICONS.settings)}</button>
             <button class="dlw-icon-btn" type="button" data-role="collapse" aria-label="Collapse widget">${iconSvg(ICONS.close)}</button>
           </div>
         </header>
-        <div class="dlw-view" data-view="main">
+        <div class="dlw-view">
           <div class="dlw-actions-grid" data-role="actions-grid"></div>
           <div class="dlw-field">
             <span class="dlw-label">Workspace</span>
@@ -520,20 +501,6 @@
           </div>
           <div class="dlw-status" data-role="status"></div>
         </div>
-        <div class="dlw-view" data-view="settings" hidden>
-          <div class="dlw-header-actions">
-            <button class="dlw-icon-btn" type="button" data-role="settings-back" aria-label="Back to capture actions">${iconSvg(ICONS.back)}</button>
-          </div>
-          <div class="dlw-settings-actions">
-            <button class="dlw-settings-btn" type="button" data-role="open-shortcuts">Shortcut Settings</button>
-            <button class="dlw-settings-btn" type="button" data-role="open-workspace-settings">Workspace Settings</button>
-            <button class="dlw-settings-btn" type="button" data-role="open-account-settings">Account</button>
-            <button class="dlw-settings-btn" type="button" data-role="reset-destination">Reset Destination</button>
-            <button class="dlw-settings-btn destructive" type="button" data-role="logout">Log out</button>
-            <button class="dlw-settings-btn" type="button" data-role="reset-widget">Reset Widget Layout</button>
-          </div>
-          <div class="dlw-status" data-role="settings-status"></div>
-        </div>
       </section>
     `;
     shadowRoot.appendChild(shell);
@@ -543,27 +510,22 @@
     ui.shell = shell;
     ui.bubble = shadowRoot.querySelector('.dlw-bubble');
     ui.panel = shadowRoot.querySelector('.dlw-panel');
-    ui.mainView = shadowRoot.querySelector('[data-view="main"]');
-    ui.settingsView = shadowRoot.querySelector('[data-view="settings"]');
     ui.actionsGrid = shadowRoot.querySelector('[data-role="actions-grid"]');
     ui.workspaceSelect = shadowRoot.querySelector('[data-role="workspace-select"]');
     ui.collectionSelect = shadowRoot.querySelector('[data-role="collection-select"]');
     ui.status = shadowRoot.querySelector('[data-role="status"]');
-    ui.settingsStatus = shadowRoot.querySelector('[data-role="settings-status"]');
 
     ui.bubble.addEventListener('click', () => setExpanded(true));
     shadowRoot.querySelector('[data-role="collapse"]').addEventListener('click', () => setExpanded(false));
 
-    shadowRoot.querySelector('[data-role="settings-toggle"]').addEventListener('click', () => {
-      state.view = 'settings';
-      applyView();
-      setStatus('');
-    });
-
-    shadowRoot.querySelector('[data-role="settings-back"]').addEventListener('click', () => {
-      state.view = 'main';
-      applyView();
-      setStatus('');
+    shadowRoot.querySelector('[data-role="open-options"]').addEventListener('click', async () => {
+      const response = await sendBackgroundMessage({ action: BACKGROUND_ACTIONS.openExtensionOptions });
+      setStatus(
+        response?.success
+          ? 'Opened extension widget settings.'
+          : (response?.error || 'Could not open extension settings.'),
+        response?.success ? 'success' : 'error'
+      );
     });
 
     ui.actionsGrid.addEventListener('click', (event) => {
@@ -593,66 +555,6 @@
       void persistDestination(ui.workspaceSelect.value || null, ui.collectionSelect.value || null);
     });
 
-    shadowRoot.querySelector('[data-role="open-shortcuts"]').addEventListener('click', async () => {
-      const response = await sendBackgroundMessage({ action: BACKGROUND_ACTIONS.openExtensionShortcuts });
-      setStatus(response?.success ? 'Opened extension shortcut settings.' : (response?.error || 'Could not open shortcut settings.'), response?.success ? 'success' : 'error');
-    });
-
-    shadowRoot.querySelector('[data-role="open-workspace-settings"]').addEventListener('click', async () => {
-      const response = await sendBackgroundMessage({
-        action: BACKGROUND_ACTIONS.openDreamlabSettings,
-        initialTab: 'general',
-      });
-      setStatus(response?.success ? 'Opened workspace settings.' : (response?.error || 'Could not open workspace settings.'), response?.success ? 'success' : 'error');
-    });
-
-    shadowRoot.querySelector('[data-role="open-account-settings"]').addEventListener('click', async () => {
-      const response = await sendBackgroundMessage({
-        action: BACKGROUND_ACTIONS.openDreamlabSettings,
-        initialTab: 'account',
-      });
-      setStatus(response?.success ? 'Opened account settings.' : (response?.error || 'Could not open account settings.'), response?.success ? 'success' : 'error');
-    });
-
-    shadowRoot.querySelector('[data-role="reset-destination"]').addEventListener('click', async () => {
-      const response = await sendBackgroundMessage({
-        action: BACKGROUND_ACTIONS.setCaptureDestination,
-        destination: { workspaceId: null, collectionId: null },
-      });
-      if (response?.success) {
-        state.destination = response.destination || { workspaceId: null, collectionId: null };
-        await refreshOrgData();
-      }
-      setStatus(response?.success ? 'Destination reset to active context.' : (response?.error || 'Could not reset destination.'), response?.success ? 'success' : 'error');
-    });
-
-    shadowRoot.querySelector('[data-role="logout"]').addEventListener('click', async () => {
-      const response = await sendBackgroundMessage({ action: BACKGROUND_ACTIONS.logoutDreamlab });
-      setStatus(response?.success ? 'Logged out from Dreamlab.' : (response?.error || 'Could not log out.'), response?.success ? 'success' : 'error');
-    });
-
-    shadowRoot.querySelector('[data-role="reset-widget"]').addEventListener('click', async () => {
-      state.prefs = {
-        ...DEFAULT_WIDGET_PREFS,
-        position: { ...DEFAULT_WIDGET_PREFS.position },
-      };
-      const response = await sendBackgroundMessage({
-        action: BACKGROUND_ACTIONS.setWidgetPrefs,
-        prefs: state.prefs,
-      });
-      if (response?.success && response.prefs) {
-        state.prefs = {
-          ...response.prefs,
-          position: {
-            ...DEFAULT_WIDGET_PREFS.position,
-            ...(response.prefs.position || {}),
-          },
-        };
-      }
-      applyPosition();
-      setExpanded(false, { persist: true });
-      setStatus(response?.success ? 'Widget layout reset.' : (response?.error || 'Could not reset widget layout.'), response?.success ? 'success' : 'error');
-    });
   }
 
   function teardownWidget() {
@@ -663,12 +565,92 @@
     });
   }
 
+  function sanitizeDomainToken(input) {
+    const value = String(input || '').trim().toLowerCase();
+    if (!value) return null;
+    const withoutProtocol = value.replace(/^[a-z]+:\/\//, '');
+    const host = withoutProtocol.split('/')[0].split(':')[0].trim();
+    const normalized = host.replace(/^\*\./, '').replace(/^\.+|\.+$/g, '');
+    if (!normalized || !normalized.includes('.')) return null;
+    if (!/^[a-z0-9.-]+$/.test(normalized)) return null;
+    if (normalized.startsWith('-') || normalized.endsWith('-')) return null;
+    return normalized;
+  }
+
+  function sanitizeWidgetBehaviorSettings(input) {
+    const source = input && typeof input === 'object' ? input : {};
+    const excludedDomainsRaw = Array.isArray(source.excludedDomains) ? source.excludedDomains : [];
+    const domainSet = new Set();
+    excludedDomainsRaw.forEach((entry) => {
+      const domain = sanitizeDomainToken(entry);
+      if (domain) domainSet.add(domain);
+    });
+
+    const allowedPresets = new Set(['bottom-right', 'bottom-left', 'top-right', 'top-left']);
+    const positionPreset = allowedPresets.has(source.positionPreset)
+      ? source.positionPreset
+      : DEFAULT_WIDGET_BEHAVIOR_SETTINGS.positionPreset;
+
+    const offsetX = Number.isFinite(Number(source.offsetX))
+      ? Math.max(0, Math.min(200, Math.round(Number(source.offsetX))))
+      : DEFAULT_WIDGET_BEHAVIOR_SETTINGS.offsetX;
+    const offsetY = Number.isFinite(Number(source.offsetY))
+      ? Math.max(0, Math.min(200, Math.round(Number(source.offsetY))))
+      : DEFAULT_WIDGET_BEHAVIOR_SETTINGS.offsetY;
+
+    return {
+      excludedDomains: [...domainSet],
+      positionPreset,
+      offsetX,
+      offsetY,
+    };
+  }
+
+  function hostMatchesExcludedDomains(hostname, domains) {
+    const host = String(hostname || '').trim().toLowerCase();
+    if (!host) return false;
+    return (Array.isArray(domains) ? domains : []).some((entry) => {
+      const domain = sanitizeDomainToken(entry);
+      if (!domain) return false;
+      return host === domain || host.endsWith(`.${domain}`);
+    });
+  }
+
   function applyPosition() {
     if (!ui.host) return;
-    const right = Number(state?.prefs?.position?.right);
-    const bottom = Number(state?.prefs?.position?.bottom);
-    ui.host.style.setProperty('--dlw-right', `${Number.isFinite(right) ? right : DEFAULT_WIDGET_PREFS.position.right}px`);
-    ui.host.style.setProperty('--dlw-bottom', `${Number.isFinite(bottom) ? bottom : DEFAULT_WIDGET_PREFS.position.bottom}px`);
+    const settings = sanitizeWidgetBehaviorSettings(state.behaviorSettings);
+    const offsetX = `${settings.offsetX}px`;
+    const offsetY = `${settings.offsetY}px`;
+
+    let top = 'auto';
+    let right = 'auto';
+    let bottom = 'auto';
+    let left = 'auto';
+
+    switch (settings.positionPreset) {
+      case 'bottom-left':
+        left = offsetX;
+        bottom = offsetY;
+        break;
+      case 'top-right':
+        top = offsetY;
+        right = offsetX;
+        break;
+      case 'top-left':
+        top = offsetY;
+        left = offsetX;
+        break;
+      case 'bottom-right':
+      default:
+        right = offsetX;
+        bottom = offsetY;
+        break;
+    }
+
+    ui.host.style.setProperty('--dlw-top', top);
+    ui.host.style.setProperty('--dlw-right', right);
+    ui.host.style.setProperty('--dlw-bottom', bottom);
+    ui.host.style.setProperty('--dlw-left', left);
   }
 
   async function refreshWidgetState() {
@@ -682,15 +664,17 @@
     state.prefs = {
       ...DEFAULT_WIDGET_PREFS,
       ...(response.prefs || {}),
-      position: {
-        ...DEFAULT_WIDGET_PREFS.position,
-        ...((response.prefs || {}).position || {}),
-      },
     };
+    state.behaviorSettings = sanitizeWidgetBehaviorSettings(response.behaviorSettings);
     state.destination = response.destination || { workspaceId: null, collectionId: null };
     state.shortcuts = Array.isArray(response.shortcuts) ? response.shortcuts : [];
 
-    if (!state.enabled) {
+    const shouldHide = hostMatchesExcludedDomains(
+      window.location.hostname,
+      state.behaviorSettings.excludedDomains
+    );
+
+    if (!state.enabled || shouldHide) {
       teardownWidget();
       return;
     }
@@ -698,7 +682,6 @@
     await mountWidget();
     applyPosition();
     renderActions();
-    applyView();
 
     if (state.prefs.collapsed) {
       setExpanded(false, { persist: false });
@@ -726,12 +709,26 @@
         state.prefs = {
           ...DEFAULT_WIDGET_PREFS,
           ...nextPrefs,
-          position: {
-            ...DEFAULT_WIDGET_PREFS.position,
-            ...(nextPrefs.position || {}),
-          },
         };
-        applyPosition();
+        if (ui.host) {
+          if (state.prefs.collapsed) {
+            setExpanded(false, { persist: false });
+          } else {
+            setExpanded(true, { persist: false });
+          }
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(changes, 'widgetBehaviorSettings')) {
+        state.behaviorSettings = sanitizeWidgetBehaviorSettings(changes.widgetBehaviorSettings?.newValue);
+        const shouldHide = hostMatchesExcludedDomains(
+          window.location.hostname,
+          state.behaviorSettings.excludedDomains
+        );
+        if (shouldHide) {
+          teardownWidget();
+          return;
+        }
+        void refreshWidgetState();
       }
     });
   }

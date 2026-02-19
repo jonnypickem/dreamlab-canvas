@@ -119,6 +119,30 @@ body {
   color: var(--dl-error-600);
 }
 
+.settings-link {
+  align-self: flex-start;
+  border: 1px solid var(--dl-neutral-300);
+  border-radius: var(--dl-radius-pill);
+  background: var(--dl-neutral-0);
+  color: var(--dl-neutral-700);
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.settings-link:hover {
+  border-color: var(--dl-brand-primary);
+  color: var(--dl-brand-primary);
+  background: var(--dl-brand-soft);
+}
+
+.settings-link:focus-visible {
+  outline: none;
+  box-shadow: var(--dl-focus-ring);
+}
+
 .hint {
   margin: 0;
   font-size: 11px;

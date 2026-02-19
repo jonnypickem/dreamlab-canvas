@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dreamlab Widget Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="options-shell" aria-live="polite">
+    <header class="options-header">
+      <h1>Widget Settings</h1>
+      <p>Control where the Dreamlab floating widget appears and how it is positioned.</p>
+    </header>
+
+    <section class="card" aria-label="Widget visibility rules">
+      <h2>Widget Visibility Rules</h2>
+      <p class="help">Enter one domain per line. The widget is hidden on that domain and all subdomains.</p>
+      <textarea id="excluded-domains" rows="6" placeholder="example.com\nclient-site.com"></textarea>
+      <p class="hint">Dreamlab app origins are always excluded automatically.</p>
+    </section>
+
+    <section class="card" aria-label="Widget position">
+      <h2>Widget Position</h2>
+      <div class="field-grid">
+        <label class="field">
+          <span>Preset</span>
+          <select id="position-preset">
+            <option value="bottom-right">Bottom Right</option>
+            <option value="bottom-left">Bottom Left</option>
+            <option value="top-right">Top Right</option>
+            <option value="top-left">Top Left</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Offset X (px)</span>
+          <input id="offset-x" type="number" min="0" max="200" step="1" />
+        </label>
+        <label class="field">
+          <span>Offset Y (px)</span>
+          <input id="offset-y" type="number" min="0" max="200" step="1" />
+        </label>
+      </div>
+    </section>
+
+    <footer class="actions">
+      <button id="reset-defaults" type="button" class="btn subtle">Reset Defaults</button>
+      <button id="save-settings" type="button" class="btn primary">Save Settings</button>
+    </footer>
+
+    <p id="status" class="status" role="status"></p>
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>

@@ -19,6 +19,7 @@ const STORAGE_KEYS = {
   widgetEnabled: 'widgetEnabled',
   floatingWidgetPrefs: 'floatingWidgetPrefs',
   captureDestination: 'captureDestination',
+  widgetBehaviorSettings: 'widgetBehaviorSettings',
 };
 
 const ACTIONS = {
@@ -37,8 +38,9 @@ const ACTIONS = {
   setWidgetPrefs: 'setWidgetPrefs',
   getCaptureDestination: 'getCaptureDestination',
   setCaptureDestination: 'setCaptureDestination',
-  openDreamlabSettings: 'openDreamlabSettings',
-  logoutDreamlab: 'logoutDreamlab',
+  getWidgetBehaviorSettings: 'getWidgetBehaviorSettings',
+  setWidgetBehaviorSettings: 'setWidgetBehaviorSettings',
+  openExtensionOptions: 'openExtensionOptions',
 };
 
 const COMMAND_DEFINITIONS = [
@@ -123,8 +125,6 @@ const CONTENT_ACTIONS = {
   saveItem: 'SAVE_ITEM',
   getOrgData: 'GET_ORG_DATA',
   scanPageImages: 'SCAN_PAGE_IMAGES',
-  openSettings: 'OPEN_SETTINGS',
-  logout: 'LOGOUT',
 };
 
 const CONTEXT_MENU_IDS = {
@@ -157,6 +157,12 @@ const DEFAULT_WIDGET_PREFS = Object.freeze({
     bottom: 20,
   },
 });
+const DEFAULT_WIDGET_BEHAVIOR_SETTINGS = Object.freeze({
+  excludedDomains: [],
+  positionPreset: 'bottom-right',
+  offsetX: 20,
+  offsetY: 20,
+});
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -187,6 +193,47 @@ function sanitizeDestination(input) {
     workspaceId,
     collectionId,
     updatedAt: Date.now(),
+  };
+}
+
+function sanitizeDomainToken(input) {
+  const value = String(input || '').trim().toLowerCase();
+  if (!value) return null;
+  const withoutProtocol = value.replace(/^[a-z]+:\/\//, '');
+  const host = withoutProtocol.split('/')[0].split(':')[0].trim();
+  const normalized = host.replace(/^\*\./, '').replace(/^\.+|\.+$/g, '');
+  if (!normalized) return null;
+  if (!/^[a-z0-9.-]+$/.test(normalized)) return null;
+  if (!normalized.includes('.')) return null;
+  if (normalized.startsWith('-') || normalized.endsWith('-')) return null;
+  return normalized;
+}
+
+function sanitizeWidgetBehaviorSettings(input) {
+  const value = isObject(input) ? input : {};
+  const excludedDomainsRaw = Array.isArray(value.excludedDomains) ? value.excludedDomains : [];
+  const domainSet = new Set();
+  excludedDomainsRaw.forEach((entry) => {
+    const domain = sanitizeDomainToken(entry);
+    if (domain) domainSet.add(domain);
+  });
+
+  const positionPreset = new Set(['bottom-right', 'bottom-left', 'top-right', 'top-left']).has(value.positionPreset)
+    ? value.positionPreset
+    : DEFAULT_WIDGET_BEHAVIOR_SETTINGS.positionPreset;
+
+  const offsetX = Number.isFinite(Number(value.offsetX))
+    ? Math.max(0, Math.min(200, Math.round(Number(value.offsetX))))
+    : DEFAULT_WIDGET_BEHAVIOR_SETTINGS.offsetX;
+  const offsetY = Number.isFinite(Number(value.offsetY))
+    ? Math.max(0, Math.min(200, Math.round(Number(value.offsetY))))
+    : DEFAULT_WIDGET_BEHAVIOR_SETTINGS.offsetY;
+
+  return {
+    excludedDomains: [...domainSet],
+    positionPreset,
+    offsetX,
+    offsetY,
   };
 }
 
@@ -329,6 +376,18 @@ function createTab(createProperties) {
         return;
       }
       resolve(tab || null);
+    });
+  });
+}
+
+function openExtensionOptions() {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.openOptionsPage(() => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(true);
     });
   });
 }
@@ -1252,6 +1311,17 @@ async function setCaptureDestination(input) {
   return destination;
 }
 
+async function getWidgetBehaviorSettings() {
+  const stored = await getStorage(STORAGE_KEYS.widgetBehaviorSettings);
+  return sanitizeWidgetBehaviorSettings(stored?.[STORAGE_KEYS.widgetBehaviorSettings]);
+}
+
+async function setWidgetBehaviorSettings(input) {
+  const settings = sanitizeWidgetBehaviorSettings(input);
+  await setStorage({ [STORAGE_KEYS.widgetBehaviorSettings]: settings });
+  return settings;
+}
+
 function createWindow(createData) {
   return new Promise((resolve, reject) => {
     chrome.windows.create(createData, (win) => {
@@ -1420,29 +1490,6 @@ function applyDestinationToItem(item, destination) {
     workspaceId: sourceItem.workspaceId || normalizedDestination.workspaceId || null,
     collectionId: sourceItem.collectionId ?? normalizedDestination.collectionId ?? null,
   };
-}
-
-async function openDreamlabSettings(initialTab = 'general') {
-  const destinationTab = await ensureDreamlabTab();
-  const response = await sendTabMessageWithBridge(destinationTab.id, {
-    action: CONTENT_ACTIONS.openSettings,
-    initialTab,
-  }, { frameId: 0 });
-  if (!response || response.success !== true) {
-    throw new Error(response?.error || 'Could not open Dreamlab settings.');
-  }
-  return destinationTab.id;
-}
-
-async function logoutDreamlab() {
-  const destinationTab = await ensureDreamlabTab();
-  const response = await sendTabMessageWithBridge(destinationTab.id, {
-    action: CONTENT_ACTIONS.logout,
-  }, { frameId: 0 });
-  if (!response || response.success !== true) {
-    throw new Error(response?.error || 'Could not log out from Dreamlab.');
-  }
-  return destinationTab.id;
 }
 
 function isUsefulDescription(description) {
@@ -2776,17 +2823,19 @@ async function getShortcutBindings() {
 }
 
 async function getWidgetConfig() {
-  const [enabled, prefs, destination, shortcuts] = await Promise.all([
+  const [enabled, prefs, destination, shortcuts, behaviorSettings] = await Promise.all([
     getWidgetEnabled(),
     getWidgetPrefs(),
     getCaptureDestination(),
     getShortcutBindings(),
+    getWidgetBehaviorSettings(),
   ]);
   return {
     enabled,
     prefs,
     destination,
     shortcuts,
+    behaviorSettings,
   };
 }
 
@@ -3068,26 +3117,24 @@ async function handleRuntimeMessage(request, sender) {
       return { success: true, destination };
     }
 
-    case ACTIONS.openDreamlabSettings: {
-      try {
-        const tabId = await openDreamlabSettings(request?.initialTab || 'general');
-        return { success: true, tabId };
-      } catch (error) {
-        return {
-          success: false,
-          error: error?.message || 'Could not open Dreamlab settings.',
-        };
-      }
+    case ACTIONS.getWidgetBehaviorSettings: {
+      const settings = await getWidgetBehaviorSettings();
+      return { success: true, settings };
     }
 
-    case ACTIONS.logoutDreamlab: {
+    case ACTIONS.setWidgetBehaviorSettings: {
+      const settings = await setWidgetBehaviorSettings(request?.settings);
+      return { success: true, settings };
+    }
+
+    case ACTIONS.openExtensionOptions: {
       try {
-        const tabId = await logoutDreamlab();
-        return { success: true, tabId };
+        await openExtensionOptions();
+        return { success: true };
       } catch (error) {
         return {
           success: false,
-          error: error?.message || 'Could not log out from Dreamlab.',
+          error: error?.message || 'Could not open extension options.',
         };
       }
     }

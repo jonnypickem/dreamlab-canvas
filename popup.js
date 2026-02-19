@@ -2,6 +2,7 @@ const ACTIONS = {
   ping: 'ping',
   getWidgetConfig: 'getWidgetConfig',
   setWidgetEnabled: 'setWidgetEnabled',
+  openExtensionOptions: 'openExtensionOptions',
 };
 
 const ui = {};
@@ -15,11 +16,15 @@ document.addEventListener('DOMContentLoaded', () => {
 function cacheDom() {
   ui.widgetEnabled = document.getElementById('widget-enabled');
   ui.status = document.getElementById('status');
+  ui.openWidgetSettings = document.getElementById('open-widget-settings');
 }
 
 function bindEvents() {
   ui.widgetEnabled?.addEventListener('change', () => {
     void updateWidgetToggle(ui.widgetEnabled.checked);
+  });
+  ui.openWidgetSettings?.addEventListener('click', () => {
+    void openWidgetSettings();
   });
 }
 
@@ -96,5 +101,18 @@ async function updateWidgetToggle(enabled) {
   } catch (error) {
     ui.widgetEnabled.checked = !enabled;
     setStatus(error?.message || 'Could not update widget setting.', 'error');
+  }
+}
+
+async function openWidgetSettings() {
+  setStatus('Opening widget settings...');
+  try {
+    const response = await runtimeMessage({ action: ACTIONS.openExtensionOptions });
+    if (!response?.success) {
+      throw new Error(response?.error || 'Could not open widget settings.');
+    }
+    setStatus('Widget settings opened.', 'success');
+  } catch (error) {
+    setStatus(error?.message || 'Could not open widget settings.', 'error');
   }
 }

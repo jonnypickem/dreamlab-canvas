@@ -27,6 +27,7 @@
         "default_title": "Dreamlab Capture",
         "default_popup": "popup.html"
     },
+    "options_page": "options.html",
     "background": {
         "service_worker": "background.js"
     },
