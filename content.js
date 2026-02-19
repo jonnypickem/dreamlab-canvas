@@ -26,6 +26,7 @@ const BACKGROUND_ACTIONS = {
   openMultiSelect: 'openMultiSelect',
   getShortcutBindings: 'getShortcutBindings',
   executeCommand: 'executeCommand',
+  openExtensionShortcuts: 'openExtensionShortcuts',
 };
 
 const MEDIA_DB_NAME = 'dreamlab_media_db';
@@ -353,6 +354,18 @@ function executeShortcutCommand(command) {
   });
 }
 
+function openExtensionShortcutSettings() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: BACKGROUND_ACTIONS.openExtensionShortcuts }, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ success: false, error: chrome.runtime.lastError.message || 'Could not open extension shortcut settings.' });
+        return;
+      }
+      resolve(response || { success: false, error: 'Could not open extension shortcut settings.' });
+    });
+  });
+}
+
 if (isDreamlabApp()) {
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
@@ -383,6 +396,20 @@ if (isDreamlabApp()) {
           window.postMessage({
             type: responseChannel,
             payload: { success: false, error: error?.message || 'Command failed.' },
+          }, '*');
+        });
+      return;
+    }
+
+    if (payload.type === 'DREAMLAB_OPEN_EXTENSION_SHORTCUT_SETTINGS') {
+      openExtensionShortcutSettings()
+        .then((response) => {
+          window.postMessage({ type: responseChannel, payload: response }, '*');
+        })
+        .catch((error) => {
+          window.postMessage({
+            type: responseChannel,
+            payload: { success: false, error: error?.message || 'Could not open extension shortcut settings.' },
           }, '*');
         });
     }

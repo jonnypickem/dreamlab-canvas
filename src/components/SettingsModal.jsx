@@ -19,6 +19,7 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
     const [newEmail, setNewEmail] = useState('');
     const [accountMessage, setAccountMessage] = useState(null);
     const [accountLoading, setAccountLoading] = useState(false);
+    const [shortcutSettingsMessage, setShortcutSettingsMessage] = useState(null);
 
     const handleChangePassword = async () => {
         setAccountMessage(null);
@@ -64,6 +65,47 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
             setAccountMessage({ text: err.message || 'Failed to update email.', type: 'error' });
         } finally {
             setAccountLoading(false);
+        }
+    };
+
+    const handleOpenExtensionShortcutSettings = async () => {
+        setShortcutSettingsMessage(null);
+
+        const responseChannel = `dreamlab-open-shortcuts-response-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        try {
+            const response = await new Promise((resolve, reject) => {
+                const handleResponse = (event) => {
+                    if (event.source !== window) return;
+                    if (event.data?.type !== responseChannel) return;
+                    window.removeEventListener('message', handleResponse);
+                    clearTimeout(timeout);
+                    resolve(event.data?.payload || { success: false });
+                };
+
+                const timeout = setTimeout(() => {
+                    window.removeEventListener('message', handleResponse);
+                    reject(new Error('Timed out waiting for extension response.'));
+                }, 2500);
+
+                window.addEventListener('message', handleResponse);
+                window.postMessage({ type: 'DREAMLAB_OPEN_EXTENSION_SHORTCUT_SETTINGS', responseChannel }, '*');
+            });
+
+            if (response?.success) {
+                setShortcutSettingsMessage({
+                    type: 'success',
+                    text: 'Opened Chrome extension shortcut settings.',
+                });
+                return;
+            }
+
+            throw new Error(response?.error || 'Could not open extension shortcut settings.');
+        } catch {
+            setShortcutSettingsMessage({
+                type: 'error',
+                text: 'Could not open automatically. Open chrome://extensions/shortcuts manually.',
+            });
         }
     };
 
@@ -309,6 +351,23 @@ export default function SettingsModal({ onClose, activeWorkspace, onUpdateWorksp
                                 <p className="text-xs text-zinc-400 mt-2">
                                     Change extension shortcuts in browser extension shortcut settings. Some browsers (Arc, Dia) may reserve certain combinations.
                                 </p>
+                                <div className="pt-1">
+                                    <button
+                                        onClick={handleOpenExtensionShortcutSettings}
+                                        className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
+                                    >
+                                        Open Extension Shortcut Settings
+                                    </button>
+                                </div>
+                                {shortcutSettingsMessage && (
+                                    <div className={`rounded-lg px-3 py-2 text-xs ${
+                                        shortcutSettingsMessage.type === 'success'
+                                            ? 'bg-green-50 text-green-700 border border-green-200'
+                                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    }`}>
+                                        {shortcutSettingsMessage.text}
+                                    </div>
+                                )}
                             </div>
                         )}
 

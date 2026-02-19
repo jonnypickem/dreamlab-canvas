@@ -27,6 +27,7 @@ const ACTIONS = {
   scanSourceImages: 'scanSourceImages',
   executeCommand: 'executeCommand',
   getShortcutBindings: 'getShortcutBindings',
+  openExtensionShortcuts: 'openExtensionShortcuts',
 };
 
 const COMMAND_DEFINITIONS = [
@@ -2808,6 +2809,18 @@ async function handleRuntimeMessage(request, sender) {
     case ACTIONS.getShortcutBindings: {
       const shortcuts = await getShortcutBindings();
       return { success: true, shortcuts };
+    }
+
+    case ACTIONS.openExtensionShortcuts: {
+      try {
+        await createTab({ url: 'chrome://extensions/shortcuts', active: true });
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error?.message || 'Could not open extension shortcut settings.',
+        };
+      }
     }
 
     case ACTIONS.scanSourceImages: {
