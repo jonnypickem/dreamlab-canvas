@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dreamlab Canvas Extension Data Compliance</title>
+  <link rel="stylesheet" href="/extension-policy.css" />
+</head>
+<body>
+  <main class="container">
+    <section class="card">
+      <span class="pill">Chrome Web Store Compliance</span>
+      <h1>Dreamlab Canvas Extension Data Compliance</h1>
+      <p class="meta">Last updated: February 19, 2026</p>
+      <p>
+        This page explains why Dreamlab Canvas requests each Chrome extension permission and how data use is
+        constrained to the extension's single purpose: user-initiated content capture into Dreamlab.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Single Purpose</h2>
+      <p>
+        Dreamlab Canvas provides an always-on capture workflow across websites so users can save pages,
+        images, selected text, screenshots, and recordings into Dreamlab collections.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Permission and Host Access Justification</h2>
+      <ul>
+        <li><code>contextMenus</code>: supports user-triggered save actions from page/image/selection context menus.</li>
+        <li><code>storage</code>: stores widget settings, excluded domains, and destination preferences.</li>
+        <li><code>activeTab</code>: executes user-initiated capture actions on the active page.</li>
+        <li><code>tabs</code>: tab query/orchestration and opening extension UI pages.</li>
+        <li><code>scripting</code>: injects local extension scripts for picker and capture overlays.</li>
+        <li><code>&lt;all_urls&gt;</code> host access: required for always-on cross-site widget behavior and capture entry points without repetitive prompts.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Remote Code Statement</h2>
+      <p>
+        The extension does not execute remote code. Runtime extension logic is packaged with the extension.
+        The extension does not rely on <code>eval</code>, <code>new Function</code>, or externally hosted scripts to run extension features.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Data Use Commitments</h2>
+      <ul>
+        <li>No sale or transfer of user data to third parties except approved use cases necessary to provide the service.</li>
+        <li>No use of user data for purposes unrelated to the extension's single purpose.</li>
+        <li>No use of user data for creditworthiness or lending purposes.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Limited Use Statement</h2>
+      <p>
+        The use of information received from Google APIs will adhere to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>,
+        including the Limited Use requirements.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Related Policy</h2>
+      <p>
+        Full privacy policy:
+        <a href="/extension-privacy-policy.html">/extension-privacy-policy.html</a>
+      </p>
+    </section>
+  </main>
+</body>
+</html>

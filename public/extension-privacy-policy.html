@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dreamlab Canvas Extension Privacy Policy</title>
+  <link rel="stylesheet" href="/extension-policy.css" />
+</head>
+<body>
+  <main class="container">
+    <section class="card">
+      <span class="pill">Chrome Extension Policy</span>
+      <h1>Dreamlab Canvas Extension Privacy Policy</h1>
+      <p class="meta">Last updated: February 19, 2026</p>
+      <p>
+        This policy describes how the Dreamlab Canvas Chrome extension handles data when users capture
+        content from websites and save it into Dreamlab.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>What Data Is Collected</h2>
+      <ul>
+        <li>Page metadata selected by the user (URL, title, optional preview metadata).</li>
+        <li>User-selected text and image references from pages.</li>
+        <li>User-triggered screenshot and area-recording payloads.</li>
+        <li>Extension settings (widget enabled state, excluded domains, capture destination).</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>When Data Is Collected</h2>
+      <p>
+        Data capture and transmission are user-triggered only. Collection occurs when the user explicitly
+        invokes an action via context menu, keyboard shortcut, or extension widget button.
+      </p>
+      <p>
+        Rendering the floating widget on page load does not itself trigger silent capture or transmission.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>How Data Is Stored and Retained</h2>
+      <ul>
+        <li>Extension configuration is stored in <code>chrome.storage.local</code>.</li>
+        <li>Captured items are sent to the Dreamlab web app for user-requested saving.</li>
+        <li>Items in Dreamlab remain until deleted by the user.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Sharing and Selling</h2>
+      <ul>
+        <li>Data is transferred only to Dreamlab services required to complete user-requested saves.</li>
+        <li>Dreamlab Canvas does not sell user data.</li>
+        <li>Data is not used for creditworthiness or lending decisions.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Security and Safety Controls</h2>
+      <ul>
+        <li>Unsupported browser/system URLs are blocked.</li>
+        <li>Sensitive account/payment/auth surfaces are blocked for capture workflows.</li>
+        <li>Metadata extraction blocks local/private/internal network targets.</li>
+        <li>Remote extraction paths enforce timeout and response-size limits.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>User Controls</h2>
+      <ul>
+        <li>Enable/disable widget visibility.</li>
+        <li>Exclude domains from widget rendering.</li>
+        <li>Adjust widget position and capture destination defaults.</li>
+        <li>Delete saved items from Dreamlab.</li>
+      </ul>
+      <p>
+        Compliance details are published at
+        <a href="/extension-data-compliance.html">/extension-data-compliance.html</a>.
+      </p>
+    </section>
+  </main>
+</body>
+</html>
