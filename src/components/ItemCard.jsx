@@ -3,33 +3,25 @@ import { Camera, Link as LinkIcon, FileText, Video, Check, Palette } from 'lucid
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
+import { getTweetDisplayText, isLikelyTweetAvatarImage, isTweetStatusUrl, shouldShowTweetMedia } from '../utils/tweetCard';
 import BlockEditor from './BlockEditor';
 import TweetEmbed from './TweetEmbed';
 
 const getLinkTextPayload = (item) => {
     if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
     const extractedContent = String(item?.textExtract?.content || '').trim();
-    const tweetFallback = String(item?.linkEmbed?.tweetText || '').trim();
+    const tweetFallback = getTweetDisplayText(item);
     const contentFallback = String(item?.content || '').trim();
-    const content = extractedContent || tweetFallback || contentFallback;
+    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
+    const content = isTweetLink
+        ? (extractedContent || tweetFallback)
+        : (extractedContent || tweetFallback || contentFallback);
     return {
         ready: Boolean(content),
         title: String(item?.textExtract?.title || item?.title || '').trim(),
         byline: String(item?.textExtract?.byline || item?.linkEmbed?.authorName || '').trim(),
         content,
     };
-};
-
-const isTweetUrl = (item) => {
-    const url = item?.linkEmbed?.url || item?.sourceUrl || item?.content;
-    if (!url || typeof url !== 'string') return false;
-    try {
-        const parsed = new URL(url);
-        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-        return (host === 'x.com' || host === 'twitter.com') && /\/status\/\d+/i.test(parsed.pathname);
-    } catch {
-        return false;
-    }
 };
 
 function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = false, onFinishEditing }) {
@@ -83,6 +75,10 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
     // Supabase storage paths must be resolved via the hook — don't use them as raw <img> src.
     const rawThumbnailIsUrl = item.thumbnail && (item.thumbnail.startsWith('http') || item.thumbnail.startsWith('data:') || item.thumbnail.startsWith('blob:'));
     const linkThumbnailSource = resolvedLinkThumbnailSource || (rawThumbnailIsUrl ? item.thumbnail : '');
+    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
+    const tweetText = getTweetDisplayText(item) || null;
+    const isTweetAvatarImage = isLikelyTweetAvatarImage(linkThumbnailSource);
+    const tweetMediaUrl = shouldShowTweetMedia(item, linkThumbnailSource) ? linkThumbnailSource : undefined;
 
     const domainName = (url) => {
         try {
@@ -204,7 +200,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                                     {domainName(item.sourceUrl)}
                                 </span>
                             </div>
-                        ) : isTweetUrl(item) ? (
+                        ) : isTweetLink ? (
                             <div className="w-full h-full flex items-center justify-center p-0 bg-zinc-50 border-t border-zinc-100">
                                 {(() => {
                                     let authorName = item.linkEmbed?.authorName;
@@ -219,18 +215,15 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                                             authorName = titleClean;
                                         }
                                     }
-                                    const text = item.linkEmbed?.tweetText || (item.content?.length > 0 ? item.content : null);
-                                    const isProfilePic = linkThumbnailSource?.includes('profile_images');
-
                                     return (
                                         <TweetEmbed
                                             authorName={authorName}
                                             authorHandle={authorHandle}
                                             authorUrl={item.linkEmbed?.authorUrl}
-                                            authorImage={isProfilePic ? linkThumbnailSource : undefined}
-                                            tweetText={text}
+                                            authorImage={isTweetAvatarImage ? linkThumbnailSource : undefined}
+                                            tweetText={tweetText}
                                             url={item.linkEmbed?.url || item.sourceUrl || item.content}
-                                            mediaUrl={!isProfilePic ? linkThumbnailSource : undefined}
+                                            mediaUrl={tweetMediaUrl}
                                             isEnlarged={false}
                                         />
                                     );
@@ -252,7 +245,7 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                         ) : null
                     )}
                     {/* Fallback for Link if no thumbnail or error load */}
-                    {item.type === 'link' && (!linkThumbnailSource || imgError || !isVisible) && (
+                    {item.type === 'link' && !isTweetLink && (!linkThumbnailSource || imgError || !isVisible) && (
                         <div
                             className={`w-full aspect-video bg-zinc-50 flex flex-col items-center justify-center p-4 ${linkThumbnailSource && !imgError ? 'hidden' : 'flex'}`}
                         >

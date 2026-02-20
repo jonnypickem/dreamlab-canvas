@@ -39,6 +39,7 @@ import { deleteMedia } from './lib/supabaseStorage';
 import { getPrimitiveVersionMap } from './services/analysisSchemaRegistry';
 import { getImageAnalysisStatus } from './utils/analysisStatus';
 import { getStageAQueueStatus, queueStageABackfill } from './services/primitiveAnalysis';
+import { getTweetInfo, isLikelyTweetAvatarImage } from './utils/tweetCard';
 
 import ItemModal from './components/ItemModal';
 import SettingsModal from './components/SettingsModal';
@@ -1168,6 +1169,26 @@ function App() {
                 console.warn('OG fetch failed:', ogErr);
             }
 
+            const tweetInfo = getTweetInfo(url);
+            const normalizedThumbnail = tweetInfo
+                ? (isLikelyTweetAvatarImage(ogMeta.image) ? null : (ogMeta.image || null))
+                : (ogMeta.image || null);
+            const tweetTextFallback = tweetInfo
+                ? (String(ogMeta.description || '').trim() || null)
+                : null;
+            const tweetLinkEmbed = tweetInfo
+                ? {
+                    type: 'tweet',
+                    provider: 'x',
+                    status: tweetTextFallback ? 'fallback' : 'failed',
+                    source: 'metadata-fallback',
+                    tweetId: tweetInfo.tweetId,
+                    url: tweetInfo.canonicalUrl,
+                    tweetText: tweetTextFallback,
+                    fetchedAt: Date.now(),
+                }
+                : null;
+
             const newItem = {
                 id: tempId,
                 type: 'link',
@@ -1175,8 +1196,9 @@ function App() {
                 sourceUrl: url,
                 title: ogMeta.title || null,
                 description: ogMeta.description || null,
-                thumbnail: ogMeta.image || null,
+                thumbnail: normalizedThumbnail,
                 linkViewMode: 'preview',
+                linkEmbed: tweetLinkEmbed,
                 workspaceId: activeWorkspaceId,
                 projectId: null,
                 collectionId: targetCollectionId,

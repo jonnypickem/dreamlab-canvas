@@ -69,29 +69,90 @@ function imageProxyPlugin() {
 
             const html = await response.text()
 
-            const getMetaMatch = (property) => {
+            const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const getMetaMatches = (key) => {
+              if (!key) return []
               const regex = new RegExp(
-                `<meta[^>]*property=["'](?:og:|twitter:)?${property}["'][^>]*content=["']([^"']+)["']|<meta[^>]*content=["']([^"']+)["'][^>]*property=["'](?:og:|twitter:)?${property}["']`,
-                'i'
+                `<meta[^>]*\\b(?:property|name|itemprop)=["']${escapeRegex(key)}["'][^>]*\\bcontent=["']([^"']+)["'][^>]*>|<meta[^>]*\\bcontent=["']([^"']+)["'][^>]*\\b(?:property|name|itemprop)=["']${escapeRegex(key)}["'][^>]*>`,
+                'gi'
               )
-              const match = html.match(regex)
-              return match ? (match[1] || match[2]) : null
+              const values = []
+              let match
+              while ((match = regex.exec(html)) !== null) {
+                const value = String(match[1] || match[2] || '').trim()
+                if (value) values.push(value)
+              }
+              return values
+            }
+            const getFirstMetaMatch = (keys = []) => {
+              for (const key of keys) {
+                const values = getMetaMatches(key)
+                if (values.length > 0) return values[0]
+              }
+              return null
+            }
+            const isLikelyTweetAvatarImage = (value) => {
+              const normalized = String(value || '').trim().toLowerCase()
+              if (!normalized) return false
+              return (
+                normalized.includes('/profile_images/')
+                || normalized.includes('/profile_banners/')
+                || normalized.includes('default_profile')
+                || normalized.includes('abs.twimg.com')
+                || normalized.includes('twitter_card')
+              )
+            }
+            const toAbsoluteUrl = (candidate) => {
+              const value = String(candidate || '').trim()
+              if (!value) return null
+              try {
+                return new URL(value, targetUrl).href
+              } catch {
+                return null
+              }
+            }
+            const scoreMetadataImageCandidate = (value) => {
+              const normalized = String(value || '').toLowerCase()
+              if (!normalized) return -1
+              let score = 0
+              if (normalized.startsWith('https://')) score += 20
+              if (normalized.includes('pbs.twimg.com/media')) score += 3600
+              if (normalized.includes('ext_tw_video_thumb')) score += 3200
+              if (normalized.includes('amplify_video_thumb')) score += 3000
+              if (normalized.includes('tweet_video_thumb')) score += 2800
+              if (normalized.includes('/card_img/')) score += 1500
+              if (normalized.includes('twimg.com')) score += 800
+              if (isLikelyTweetAvatarImage(normalized)) score -= 5000
+              if (isFxTwitter && normalized.includes('x.com')) score -= 800
+              return score
             }
 
             const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
-            const title = getMetaMatch('title') || (titleMatch ? titleMatch[1] : null)
-            let image = getMetaMatch('image:secure_url') || getMetaMatch('image:url') || getMetaMatch('image')
-
-            if (image && !image.startsWith('http')) {
-              try { image = new URL(image, targetUrl).href } catch { image = null }
-            }
+            const title = getFirstMetaMatch(['og:title', 'twitter:title', 'title']) || (titleMatch ? titleMatch[1] : null)
+            const description = getFirstMetaMatch(['og:description', 'twitter:description', 'description'])
+            const imageCandidates = [
+              ...getMetaMatches('og:image:secure_url'),
+              ...getMetaMatches('og:image:url'),
+              ...getMetaMatches('og:image'),
+              ...getMetaMatches('twitter:image:src'),
+              ...getMetaMatches('twitter:image'),
+              ...getMetaMatches('image'),
+            ]
+              .map((candidate) => toAbsoluteUrl(candidate))
+              .filter(Boolean)
+            const uniqueCandidates = Array.from(new Set(imageCandidates))
+            uniqueCandidates.sort((left, right) => (
+              scoreMetadataImageCandidate(right) - scoreMetadataImageCandidate(left)
+            ))
+            const bestImage = uniqueCandidates[0] || null
+            const image = isLikelyTweetAvatarImage(bestImage) ? null : bestImage
 
             res.statusCode = 200
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify({
               title: title || null,
               image: image || null,
-              description: getMetaMatch('description') || null,
+              description: description || null,
             }))
           } catch {
             res.statusCode = 200

@@ -4,6 +4,7 @@ import { Camera, Link as LinkIcon, FileText, Info, Palette } from 'lucide-react'
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
+import { getTweetDisplayText, isTweetStatusUrl, shouldShowTweetMedia } from '../utils/tweetCard';
 import BlockEditor from './BlockEditor';
 
 // Helper to ensure size is always a number
@@ -23,9 +24,12 @@ const hasFiniteNumber = (value) => {
 const getLinkTextPayload = (item) => {
     if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
     const textExtractContent = String(item?.textExtract?.content || '').trim();
-    const tweetFallback = String(item?.linkEmbed?.tweetText || '').trim();
+    const tweetFallback = getTweetDisplayText(item);
     const contentFallback = String(item?.content || '').trim();
-    const content = textExtractContent || tweetFallback || contentFallback;
+    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
+    const content = isTweetLink
+        ? (textExtractContent || tweetFallback)
+        : (textExtractContent || tweetFallback || contentFallback);
 
     return {
         ready: Boolean(content),
@@ -86,13 +90,18 @@ const CanvasItem = ({
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
+    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
+    const tweetText = getTweetDisplayText(item) || null;
+    const linkPreviewThumbnail = isTweetLink
+        ? (shouldShowTweetMedia(item, linkThumbnailSource) ? linkThumbnailSource : '')
+        : linkThumbnailSource;
     const hasSavedSize = hasFiniteNumber(item.canvas?.w) && hasFiniteNumber(item.canvas?.h);
     const mediaSource = item.type === 'image'
         ? (resolvedImageThumb || resolvedImageSource || item.content)
         : item.type === 'video'
             ? (resolvedVideoSource || '')
-            : (showLinkAsText ? null : linkThumbnailSource);
-    const hasMediaCard = item.type === 'image' || item.type === 'video' || (item.type === 'link' && !showLinkAsText && Boolean(linkThumbnailSource));
+            : (showLinkAsText ? null : linkPreviewThumbnail);
+    const hasMediaCard = item.type === 'image' || item.type === 'video' || (item.type === 'link' && !showLinkAsText && Boolean(linkPreviewThumbnail));
     const isResizableCard = hasMediaCard || item.type === 'text' || item.type === 'color';
     const hasAutoSizedFromMediaRef = useRef(false);
     const suppressClickRef = useRef(false);
@@ -407,7 +416,7 @@ const CanvasItem = ({
                                     {domainName(item.sourceUrl)}
                                 </span>
                             </div>
-                        ) : item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' ? (
+                        ) : isTweetLink ? (
                             <div className="w-full h-full bg-white flex flex-col overflow-hidden">
                                 <div className="p-3 flex flex-col gap-2">
                                     <div className="flex items-center justify-between">
@@ -422,21 +431,21 @@ const CanvasItem = ({
                                         <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 flex-shrink-0 text-neutral-400" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                                     </div>
                                     <p className="text-xs text-neutral-800 leading-relaxed line-clamp-5 text-left">
-                                        {item.linkEmbed?.tweetText || item.title || item.content || 'Tweet'}
+                                        {tweetText || item.title || 'Tweet'}
                                     </p>
                                 </div>
-                                {linkThumbnailSource && (
+                                {linkPreviewThumbnail && (
                                     <img
-                                        src={linkThumbnailSource}
+                                        src={linkPreviewThumbnail}
                                         alt="Tweet media"
                                         className="w-full flex-1 object-cover"
                                         onError={(e) => { e.currentTarget.style.display = 'none'; }}
                                     />
                                 )}
                             </div>
-                        ) : linkThumbnailSource ? (
+                        ) : linkPreviewThumbnail ? (
                             <img
-                                src={linkThumbnailSource}
+                                src={linkPreviewThumbnail}
                                 alt={item.title || 'Link Thumbnail'}
                                 className="w-full h-full object-contain pointer-events-none bg-white"
                                 onError={(e) => {
@@ -448,8 +457,8 @@ const CanvasItem = ({
                         ) : null
                     )}
 
-                    {item.type === 'link' && (
-                        <div className={`canvas-link-fallback w-full h-full bg-zinc-50 flex flex-col items-center justify-center p-4 ${linkThumbnailSource ? 'hidden' : 'flex'}`}>
+                    {item.type === 'link' && !isTweetLink && (
+                        <div className={`canvas-link-fallback w-full h-full bg-zinc-50 flex flex-col items-center justify-center p-4 ${linkPreviewThumbnail ? 'hidden' : 'flex'}`}>
                             <LinkIcon size={42} className="text-zinc-200 mb-2" />
                             <span className="text-xs text-zinc-400 font-mono truncate max-w-full">
                                 {domainName(item.sourceUrl)}

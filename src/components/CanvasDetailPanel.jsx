@@ -5,6 +5,7 @@ import { updateItem, getCollections, getCollectionWorkspaceId } from '../lib/sto
 import { fetchImageViaProxy } from '../utils/imageProxy';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
+import { getTweetDisplayText, isTweetStatusUrl, shouldShowTweetMedia } from '../utils/tweetCard';
 import BlockEditor from './BlockEditor';
 
 const uniqueTags = (tags = []) => [...new Set((tags || []).filter(Boolean))];
@@ -21,9 +22,10 @@ function isLightColor(hex) {
 function getLinkTextPayload(item) {
     if (item?.type !== 'link') return { ready: false, content: '' };
     const extracted = String(item?.textExtract?.content || '').trim();
-    const tweet = String(item?.linkEmbed?.tweetText || '').trim();
+    const tweet = getTweetDisplayText(item);
     const fallback = String(item?.content || '').trim();
-    const content = extracted || tweet || fallback;
+    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
+    const content = isTweetLink ? (extracted || tweet) : (extracted || tweet || fallback);
     return { ready: Boolean(content), content };
 }
 
@@ -46,6 +48,8 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
     const resolvedImageThumb = useResolvedImageSource(item.type === 'image' && item.thumbnail ? item.thumbnail : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumb = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
+    const rawLinkThumb = resolvedLinkThumb || item.thumbnail || '';
+    const normalizedLinkThumb = shouldShowTweetMedia(item, rawLinkThumb) ? rawLinkThumb : '';
 
     const emitToast = (message, type = 'info') => {
         if (onToast) onToast({ message, type });
@@ -286,16 +290,16 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
                         </span>
                     </div>
                 )}
-                {item.type === 'link' && (resolvedLinkThumb || item.thumbnail) && (
+                {item.type === 'link' && normalizedLinkThumb && (
                     <div className="w-full h-[140px] bg-neutral-100 overflow-hidden">
                         <img
-                            src={resolvedLinkThumb || item.thumbnail}
+                            src={normalizedLinkThumb}
                             alt={item.title || 'Link'}
                             className="w-full h-full object-cover"
                         />
                     </div>
                 )}
-                {item.type === 'link' && !resolvedLinkThumb && !item.thumbnail && (
+                {item.type === 'link' && !normalizedLinkThumb && (
                     <div className="w-full h-[80px] bg-neutral-50 flex items-center justify-center gap-2">
                         <LinkIcon size={20} className="text-neutral-300" />
                         <span className="text-xs text-neutral-400 font-mono truncate max-w-[200px]">

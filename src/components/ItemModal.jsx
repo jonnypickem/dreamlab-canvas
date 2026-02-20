@@ -33,6 +33,7 @@ import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { Palette } from 'lucide-react';
 import { getDomainDefaultLinkMode, isTextFirstDomain } from '../utils/linkDomainPolicy';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
+import { getTweetDisplayText, getTweetInfo, isLikelyTweetAvatarImage, isTweetStatusUrl, shouldShowTweetMedia } from '../utils/tweetCard';
 import BlockEditor from './BlockEditor';
 import TweetEmbed from './TweetEmbed';
 import { getLinkViewPreference, setLinkViewPreference } from '../utils/linkTextPreference';
@@ -53,18 +54,6 @@ const getContextTagText = (contextTag) => (
 
 const MAX_EXTRACTED_TEXT_CHARS = 50000;
 
-const isTweetUrl = (item) => {
-    const url = item?.linkEmbed?.url || item?.sourceUrl || item?.content;
-    if (!url || typeof url !== 'string') return false;
-    try {
-        const parsed = new URL(url);
-        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-        return (host === 'x.com' || host === 'twitter.com') && /\/status\/\d+/i.test(parsed.pathname);
-    } catch {
-        return false;
-    }
-};
-
 function getLinkTextPayload(item) {
     if (item?.type !== 'link') {
         return {
@@ -77,11 +66,12 @@ function getLinkTextPayload(item) {
     }
 
     const extractedContent = String(item?.textExtract?.content || '').trim();
-    const tweetFallback = String(item?.linkEmbed?.tweetText || '').trim();
-    const titleFallback = String(item?.title || '').trim();
+    const tweetFallback = getTweetDisplayText(item);
     const contentFallback = String(item?.content || '').trim();
-
-    const content = extractedContent || tweetFallback || contentFallback;
+    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
+    const content = isTweetLink
+        ? (extractedContent || tweetFallback)
+        : (extractedContent || tweetFallback || contentFallback);
     return {
         ready: Boolean(content),
         content: content.slice(0, MAX_EXTRACTED_TEXT_CHARS),
@@ -89,21 +79,6 @@ function getLinkTextPayload(item) {
         byline: String(item?.textExtract?.byline || item?.linkEmbed?.authorName || '').trim(),
         site: String(item?.textExtract?.siteName || '').trim(),
     };
-}
-
-function getTweetEmbedUrl(item) {
-    const embed = item?.linkEmbed;
-    const sourceUrl = embed?.url || item?.sourceUrl;
-    if (!sourceUrl) return '';
-    try {
-        const parsed = new URL(sourceUrl);
-        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-        if (host !== 'x.com' && host !== 'twitter.com') return '';
-        if (!/\/status\/\d+/i.test(parsed.pathname)) return '';
-        return sourceUrl;
-    } catch {
-        return '';
-    }
 }
 
 function getPreviewLinkLabel(url) {
@@ -172,7 +147,7 @@ function formatTextIntoParagraphs(text) {
 function resolveInitialLinkViewMode(item) {
     if (item?.type !== 'link') return 'preview';
     const hasText = getLinkTextPayload(item).ready;
-    const isTweetLink = isTweetUrl(item);
+    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
     if (isTweetLink) return 'preview';
     const explicitMode = item?.linkViewMode;
     if (explicitMode === 'text' && hasText) return 'text';
@@ -202,7 +177,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const [linkViewMode, setLinkViewMode] = useState(() => resolveInitialLinkViewMode(item));
     const [colorValue, setColorValue] = useState(item.type === 'color' ? item.content : '#000000');
     const [textContentDirty, setTextContentDirty] = useState(false);
-    const [tweetMediaLoaded, setTweetMediaLoaded] = useState(false);
     const [centerLinkText, setCenterLinkText] = useState(true);
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
@@ -231,12 +205,11 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         setTextContentDirty(false);
     }, [item]);
 
-    // Auto-refresh tweet thumbnails via fxtwitter proxy
+    // Auto-refresh tweet metadata and repair older broken tweet cards.
     useEffect(() => {
         if (item.type !== 'link') return;
-        if (item.linkEmbed?.type !== 'tweet') return;
         const sourceUrl = item.sourceUrl || item.content;
-        if (!sourceUrl) return;
+        if (!sourceUrl || !isTweetStatusUrl(sourceUrl)) return;
 
         let cancelled = false;
         (async () => {
@@ -245,18 +218,56 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                 if (cancelled || !resp.ok) return;
                 const ogData = await resp.json();
                 if (cancelled) return;
-                const newImage = ogData?.image;
-                if (!newImage) return;
-                // Skip if thumbnail already matches
-                if (item.thumbnail === newImage) return;
-                // Skip generic X branding images (abs.twimg.com hosts branding, pbs.twimg.com hosts real media)
-                if (newImage.includes('abs.twimg.com')) return;
-                const updated = await updateItem(item.id, { thumbnail: newImage });
+                const tweetInfo = getTweetInfo(sourceUrl);
+                const existingEmbed = item.linkEmbed && typeof item.linkEmbed === 'object'
+                    ? item.linkEmbed
+                    : {};
+                const currentTweetText = String(existingEmbed?.tweetText || '').trim();
+                const descriptionFromOg = String(ogData?.description || '').trim();
+                const currentDescription = String(item.description || '').trim();
+                const nextTweetText = currentTweetText || descriptionFromOg || currentDescription || null;
+
+                const nextEmbed = {
+                    ...existingEmbed,
+                    type: 'tweet',
+                    provider: existingEmbed.provider || 'x',
+                    status: existingEmbed.status || (nextTweetText ? 'fallback' : 'failed'),
+                    source: existingEmbed.source || (existingEmbed.status === 'ready' ? 'oembed' : 'metadata-fallback'),
+                    tweetId: existingEmbed.tweetId || tweetInfo?.tweetId || null,
+                    url: existingEmbed.url || tweetInfo?.canonicalUrl || sourceUrl,
+                    tweetText: nextTweetText,
+                    fetchedAt: existingEmbed.fetchedAt || Date.now(),
+                };
+
+                const nextImage = String(ogData?.image || '').trim();
+                const ogImageIsAvatar = Boolean(nextImage) && isLikelyTweetAvatarImage(nextImage);
+                const normalizedOgImage = nextImage && !ogImageIsAvatar ? nextImage : null;
+                const currentThumbnail = String(item.thumbnail || '').trim();
+                const normalizedExistingThumb = currentThumbnail && !isLikelyTweetAvatarImage(currentThumbnail)
+                    ? currentThumbnail
+                    : null;
+                const nextThumbnail = ogImageIsAvatar
+                    ? null
+                    : (normalizedOgImage || normalizedExistingThumb || null);
+
+                const updates = {};
+                if (!item.description && descriptionFromOg) {
+                    updates.description = descriptionFromOg;
+                }
+                if (JSON.stringify(existingEmbed || null) !== JSON.stringify(nextEmbed)) {
+                    updates.linkEmbed = nextEmbed;
+                }
+                if ((item.thumbnail || null) !== nextThumbnail) {
+                    updates.thumbnail = nextThumbnail;
+                }
+                if (Object.keys(updates).length === 0) return;
+
+                const updated = await updateItem(item.id, updates);
                 if (!cancelled && updated && onUpdate) onUpdate(updated);
             } catch { }
         })();
         return () => { cancelled = true; };
-    }, [item.id]);
+    }, [item.id, item.type, item.sourceUrl, item.content, item.description, item.thumbnail, item.linkEmbed, onUpdate]);
 
     // Keyboard Navigation
     useEffect(() => {
@@ -298,7 +309,10 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const extractedTitle = linkTextPayload.title;
     const extractedByline = linkTextPayload.byline;
     const extractedSite = linkTextPayload.site;
-    const tweetEmbedUrl = getTweetEmbedUrl(item);
+    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
+    const tweetText = getTweetDisplayText(item) || null;
+    const tweetAvatarImage = isLikelyTweetAvatarImage(linkThumbnailSource) ? linkThumbnailSource : undefined;
+    const tweetMediaUrl = shouldShowTweetMedia(item, linkThumbnailSource) ? linkThumbnailSource : undefined;
     const previewLinkLabel = getPreviewLinkLabel(item?.sourceUrl);
     const formattedExtractedParagraphs = useMemo(
         () => formatTextIntoParagraphs(extractedText),
@@ -704,7 +718,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 </div>
                             ) : (
                                 <div className="h-full w-full flex flex-col items-center justify-center gap-4">
-                                    {isTweetUrl(item) ? (() => {
+                                    {isTweetLink ? (() => {
                                         let authorName = item.linkEmbed?.authorName;
                                         let authorHandle = undefined;
                                         if (!authorName && item.title) {
@@ -717,19 +731,16 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                                 authorName = titleClean;
                                             }
                                         }
-                                        const text = item.linkEmbed?.tweetText || (item.content?.length > 0 ? item.content : null);
-                                        const isProfilePic = linkThumbnailSource?.includes('profile_images');
-
                                         return (
                                             <div className="w-full max-w-[520px] max-h-full overflow-y-auto pt-6 pb-6 p-4">
                                                 <TweetEmbed
                                                     authorName={authorName}
                                                     authorHandle={authorHandle}
                                                     authorUrl={item.linkEmbed?.authorUrl}
-                                                    authorImage={isProfilePic ? linkThumbnailSource : undefined}
-                                                    tweetText={text}
+                                                    authorImage={tweetAvatarImage}
+                                                    tweetText={tweetText}
                                                     url={item.linkEmbed?.url || item.sourceUrl || item.content}
-                                                    mediaUrl={!isProfilePic ? linkThumbnailSource : undefined}
+                                                    mediaUrl={tweetMediaUrl}
                                                     isEnlarged={true}
                                                 />
                                             </div>
