@@ -4,6 +4,7 @@ import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPrese
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 import BlockEditor from './BlockEditor';
+import TweetEmbed from './TweetEmbed';
 
 const getLinkTextPayload = (item) => {
     if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
@@ -191,38 +192,9 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                                     {domainName(item.sourceUrl)}
                                 </span>
                             </div>
-                        ) : item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' ? (
-                            <div className="w-full bg-white flex flex-col">
-                                <div className="p-4 flex flex-col gap-2.5">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <span className="font-bold text-sm text-neutral-900 truncate">{item.linkEmbed?.authorName || 'Post'}</span>
-                                            {item.linkEmbed?.authorUrl && (
-                                                <span className="text-xs text-neutral-400 truncate">
-                                                    {(() => { try { const p = new URL(item.linkEmbed.authorUrl).pathname; const h = p.split('/').filter(Boolean)[0]; return h ? `@${h}` : ''; } catch { return ''; } })()}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0 text-neutral-400" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                                    </div>
-                                    <p className="text-sm text-neutral-800 leading-relaxed line-clamp-4 text-left">
-                                        {item.linkEmbed?.tweetText || item.title || item.content || 'Tweet'}
-                                    </p>
-                                </div>
-                                {linkThumbnailSource && !imgError && (
-                                    <>
-                                        {!imgLoaded && (
-                                            <div className="w-full h-[160px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer" />
-                                        )}
-                                        <img
-                                            src={linkThumbnailSource}
-                                            alt="Tweet media"
-                                            className={`w-full h-auto block ${imgLoaded ? '' : 'hidden'}`}
-                                            onLoad={() => setImgLoaded(true)}
-                                            onError={() => setImgError(true)}
-                                        />
-                                    </>
-                                )}
+                        ) : item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' && item.linkEmbed?.html ? (
+                            <div className="w-full flex-grow flex items-center justify-center p-4">
+                                <TweetEmbed html={item.linkEmbed.html} url={item.linkEmbed.url} />
                             </div>
                         ) : linkThumbnailSource && !imgError ? (
                             <>

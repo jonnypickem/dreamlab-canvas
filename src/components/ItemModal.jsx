@@ -34,6 +34,7 @@ import { Palette } from 'lucide-react';
 import { getDomainDefaultLinkMode, isTextFirstDomain } from '../utils/linkDomainPolicy';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 import BlockEditor from './BlockEditor';
+import TweetEmbed from './TweetEmbed';
 import { getLinkViewPreference, setLinkViewPreference } from '../utils/linkTextPreference';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
 
@@ -240,7 +241,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                 if (newImage.includes('abs.twimg.com')) return;
                 const updated = await updateItem(item.id, { thumbnail: newImage });
                 if (!cancelled && updated && onUpdate) onUpdate(updated);
-            } catch {}
+            } catch { }
         })();
         return () => { cancelled = true; };
     }, [item.id]);
@@ -691,46 +692,9 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 </div>
                             ) : (
                                 <div className="h-full w-full flex flex-col items-center justify-center gap-4">
-                                    {tweetEmbedUrl ? (
-                                        <div className="w-full max-w-[520px] max-h-full rounded-2xl border border-neutral-200 bg-white overflow-y-auto shadow-sm">
-                                            <div className="p-5 flex flex-col gap-3">
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                        <span className="font-bold text-base text-neutral-900 truncate">{item.linkEmbed?.authorName || 'Post'}</span>
-                                                        {item.linkEmbed?.authorUrl && (
-                                                            <span className="text-sm text-neutral-400 truncate">
-                                                                {(() => { try { const p = new URL(item.linkEmbed.authorUrl).pathname; const h = p.split('/').filter(Boolean)[0]; return h ? `@${h}` : ''; } catch { return ''; } })()}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <svg viewBox="0 0 24 24" className="w-5 h-5 flex-shrink-0 text-neutral-400" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                                                </div>
-                                                <p className="text-base text-neutral-800 leading-relaxed whitespace-pre-line">
-                                                    {item.linkEmbed?.tweetText || item.title || item.content || 'Tweet'}
-                                                </p>
-                                            </div>
-                                            {linkThumbnailSource && (
-                                                <>
-                                                    {!tweetMediaLoaded && (
-                                                        <div className="w-full h-[300px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer" />
-                                                    )}
-                                                    <img
-                                                        src={linkThumbnailSource}
-                                                        alt="Tweet media"
-                                                        className={`w-full h-auto block ${tweetMediaLoaded ? '' : 'hidden'}`}
-                                                        onLoad={() => setTweetMediaLoaded(true)}
-                                                    />
-                                                </>
-                                            )}
-                                            <div className="px-5 py-3 border-t border-neutral-100 flex items-center justify-between">
-                                                <span className="text-xs text-neutral-400">x.com</span>
-                                                <button
-                                                    className="px-3 py-1.5 text-xs font-medium rounded-full bg-neutral-900 text-white hover:bg-neutral-800 transition-colors"
-                                                    onClick={() => window.open(item.sourceUrl, '_blank')}
-                                                >
-                                                    Open on X
-                                                </button>
-                                            </div>
+                                    {item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' && item.linkEmbed?.html ? (
+                                        <div className="w-full max-w-[520px] max-h-full overflow-y-auto">
+                                            <TweetEmbed html={item.linkEmbed.html} url={item.linkEmbed.url} />
                                         </div>
                                     ) : linkThumbnailSource ? (
                                         <img
