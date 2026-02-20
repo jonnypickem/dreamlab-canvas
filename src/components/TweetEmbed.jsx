@@ -16,8 +16,14 @@ export default function TweetEmbed({ authorName, authorHandle, authorUrl, author
         }
     })();
 
+    const rootClassName = `w-full flex flex-col bg-white overflow-hidden transition-all font-sans text-left ${
+        isEnlarged
+            ? 'rounded-lg border border-neutral-border shadow-sm'
+            : 'rounded-none border-0 shadow-none'
+    }`;
+
     return (
-        <div className="w-full flex flex-col bg-white rounded-lg overflow-hidden border border-neutral-border shadow-sm transition-all font-sans text-left">
+        <div className={rootClassName}>
             {/* Header */}
             <div className="p-4 sm:p-5 pb-3 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">
