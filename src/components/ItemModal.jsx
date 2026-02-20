@@ -53,6 +53,18 @@ const getContextTagText = (contextTag) => (
 
 const MAX_EXTRACTED_TEXT_CHARS = 50000;
 
+const isTweetUrl = (item) => {
+    const url = item?.linkEmbed?.url || item?.sourceUrl || item?.content;
+    if (!url || typeof url !== 'string') return false;
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+        return (host === 'x.com' || host === 'twitter.com') && /\/status\/\d+/i.test(parsed.pathname);
+    } catch {
+        return false;
+    }
+};
+
 function getLinkTextPayload(item) {
     if (item?.type !== 'link') {
         return {
@@ -160,7 +172,7 @@ function formatTextIntoParagraphs(text) {
 function resolveInitialLinkViewMode(item) {
     if (item?.type !== 'link') return 'preview';
     const hasText = getLinkTextPayload(item).ready;
-    const isTweetLink = item?.linkEmbed?.type === 'tweet';
+    const isTweetLink = isTweetUrl(item);
     if (isTweetLink) return 'preview';
     const explicitMode = item?.linkViewMode;
     if (explicitMode === 'text' && hasText) return 'text';
@@ -692,9 +704,12 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 </div>
                             ) : (
                                 <div className="h-full w-full flex flex-col items-center justify-center gap-4">
-                                    {item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' && item.linkEmbed?.html ? (
+                                    {isTweetUrl(item) ? (
                                         <div className="w-full max-w-[520px] max-h-full overflow-y-auto">
-                                            <TweetEmbed html={item.linkEmbed.html} url={item.linkEmbed.url} />
+                                            <TweetEmbed
+                                                html={item.linkEmbed?.html}
+                                                url={item.linkEmbed?.url || item.sourceUrl || item.content}
+                                            />
                                         </div>
                                     ) : linkThumbnailSource ? (
                                         <img
