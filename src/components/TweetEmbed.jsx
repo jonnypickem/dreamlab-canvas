@@ -29,7 +29,7 @@ export default function TweetEmbed({ authorName, authorUrl, tweetText, url, medi
                         </span>
                     </div>
                     <div className="flex flex-col min-w-0">
-                        <span className="font-body-bold text-default-font truncate">
+                        <span className="font-body-bold text-neutral-900 truncate">
                             {authorName || 'Post'}
                         </span>
                         {handle && (
@@ -50,7 +50,7 @@ export default function TweetEmbed({ authorName, authorUrl, tweetText, url, medi
             {/* Text Content */}
             {tweetText && (
                 <div className="px-4 sm:px-5 pb-4">
-                    <p className={`font-body text-default-font leading-relaxed whitespace-pre-line ${!isEnlarged ? 'line-clamp-6' : ''}`}>
+                    <p className={`font-body text-neutral-900 leading-relaxed whitespace-pre-line ${!isEnlarged ? 'line-clamp-6' : ''}`}>
                         {tweetText}
                     </p>
                 </div>
@@ -79,7 +79,7 @@ export default function TweetEmbed({ authorName, authorUrl, tweetText, url, medi
                         href={url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="w-full py-2.5 rounded-md border border-neutral-border bg-white flex items-center justify-center gap-2 font-body-bold text-sm text-subtext-color hover:bg-neutral-50 hover:text-default-font transition-colors shadow-sm"
+                        className="w-full py-2.5 rounded-md border border-neutral-border bg-white flex items-center justify-center gap-2 font-body-bold text-sm text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900 transition-colors shadow-sm"
                     >
                         <FeatherExternalLink className="w-4 h-4" />
                         Read more on X
