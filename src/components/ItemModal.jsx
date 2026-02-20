@@ -705,10 +705,14 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             ) : (
                                 <div className="h-full w-full flex flex-col items-center justify-center gap-4">
                                     {isTweetUrl(item) ? (
-                                        <div className="w-full max-w-[520px] max-h-full overflow-y-auto">
+                                        <div className="w-full max-w-[520px] max-h-full overflow-y-auto pt-6 pb-6 p-4">
                                             <TweetEmbed
-                                                html={item.linkEmbed?.html}
+                                                authorName={item.linkEmbed?.authorName}
+                                                authorUrl={item.linkEmbed?.authorUrl}
+                                                tweetText={item.linkEmbed?.tweetText || item.title || item.content}
                                                 url={item.linkEmbed?.url || item.sourceUrl || item.content}
+                                                mediaUrl={linkThumbnailSource}
+                                                isEnlarged={true}
                                             />
                                         </div>
                                     ) : linkThumbnailSource ? (

@@ -20,18 +20,6 @@ const getLinkTextPayload = (item) => {
     };
 };
 
-const isTweetUrl = (item) => {
-    const url = item?.linkEmbed?.url || item?.sourceUrl || item?.content;
-    if (!url || typeof url !== 'string') return false;
-    try {
-        const parsed = new URL(url);
-        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-        return (host === 'x.com' || host === 'twitter.com') && /\/status\/\d+/i.test(parsed.pathname);
-    } catch {
-        return false;
-    }
-};
-
 function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = false, onFinishEditing }) {
     const [isVisible, setIsVisible] = useState(false);
     const [imgLoaded, setImgLoaded] = useState(false);
@@ -204,12 +192,9 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                                     {domainName(item.sourceUrl)}
                                 </span>
                             </div>
-                        ) : isTweetUrl(item) ? (
+                        ) : item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' && item.linkEmbed?.html ? (
                             <div className="w-full flex-grow flex items-center justify-center p-4">
-                                <TweetEmbed
-                                    html={item.linkEmbed?.html}
-                                    url={item.linkEmbed?.url || item.sourceUrl || item.content}
-                                />
+                                <TweetEmbed html={item.linkEmbed.html} url={item.linkEmbed.url} />
                             </div>
                         ) : linkThumbnailSource && !imgError ? (
                             <>
