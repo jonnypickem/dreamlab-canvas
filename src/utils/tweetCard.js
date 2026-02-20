@@ -9,7 +9,11 @@ function normalizeHost(url) {
 }
 
 function isLikelyUrlOnlyText(value) {
-    return /^https?:\/\/\S+$/i.test(String(value || '').trim());
+    const trimmed = String(value || '').trim();
+    if (!trimmed || /\s/.test(trimmed)) return false;
+    if (/^https?:\/\/\S+$/i.test(trimmed)) return true;
+    if (/^(www\.)?\S+\.\S+\/\S+$/i.test(trimmed)) return true;
+    return false;
 }
 
 export function getTweetInfo(url) {
@@ -52,7 +56,6 @@ export function getTweetDisplayText(item) {
     const sourceUrl = item?.linkEmbed?.url || item?.sourceUrl || item?.content || '';
     const candidates = [
         item?.linkEmbed?.tweetText,
-        item?.description,
         item?.textExtract?.excerpt,
         item?.textExtract?.content,
     ];

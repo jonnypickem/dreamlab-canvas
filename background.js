@@ -437,6 +437,14 @@ function isLikelyTweetAvatarImage(url) {
   );
 }
 
+function isLikelyUrlOnlyText(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  if (/^https?:\/\/\S+$/i.test(trimmed)) return true;
+  if (/^(www\.)?\S+\.\S+\/\S+$/i.test(trimmed)) return true;
+  return false;
+}
+
 async function fetchTweetEmbed(url) {
   const tweetInfo = getTweetInfo(url);
   if (!tweetInfo) return null;
@@ -1943,7 +1951,14 @@ function normalizeTweetLinkCapture(item) {
     ? item.linkEmbed
     : {};
   const currentTweetText = String(currentEmbed.tweetText || '').trim();
-  const fallbackTweetText = currentTweetText || String(item.description || '').trim() || null;
+  const legacyDescription = String(item.description || '').trim();
+  const normalizedCurrentTweetText = currentTweetText && !isLikelyUrlOnlyText(currentTweetText)
+    ? currentTweetText
+    : '';
+  const normalizedLegacyDescription = legacyDescription && !isLikelyUrlOnlyText(legacyDescription)
+    ? legacyDescription
+    : '';
+  const fallbackTweetText = normalizedCurrentTweetText || normalizedLegacyDescription || null;
 
   const nextEmbed = {
     ...currentEmbed,
@@ -1962,6 +1977,7 @@ function normalizeTweetLinkCapture(item) {
 
   const nextItem = {
     ...item,
+    description: null,
     linkEmbed: nextEmbed,
     thumbnail: nextThumbnail,
   };

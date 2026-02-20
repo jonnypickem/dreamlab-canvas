@@ -1195,7 +1195,7 @@ function App() {
                 content: url,
                 sourceUrl: url,
                 title: ogMeta.title || null,
-                description: ogMeta.description || null,
+                description: tweetInfo ? null : (ogMeta.description || null),
                 thumbnail: normalizedThumbnail,
                 linkViewMode: 'preview',
                 linkEmbed: tweetLinkEmbed,

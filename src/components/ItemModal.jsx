@@ -163,9 +163,11 @@ function resolveInitialLinkViewMode(item) {
 }
 
 export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, onPrev, hasNext, hasPrev, onToast }) {
+    const tweetSourceUrl = item?.linkEmbed?.url || item?.sourceUrl || item?.content;
+    const isTweetLink = isTweetStatusUrl(tweetSourceUrl);
     const [content, setContent] = useState(item.content);
     const [title, setTitle] = useState(item.title || '');
-    const [description, setDescription] = useState(item.description || '');
+    const [description, setDescription] = useState(isTweetLink ? '' : (item.description || ''));
     const [tagInput, setTagInput] = useState('');
     const [collectionId, setCollectionId] = useState(item.collectionId || 'unassigned');
     const [objectiveTagsState, setObjectiveTagsState] = useState(() => uniqueTags(item.objectiveTags || item.tags || []));
@@ -191,7 +193,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     useEffect(() => {
         setContent(item.content);
         setTitle(item.title || '');
-        setDescription(item.description || '');
+        setDescription(isTweetLink ? '' : (item.description || ''));
         setCollectionId(item.collectionId || 'unassigned');
         const objectiveTags = uniqueTags(item.objectiveTags || item.tags || []);
         const contextTags = item.contextTags || [];
@@ -203,12 +205,12 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         setLinkViewMode(resolveInitialLinkViewMode(item));
         setColorValue(item.type === 'color' ? item.content : '#000000');
         setTextContentDirty(false);
-    }, [item]);
+    }, [item, isTweetLink]);
 
     // Auto-refresh tweet metadata and repair older broken tweet cards.
     useEffect(() => {
         if (item.type !== 'link') return;
-        const sourceUrl = item.sourceUrl || item.content;
+        const sourceUrl = tweetSourceUrl;
         if (!sourceUrl || !isTweetStatusUrl(sourceUrl)) return;
 
         let cancelled = false;
@@ -222,9 +224,16 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                 const existingEmbed = item.linkEmbed && typeof item.linkEmbed === 'object'
                     ? item.linkEmbed
                     : {};
-                const currentTweetText = String(existingEmbed?.tweetText || '').trim();
-                const descriptionFromOg = String(ogData?.description || '').trim();
-                const currentDescription = String(item.description || '').trim();
+                const getTweetCandidate = (value) => {
+                    const trimmed = String(value || '').trim();
+                    if (!trimmed || /\s/.test(trimmed)) return trimmed;
+                    if (/^https?:\/\/\S+$/i.test(trimmed)) return '';
+                    if (/^(www\.)?\S+\.\S+\/\S+$/i.test(trimmed)) return '';
+                    return trimmed;
+                };
+                const currentTweetText = getTweetCandidate(existingEmbed?.tweetText);
+                const descriptionFromOg = getTweetCandidate(ogData?.description);
+                const currentDescription = getTweetCandidate(item.description);
                 const nextTweetText = currentTweetText || descriptionFromOg || currentDescription || null;
 
                 const nextEmbed = {
@@ -251,8 +260,8 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                     : (normalizedOgImage || normalizedExistingThumb || null);
 
                 const updates = {};
-                if (!item.description && descriptionFromOg) {
-                    updates.description = descriptionFromOg;
+                if (item.description !== null) {
+                    updates.description = null;
                 }
                 if (JSON.stringify(existingEmbed || null) !== JSON.stringify(nextEmbed)) {
                     updates.linkEmbed = nextEmbed;
@@ -267,7 +276,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
             } catch { }
         })();
         return () => { cancelled = true; };
-    }, [item.id, item.type, item.sourceUrl, item.content, item.description, item.thumbnail, item.linkEmbed, onUpdate]);
+    }, [item.id, item.type, tweetSourceUrl, item.description, item.thumbnail, item.linkEmbed, onUpdate]);
 
     // Keyboard Navigation
     useEffect(() => {
@@ -309,7 +318,6 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const extractedTitle = linkTextPayload.title;
     const extractedByline = linkTextPayload.byline;
     const extractedSite = linkTextPayload.site;
-    const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
     const tweetText = getTweetDisplayText(item) || null;
     const tweetAvatarImage = isLikelyTweetAvatarImage(linkThumbnailSource) ? linkThumbnailSource : undefined;
     const tweetMediaUrl = shouldShowTweetMedia(item, linkThumbnailSource) ? linkThumbnailSource : undefined;
@@ -389,7 +397,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         const updated = await updateItem(item.id, {
             content,
             title: title.trim() || null,
-            description,
+            description: isTweetLink ? null : description,
             objectiveTags: objectiveTagsState,
             contextTags: contextTagsState,
             tags: searchTagsState,
@@ -926,8 +934,12 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                         <div className="flex flex-col gap-2">
                             <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Description</span>
                             <textarea
-                                value={description}
-                                onChange={(e) => setDescription(e.target.value)}
+                                value={isTweetLink ? '' : description}
+                                onChange={(e) => {
+                                    if (isTweetLink) return;
+                                    setDescription(e.target.value);
+                                }}
+                                readOnly={isTweetLink}
                                 className="w-full text-sm text-neutral-900 bg-neutral-50 border border-neutral-200 rounded-md p-3 focus:outline-none focus:border-brand-500 resize-none min-h-[80px]"
                                 placeholder="Enter description..."
                             />

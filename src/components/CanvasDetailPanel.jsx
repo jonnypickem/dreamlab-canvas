@@ -30,8 +30,10 @@ function getLinkTextPayload(item) {
 }
 
 export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, onDelete, onToast }) {
+    const tweetSourceUrl = item?.linkEmbed?.url || item?.sourceUrl || item?.content;
+    const isTweetLink = isTweetStatusUrl(tweetSourceUrl);
     const [title, setTitle] = useState(item.title || '');
-    const [description, setDescription] = useState(item.description || '');
+    const [description, setDescription] = useState(isTweetLink ? '' : (item.description || ''));
     const [content, setContent] = useState(item.content || '');
     const [colorValue, setColorValue] = useState(item.type === 'color' ? item.content : '#000000');
     const [tagInput, setTagInput] = useState('');
@@ -58,7 +60,7 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
     // Sync state when item changes
     useEffect(() => {
         setTitle(item.title || '');
-        setDescription(item.description || '');
+        setDescription(isTweetLink ? '' : (item.description || ''));
         setContent(item.content || '');
         setColorValue(item.type === 'color' ? item.content : '#000000');
         setCollectionId(item.collectionId || 'unassigned');
@@ -66,7 +68,7 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
         setContextTags(item.contextTags || []);
         const ctValues = (item.contextTags || []).map(getContextTagText).filter(Boolean);
         setSearchTags(uniqueTags(item.tags || [...(item.objectiveTags || []), ...ctValues]));
-    }, [item]);
+    }, [item, isTweetLink]);
 
     useEffect(() => {
         let cancelled = false;
@@ -90,7 +92,7 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
         const updated = await updateItem(item.id, {
             content,
             title: title.trim() || null,
-            description,
+            description: isTweetLink ? null : description,
             objectiveTags,
             contextTags,
             tags: searchTags,
@@ -373,8 +375,12 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
                 <div className="flex flex-col gap-1.5">
                     <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Description</span>
                     <textarea
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
+                        value={isTweetLink ? '' : description}
+                        onChange={(e) => {
+                            if (isTweetLink) return;
+                            setDescription(e.target.value);
+                        }}
+                        readOnly={isTweetLink}
                         className="w-full text-sm text-neutral-900 bg-neutral-50 border border-neutral-200 rounded-md p-2.5 outline-none resize-none min-h-[60px]"
                         placeholder="Add description..."
                     />
