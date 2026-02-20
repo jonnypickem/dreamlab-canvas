@@ -20,6 +20,18 @@ const getLinkTextPayload = (item) => {
     };
 };
 
+const isTweetUrl = (item) => {
+    const url = item?.linkEmbed?.url || item?.sourceUrl || item?.content;
+    if (!url || typeof url !== 'string') return false;
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+        return (host === 'x.com' || host === 'twitter.com') && /\/status\/\d+/i.test(parsed.pathname);
+    } catch {
+        return false;
+    }
+};
+
 function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = false, onFinishEditing }) {
     const [isVisible, setIsVisible] = useState(false);
     const [imgLoaded, setImgLoaded] = useState(false);
@@ -192,9 +204,37 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                                     {domainName(item.sourceUrl)}
                                 </span>
                             </div>
-                        ) : item.linkEmbed?.type === 'tweet' && item.linkEmbed?.status === 'ready' && item.linkEmbed?.html ? (
-                            <div className="w-full flex-grow flex items-center justify-center p-4">
-                                <TweetEmbed html={item.linkEmbed.html} url={item.linkEmbed.url} />
+                        ) : isTweetUrl(item) ? (
+                            <div className="w-full h-full flex items-center justify-center p-0 bg-zinc-50 border-t border-zinc-100">
+                                {(() => {
+                                    let authorName = item.linkEmbed?.authorName;
+                                    let authorHandle = undefined;
+                                    if (!authorName && item.title) {
+                                        const titleClean = item.title.replace(/ on X$/i, '').trim();
+                                        const match = titleClean.match(/(.+?)\s*\((@.+?)\)$/);
+                                        if (match) {
+                                            authorName = match[1].trim();
+                                            authorHandle = match[2].trim();
+                                        } else {
+                                            authorName = titleClean;
+                                        }
+                                    }
+                                    const text = item.linkEmbed?.tweetText || (item.content?.length > 0 ? item.content : null);
+                                    const isProfilePic = linkThumbnailSource?.includes('profile_images');
+
+                                    return (
+                                        <TweetEmbed
+                                            authorName={authorName}
+                                            authorHandle={authorHandle}
+                                            authorUrl={item.linkEmbed?.authorUrl}
+                                            authorImage={isProfilePic ? linkThumbnailSource : undefined}
+                                            tweetText={text}
+                                            url={item.linkEmbed?.url || item.sourceUrl || item.content}
+                                            mediaUrl={!isProfilePic ? linkThumbnailSource : undefined}
+                                            isEnlarged={false}
+                                        />
+                                    );
+                                })()}
                             </div>
                         ) : linkThumbnailSource && !imgError ? (
                             <>

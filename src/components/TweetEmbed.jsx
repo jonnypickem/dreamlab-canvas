@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { FeatherExternalLink } from "@subframe/core";
 
-export default function TweetEmbed({ authorName, authorUrl, tweetText, url, mediaUrl, isEnlarged = false }) {
+export default function TweetEmbed({ authorName, authorHandle, authorUrl, authorImage, tweetText, url, mediaUrl, isEnlarged = false }) {
     const [imgLoaded, setImgLoaded] = useState(false);
     const [imgError, setImgError] = useState(false);
 
-    // Extract handle from authorUrl (e.g., https://x.com/kianbazza -> @kianbazza)
-    const handle = (() => {
+    const handle = authorHandle || (() => {
         try {
             if (!authorUrl) return '';
             const p = new URL(authorUrl).pathname;
@@ -23,10 +22,13 @@ export default function TweetEmbed({ authorName, authorUrl, tweetText, url, medi
             <div className="p-4 sm:p-5 pb-3 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center flex-shrink-0 overflow-hidden border border-neutral-border">
-                        {/* Fallback avatar if we don't have one */}
-                        <span className="text-subtext-color font-body-bold text-sm">
-                            {(authorName || 'X').charAt(0).toUpperCase()}
-                        </span>
+                        {authorImage ? (
+                            <img src={authorImage} alt={authorName || 'Avatar'} className="w-full h-full object-cover block" />
+                        ) : (
+                            <span className="text-subtext-color font-body-bold text-sm">
+                                {(authorName || 'X').charAt(0).toUpperCase()}
+                            </span>
+                        )}
                     </div>
                     <div className="flex flex-col min-w-0">
                         <span className="font-body-bold text-neutral-900 truncate">

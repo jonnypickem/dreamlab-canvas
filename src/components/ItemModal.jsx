@@ -704,18 +704,37 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                 </div>
                             ) : (
                                 <div className="h-full w-full flex flex-col items-center justify-center gap-4">
-                                    {isTweetUrl(item) ? (
-                                        <div className="w-full max-w-[520px] max-h-full overflow-y-auto pt-6 pb-6 p-4">
-                                            <TweetEmbed
-                                                authorName={item.linkEmbed?.authorName}
-                                                authorUrl={item.linkEmbed?.authorUrl}
-                                                tweetText={item.linkEmbed?.tweetText || item.title || item.content}
-                                                url={item.linkEmbed?.url || item.sourceUrl || item.content}
-                                                mediaUrl={linkThumbnailSource}
-                                                isEnlarged={true}
-                                            />
-                                        </div>
-                                    ) : linkThumbnailSource ? (
+                                    {isTweetUrl(item) ? (() => {
+                                        let authorName = item.linkEmbed?.authorName;
+                                        let authorHandle = undefined;
+                                        if (!authorName && item.title) {
+                                            const titleClean = item.title.replace(/ on X$/i, '').trim();
+                                            const match = titleClean.match(/(.+?)\s*\((@.+?)\)$/);
+                                            if (match) {
+                                                authorName = match[1].trim();
+                                                authorHandle = match[2].trim();
+                                            } else {
+                                                authorName = titleClean;
+                                            }
+                                        }
+                                        const text = item.linkEmbed?.tweetText || (item.content?.length > 0 ? item.content : null);
+                                        const isProfilePic = linkThumbnailSource?.includes('profile_images');
+
+                                        return (
+                                            <div className="w-full max-w-[520px] max-h-full overflow-y-auto pt-6 pb-6 p-4">
+                                                <TweetEmbed
+                                                    authorName={authorName}
+                                                    authorHandle={authorHandle}
+                                                    authorUrl={item.linkEmbed?.authorUrl}
+                                                    authorImage={isProfilePic ? linkThumbnailSource : undefined}
+                                                    tweetText={text}
+                                                    url={item.linkEmbed?.url || item.sourceUrl || item.content}
+                                                    mediaUrl={!isProfilePic ? linkThumbnailSource : undefined}
+                                                    isEnlarged={true}
+                                                />
+                                            </div>
+                                        );
+                                    })() : linkThumbnailSource ? (
                                         <img
                                             src={linkThumbnailSource}
                                             className="max-w-full max-h-[72%] rounded-lg shadow-md object-contain"
