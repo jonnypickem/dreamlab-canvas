@@ -762,8 +762,11 @@ function App() {
                 const { item, responseChannel } = event.data;
                 console.log('[ExtBridge] Received DREAMLAB_SAVE_ITEM', { type: item?.type, sourceUrl: item?.sourceUrl?.slice(0, 60), hasContent: !!item?.content });
                 try {
+                    const incomingCollectionId = item.collectionId === UNSORTED_COLLECTION_ID
+                        ? null
+                        : item.collectionId;
                     const inferredCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: false });
-                    const targetCollectionId = item.collectionId ?? (inferredCollectionId === undefined ? null : inferredCollectionId);
+                    const targetCollectionId = incomingCollectionId ?? (inferredCollectionId === undefined ? null : inferredCollectionId);
                     const sortOrder = item.sortOrder ?? getNextCollectionItemSortOrder(targetCollectionId);
                     const saved = await saveItemWithTags({
                         ...item,
@@ -785,6 +788,9 @@ function App() {
 
             if (event.data?.type === 'DREAMLAB_GET_ORG_DATA') {
                 const { responseChannel } = event.data;
+                const normalizedCollectionId = selectedCollectionId === UNSORTED_COLLECTION_ID
+                    ? null
+                    : selectedCollectionId;
                 window.postMessage({
                     type: responseChannel,
                     payload: {
@@ -796,7 +802,7 @@ function App() {
                         activeContext: {
                             workspaceId: activeWorkspaceId,
                             projectId: selectedProjectId,
-                            collectionId: selectedCollectionId,
+                            collectionId: normalizedCollectionId,
                         },
                     },
                 }, '*');

@@ -1590,14 +1590,24 @@ async function getDreamlabOrgSnapshot(targetTabId = null) {
 function resolveDestinationFromSnapshot(storedDestination, snapshot) {
   if (!snapshot) return sanitizeDestination(null);
   const activeContext = isObject(snapshot.activeContext) ? snapshot.activeContext : {};
-  const fallbackDestination = sanitizeDestination({
-    workspaceId: activeContext.workspaceId || null,
-    collectionId: activeContext.collectionId || null,
-  });
   const preferred = sanitizeDestination(storedDestination);
   const workspaces = Array.isArray(snapshot.workspaces) ? snapshot.workspaces : [];
   const collections = Array.isArray(snapshot.collections) ? snapshot.collections : [];
   const projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+  const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+
+  const activeCollection = collections.find((collection) => collection.id === activeContext.collectionId) || null;
+  const activeCollectionWorkspaceId = activeCollection
+    ? getCollectionWorkspaceId(activeCollection, projects)
+    : null;
+  const activeWorkspaceId = workspaceIds.has(activeContext.workspaceId)
+    ? activeContext.workspaceId
+    : null;
+
+  const fallbackDestination = sanitizeDestination({
+    workspaceId: activeCollectionWorkspaceId || activeWorkspaceId || null,
+    collectionId: activeCollection ? activeCollection.id : null,
+  });
 
   if (!preferred.workspaceId && !preferred.collectionId) {
     return fallbackDestination;
