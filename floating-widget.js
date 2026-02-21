@@ -59,6 +59,7 @@
     projects: [],
     collections: [],
     activeContext: {},
+    appBuildId: '',
     initialized: false,
   };
 
@@ -244,17 +245,23 @@
       state.projects = [];
       state.collections = [];
       state.activeContext = {};
+      state.appBuildId = '';
       renderDestinationSelectors();
       setStatus(response?.error || 'Open Dreamlab to load destinations.', 'error');
       return;
     }
 
+    const previousAppBuildId = state.appBuildId;
     state.workspaces = Array.isArray(response.workspaces) ? response.workspaces : [];
     state.projects = Array.isArray(response.projects) ? response.projects : [];
     state.collections = Array.isArray(response.collections) ? response.collections : [];
     state.activeContext = response.activeContext && typeof response.activeContext === 'object'
       ? response.activeContext
       : {};
+    state.appBuildId = typeof response.appBuildId === 'string' ? response.appBuildId : '';
+    if (state.appBuildId && state.appBuildId !== previousAppBuildId) {
+      console.info('[Dreamlab Widget] Connected app build:', state.appBuildId);
+    }
     renderDestinationSelectors();
     setStatus('');
   }

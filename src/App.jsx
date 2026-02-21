@@ -63,6 +63,27 @@ const COLLECTION_SORT_STEP = 1000;
 const ITEM_SORT_STEP = 1000;
 const UNSORTED_COLLECTION_ID = '__unsorted__';
 
+function resolveAppBuildId() {
+    const explicitBuildId = String(import.meta.env.VITE_APP_BUILD_ID || '').trim();
+    if (explicitBuildId) return explicitBuildId;
+
+    const commitSha = String(
+        import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA
+        || import.meta.env.VITE_GIT_COMMIT_SHA
+        || ''
+    ).trim();
+    if (commitSha) return commitSha.slice(0, 12);
+
+    if (typeof document !== 'undefined') {
+        const entryScript = document.querySelector('script[type="module"][src*="index-"]');
+        const scriptSrc = entryScript?.getAttribute('src') || '';
+        const hashMatch = scriptSrc.match(/index-([A-Za-z0-9_-]+)\.js$/);
+        if (hashMatch?.[1]) return `asset-${hashMatch[1]}`;
+    }
+
+    return `mode-${String(import.meta.env.MODE || 'unknown')}`;
+}
+
 function getCollectionSortOrder(collection) {
     const order = Number(collection?.sortOrder);
     return Number.isFinite(order) ? order : Number.MAX_SAFE_INTEGER;
@@ -768,6 +789,7 @@ function App() {
                     type: responseChannel,
                     payload: {
                         success: true,
+                        appBuildId: resolveAppBuildId(),
                         workspaces,
                         projects,
                         collections,

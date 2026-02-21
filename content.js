@@ -312,7 +312,11 @@ function getOrgData() {
       if (event.data?.type === responseChannel) {
         window.removeEventListener('message', handleResponse);
         clearTimeout(timeout);
-        resolve(event.data.payload || { success: false, error: 'No data received.' });
+        const payload = event.data.payload || { success: false, error: 'No data received.' };
+        resolve({
+          ...payload,
+          appBuildId: typeof payload?.appBuildId === 'string' ? payload.appBuildId : '',
+        });
       }
     };
 

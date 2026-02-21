@@ -18,6 +18,7 @@ const state = {
   projects: [],
   collections: [],
   activeContext: {},
+  appBuildId: '',
   isSaving: false,
 };
 
@@ -500,6 +501,10 @@ async function initialize() {
       state.activeContext = orgResponse.activeContext && typeof orgResponse.activeContext === 'object'
         ? orgResponse.activeContext
         : {};
+      state.appBuildId = typeof orgResponse.appBuildId === 'string' ? orgResponse.appBuildId : '';
+      if (state.appBuildId) {
+        console.info('[MultiSelect] Connected Dreamlab app build:', state.appBuildId);
+      }
       hydrateDestinationSelectors();
       setStatus('');
     } else {

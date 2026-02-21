@@ -3397,6 +3397,7 @@ async function handleRuntimeMessage(request, sender) {
       return {
         success: true,
         sourceTabId: tab.id,
+        appBuildId: typeof response.appBuildId === 'string' ? response.appBuildId : '',
         workspaces: response.workspaces || [],
         projects: response.projects || [],
         collections: response.collections || [],
