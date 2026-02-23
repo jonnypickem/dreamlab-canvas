@@ -22,9 +22,46 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: App-shell navigation ergonomics update: project/collection sidebar is now foldable with persisted state, while keeping the workspace strip fixed and interactive.
+-   **Last Major Change**: Deterministic reload restore hardening for workspace/project/collection context, including centralized local nav persistence and specificity-first restore arbitration.
 
 ## Changelog
+
+### [0.36.0] - 2026-02-23
+#### Added
+- **Deterministic Navigation Context Persistence** (`src/App.jsx`):
+  - Added versioned local context key `dreamlab_nav_context_v2` with centralized read/write helpers.
+  - Kept legacy nav keys mirrored for backward compatibility:
+    - `dreamlab_nav_workspace`
+    - `dreamlab_nav_project`
+    - `dreamlab_nav_collection`
+    - `dreamlab_nav_updated_at`
+  - Added immediate local persistence on explicit nav actions (workspace switch, all items, project select, collection select, breadcrumbs, back navigation).
+
+#### Changed
+- **First-Load Restore Arbitration** (`src/App.jsx`):
+  - Replaced strict candidate validation with normalized candidate derivation:
+    - derive workspace/project from collection when collection is valid,
+    - derive workspace from project when project is valid.
+  - Arbitration now prefers higher context specificity (`collection > project > workspace`) before timestamp recency.
+  - Local candidate wins ties to preserve same-device continuity.
+
+- **Restore Hydration Guarding** (`src/App.jsx`):
+  - Added explicit nav hydration state to prevent pre-restore validation effects from clearing selection too early.
+  - Persist effect now writes only after hydration completes.
+
+#### Fixed
+- **Reload Reset to First Workspace + All Items** (`src/App.jsx`):
+  - Root cause: fragmented key persistence and coarse DB context could outrank richer local context; deferred-only persistence created race on fast reload.
+  - Fix: centralized versioned local payload, specificity-first restore, immediate local writes in user-intent handlers, and guarded hydration.
+
+- **Active Context Persistence Observability** (`src/lib/storage.js`, `supabase-schema.sql`):
+  - `setActiveContext` now writes `updated_at` explicitly and throws on failure.
+  - Added idempotent SQL guard for `active_contexts.updated_at` and trigger `update_active_contexts_ts`.
+
+#### Problems & Fixes
+- **Problem**: Reload from a selected collection frequently returned user to first workspace / all items.
+- **Cause**: Restore path relied on fragmented local keys and timestamp-only arbitration, while explicit nav actions did not synchronously persist local context before refresh.
+- **Fix**: Introduced `dreamlab_nav_context_v2`, normalized restore candidates, specificity-first arbitration, and immediate local nav writes on explicit navigation events.
 
 ### [0.35.0] - 2026-02-23
 #### Added

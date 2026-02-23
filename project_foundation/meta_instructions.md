@@ -22,6 +22,7 @@
 - Diff behavior between main and your changes when relevant
 - Ask yourself: "Would a staff engineer approve this?"
 - Run tests, check logs, demonstrate correctness
+- For navigation/session-state fixes, explicitly test hard reload from non-default workspace/project/collection and verify exact context restore.
 
 ### 5. Demand Elegance (Balanced)
 - For non-trivial changes: pause and ask "is there a more elegant way?"
@@ -47,3 +48,4 @@
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+- **State Reliability**: For persisted state, prefer versioned single-payload storage with backward compatibility and deterministic restore rules.

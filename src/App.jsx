@@ -63,6 +63,10 @@ const STAGE_A_AUTO_BACKFILL_ENABLED = true;
 const COLLECTION_SORT_STEP = 1000;
 const ITEM_SORT_STEP = 1000;
 const UNSORTED_COLLECTION_ID = '__unsorted__';
+const LOCAL_NAV_CONTEXT_V2_KEY = 'dreamlab_nav_context_v2';
+const LOCAL_NAV_WORKSPACE_KEY = 'dreamlab_nav_workspace';
+const LOCAL_NAV_COLLECTION_KEY = 'dreamlab_nav_collection';
+const LOCAL_NAV_PROJECT_KEY = 'dreamlab_nav_project';
 const LOCAL_NAV_UPDATED_AT_KEY = 'dreamlab_nav_updated_at';
 
 function resolveAppBuildId() {
@@ -106,6 +110,77 @@ function normalizeProjectId(projectId) {
 function parsePersistedTimestamp(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function normalizePersistedId(value) {
+    if (value === UNSORTED_COLLECTION_ID) return UNSORTED_COLLECTION_ID;
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    return normalized || null;
+}
+
+function readLocalNavContext() {
+    const fallback = { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
+    try {
+        const v2Raw = localStorage.getItem(LOCAL_NAV_CONTEXT_V2_KEY);
+        if (v2Raw) {
+            const parsed = JSON.parse(v2Raw);
+            if (parsed && typeof parsed === 'object') {
+                return {
+                    workspaceId: normalizePersistedId(parsed.workspaceId),
+                    projectId: normalizePersistedId(parsed.projectId),
+                    collectionId: normalizePersistedId(parsed.collectionId),
+                    updatedAt: parsePersistedTimestamp(parsed.updatedAt)
+                        || parsePersistedTimestamp(localStorage.getItem(LOCAL_NAV_UPDATED_AT_KEY)),
+                };
+            }
+        }
+    } catch {
+        // Ignore malformed payloads and fall back to legacy keys.
+    }
+
+    try {
+        return {
+            workspaceId: normalizePersistedId(localStorage.getItem(LOCAL_NAV_WORKSPACE_KEY)),
+            projectId: normalizePersistedId(localStorage.getItem(LOCAL_NAV_PROJECT_KEY)),
+            collectionId: normalizePersistedId(localStorage.getItem(LOCAL_NAV_COLLECTION_KEY)),
+            updatedAt: parsePersistedTimestamp(localStorage.getItem(LOCAL_NAV_UPDATED_AT_KEY)),
+        };
+    } catch {
+        return fallback;
+    }
+}
+
+function writeLocalNavContext({
+    workspaceId = null,
+    projectId = null,
+    collectionId = null,
+    updatedAt = Date.now(),
+} = {}) {
+    const payload = {
+        workspaceId: normalizePersistedId(workspaceId),
+        projectId: normalizePersistedId(projectId),
+        collectionId: normalizePersistedId(collectionId),
+        updatedAt: parsePersistedTimestamp(updatedAt) || Date.now(),
+    };
+
+    try {
+        localStorage.setItem(LOCAL_NAV_CONTEXT_V2_KEY, JSON.stringify(payload));
+
+        if (payload.workspaceId) localStorage.setItem(LOCAL_NAV_WORKSPACE_KEY, payload.workspaceId);
+        else localStorage.removeItem(LOCAL_NAV_WORKSPACE_KEY);
+
+        if (payload.projectId) localStorage.setItem(LOCAL_NAV_PROJECT_KEY, payload.projectId);
+        else localStorage.removeItem(LOCAL_NAV_PROJECT_KEY);
+
+        if (payload.collectionId) localStorage.setItem(LOCAL_NAV_COLLECTION_KEY, payload.collectionId);
+        else localStorage.removeItem(LOCAL_NAV_COLLECTION_KEY);
+
+        localStorage.setItem(LOCAL_NAV_UPDATED_AT_KEY, String(payload.updatedAt));
+    } catch {
+        // Ignore local storage failures.
+    }
+
+    return payload;
 }
 
 function getItemSortOrder(item) {
@@ -333,15 +408,16 @@ function App() {
     const [projects, setProjects] = useState([]);
     const [collections, setCollections] = useState([]);
     const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => {
-        try { return localStorage.getItem('dreamlab_nav_workspace') || null; } catch { return null; }
+        return readLocalNavContext().workspaceId;
     });
     const [selectedCollectionId, setSelectedCollectionId] = useState(() => {
-        try { return localStorage.getItem('dreamlab_nav_collection') || null; } catch { return null; }
+        return readLocalNavContext().collectionId;
     });
     const [selectedProjectId, setSelectedProjectId] = useState(() => {
-        try { return localStorage.getItem('dreamlab_nav_project') || null; } catch { return null; }
+        return readLocalNavContext().projectId;
     });
     const navRestoredRef = useRef(false);
+    const [isNavHydrated, setIsNavHydrated] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchExpanded, setSearchExpanded] = useState(false);
     const searchInputRef = useRef(null);
@@ -392,6 +468,16 @@ function App() {
         if (viewMode !== 'canvas') return;
         event.preventDefault();
     }, [viewMode]);
+
+    const persistLocalNavSelection = useCallback((workspaceId, collectionId = null, projectId = null) => {
+        if (!workspaceId) return;
+        writeLocalNavContext({
+            workspaceId,
+            collectionId,
+            projectId,
+            updatedAt: Date.now(),
+        });
+    }, []);
 
     const workspaceCollections = useMemo(() => {
         if (!activeWorkspaceId) return [];
@@ -577,58 +663,73 @@ function App() {
         setCollections(c);
 
         if (isFirstLoad) {
-            const validateCandidate = (candidate) => {
-                if (!candidate?.workspaceId) return null;
-                const workspaceIsValid = ws.some((workspace) => workspace.id === candidate.workspaceId);
-                if (!workspaceIsValid) return null;
+            const normalizeCandidate = (candidate) => {
+                if (!candidate) return null;
+                const rawWorkspaceId = normalizePersistedId(candidate.workspaceId);
+                const rawProjectId = normalizePersistedId(candidate.projectId);
+                const rawCollectionId = normalizePersistedId(candidate.collectionId);
+                const updatedAt = parsePersistedTimestamp(candidate.updatedAt);
 
-                let resolvedCollectionId = null;
-                let resolvedProjectId = null;
-
-                if (candidate.collectionId === UNSORTED_COLLECTION_ID) {
-                    resolvedCollectionId = UNSORTED_COLLECTION_ID;
-                } else if (candidate.collectionId) {
-                    const selectedCollection = c.find((collection) => (
-                        collection.id === candidate.collectionId
-                        && getCollectionWorkspaceId(collection) === candidate.workspaceId
-                    ));
+                if (rawCollectionId === UNSORTED_COLLECTION_ID) {
+                    const workspaceIsValid = rawWorkspaceId
+                        && ws.some((workspace) => workspace.id === rawWorkspaceId);
+                    if (workspaceIsValid) {
+                        return {
+                            workspaceId: rawWorkspaceId,
+                            projectId: null,
+                            collectionId: UNSORTED_COLLECTION_ID,
+                            updatedAt,
+                            specificity: 3,
+                        };
+                    }
+                } else if (rawCollectionId) {
+                    const selectedCollection = c.find((collection) => collection.id === rawCollectionId);
                     if (selectedCollection) {
-                        resolvedCollectionId = selectedCollection.id;
-                        resolvedProjectId = selectedCollection.projectId || null;
+                        const workspaceId = getCollectionWorkspaceId(selectedCollection);
+                        if (!workspaceId || !ws.some((workspace) => workspace.id === workspaceId)) {
+                            return null;
+                        }
+                        return {
+                            workspaceId,
+                            projectId: selectedCollection.projectId || null,
+                            collectionId: selectedCollection.id,
+                            updatedAt,
+                            specificity: 3,
+                        };
                     }
                 }
 
-                if (!resolvedCollectionId && candidate.projectId) {
-                    const projectIsValid = p.some((project) => (
-                        project.id === candidate.projectId
-                        && project.workspaceId === candidate.workspaceId
-                    ));
-                    if (projectIsValid) {
-                        resolvedProjectId = candidate.projectId;
+                if (rawProjectId) {
+                    const selectedProject = p.find((project) => project.id === rawProjectId);
+                    if (selectedProject) {
+                        const workspaceId = selectedProject.workspaceId || null;
+                        if (!workspaceId || !ws.some((workspace) => workspace.id === workspaceId)) {
+                            return null;
+                        }
+                        return {
+                            workspaceId,
+                            projectId: selectedProject.id,
+                            collectionId: null,
+                            updatedAt,
+                            specificity: 2,
+                        };
                     }
                 }
 
-                return {
-                    workspaceId: candidate.workspaceId,
-                    collectionId: resolvedCollectionId,
-                    projectId: resolvedProjectId,
-                    updatedAt: parsePersistedTimestamp(candidate.updatedAt),
-                };
+                if (rawWorkspaceId && ws.some((workspace) => workspace.id === rawWorkspaceId)) {
+                    return {
+                        workspaceId: rawWorkspaceId,
+                        projectId: null,
+                        collectionId: null,
+                        updatedAt,
+                        specificity: 1,
+                    };
+                }
+
+                return null;
             };
 
-            const localCandidateRaw = (() => {
-                try {
-                    return {
-                        workspaceId: localStorage.getItem('dreamlab_nav_workspace') || null,
-                        collectionId: localStorage.getItem('dreamlab_nav_collection') || null,
-                        projectId: localStorage.getItem('dreamlab_nav_project') || null,
-                        updatedAt: localStorage.getItem(LOCAL_NAV_UPDATED_AT_KEY),
-                    };
-                } catch {
-                    return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
-                }
-            })();
-
+            const localCandidateRaw = readLocalNavContext();
             const dbCandidateRaw = {
                 workspaceId: ctx?.workspaceId || null,
                 projectId: ctx?.projectId || null,
@@ -636,29 +737,49 @@ function App() {
                 updatedAt: ctx?.updatedAt || 0,
             };
 
-            const localCandidate = validateCandidate(localCandidateRaw);
-            const dbCandidate = validateCandidate(dbCandidateRaw);
+            const localCandidate = normalizeCandidate(localCandidateRaw);
+            const dbCandidate = normalizeCandidate(dbCandidateRaw);
 
             let selectedSource = null;
             let selectedContext = null;
+            let selectedReason = 'none';
             if (localCandidate && dbCandidate) {
-                selectedContext = localCandidate.updatedAt >= dbCandidate.updatedAt ? localCandidate : dbCandidate;
+                if (localCandidate.specificity !== dbCandidate.specificity) {
+                    selectedContext = localCandidate.specificity > dbCandidate.specificity
+                        ? localCandidate
+                        : dbCandidate;
+                    selectedReason = 'higher-specificity';
+                } else if (localCandidate.updatedAt !== dbCandidate.updatedAt) {
+                    selectedContext = localCandidate.updatedAt > dbCandidate.updatedAt
+                        ? localCandidate
+                        : dbCandidate;
+                    selectedReason = 'newer-timestamp';
+                } else {
+                    selectedContext = localCandidate;
+                    selectedReason = 'tie-local';
+                }
                 selectedSource = selectedContext === localCandidate ? 'local' : 'db';
             } else if (localCandidate) {
                 selectedContext = localCandidate;
                 selectedSource = 'local';
+                selectedReason = 'local-only-valid';
             } else if (dbCandidate) {
                 selectedContext = dbCandidate;
                 selectedSource = 'db';
+                selectedReason = 'db-only-valid';
             }
 
+            let fallbackReason = null;
             if (selectedContext) {
                 setActiveWorkspaceId(selectedContext.workspaceId);
                 setSelectedCollectionId(selectedContext.collectionId || null);
                 setSelectedProjectId(selectedContext.projectId || null);
+                writeLocalNavContext(selectedContext);
 
                 const shouldHealDbContext = selectedSource === 'local'
-                    && (!dbCandidate || dbCandidate.updatedAt < localCandidate.updatedAt);
+                    && (!dbCandidate
+                        || dbCandidate.updatedAt < localCandidate.updatedAt
+                        || dbCandidate.specificity < localCandidate.specificity);
                 if (shouldHealDbContext) {
                     void setActiveContext(
                         selectedContext.workspaceId,
@@ -669,9 +790,15 @@ function App() {
                     });
                 }
             } else if (ws.length > 0) {
+                fallbackReason = 'no-valid-candidate';
                 setActiveWorkspaceId(ws[0].id);
                 setSelectedCollectionId(null);
                 setSelectedProjectId(null);
+                writeLocalNavContext({
+                    workspaceId: ws[0].id,
+                    collectionId: null,
+                    projectId: null,
+                });
             } else if (!hasLegacyData()) {
                 // No workspaces exist and no legacy data to migrate -> Create default "Dreamlab" workspace
                 const created = await createWorkspace('Dreamlab');
@@ -680,10 +807,27 @@ function App() {
                     setWorkspaces([created]);
                     setSelectedCollectionId(null);
                     setSelectedProjectId(null);
+                    writeLocalNavContext({
+                        workspaceId: created.id,
+                        collectionId: null,
+                        projectId: null,
+                    });
                 }
             }
 
+            if (import.meta.env.DEV) {
+                console.info('[NavRestore] first-load decision', {
+                    localCandidate,
+                    dbCandidate,
+                    selectedSource,
+                    selectedReason,
+                    selectedContext,
+                    fallbackReason,
+                });
+            }
+
             navRestoredRef.current = true;
+            setIsNavHydrated(true);
         }
     };
 
@@ -700,29 +844,27 @@ function App() {
         return () => subscription.unsubscribe();
     }, []);
 
+    useEffect(() => {
+        if (user) return;
+        navRestoredRef.current = false;
+        setIsNavHydrated(false);
+    }, [user]);
+
     // Persist active context whenever it changes
     useEffect(() => {
         if (!activeWorkspaceId || !user) return;
         // Skip the first render to avoid overwriting the DB context before loadData restores it
-        if (!navRestoredRef.current) return;
-        try {
-            localStorage.setItem('dreamlab_nav_workspace', activeWorkspaceId);
-            if (selectedCollectionId) {
-                localStorage.setItem('dreamlab_nav_collection', selectedCollectionId);
-            } else {
-                localStorage.removeItem('dreamlab_nav_collection');
-            }
-            if (selectedProjectId) {
-                localStorage.setItem('dreamlab_nav_project', selectedProjectId);
-            } else {
-                localStorage.removeItem('dreamlab_nav_project');
-            }
-            localStorage.setItem(LOCAL_NAV_UPDATED_AT_KEY, String(Date.now()));
-        } catch { /* ignore */ }
+        if (!isNavHydrated) return;
+        writeLocalNavContext({
+            workspaceId: activeWorkspaceId,
+            collectionId: selectedCollectionId,
+            projectId: selectedProjectId,
+            updatedAt: Date.now(),
+        });
         void setActiveContext(activeWorkspaceId, selectedCollectionId, selectedProjectId).catch((error) => {
             console.error('Failed to persist active context:', error);
         });
-    }, [activeWorkspaceId, selectedCollectionId, selectedProjectId, user]);
+    }, [activeWorkspaceId, selectedCollectionId, selectedProjectId, user, isNavHydrated]);
 
     useEffect(() => {
         try {
@@ -910,7 +1052,7 @@ function App() {
     }, [user, activeWorkspaceId, selectedProjectId, selectedCollectionId, workspaces, projects, collections, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     useEffect(() => {
-        if (!navRestoredRef.current) return;
+        if (!isNavHydrated) return;
         if (!selectedCollectionId || selectedCollectionId === UNSORTED_COLLECTION_ID) {
             if (selectedCollectionId === UNSORTED_COLLECTION_ID && selectedProjectId) {
                 setSelectedProjectId(null);
@@ -929,16 +1071,16 @@ function App() {
         if (selectedProjectId !== parentProjectId) {
             setSelectedProjectId(parentProjectId);
         }
-    }, [collections, selectedCollectionId, selectedProjectId, activeWorkspaceId]);
+    }, [collections, selectedCollectionId, selectedProjectId, activeWorkspaceId, isNavHydrated]);
 
     useEffect(() => {
-        if (!navRestoredRef.current) return;
+        if (!isNavHydrated) return;
         if (!selectedProjectId) return;
         const stillValid = workspaceProjects.some((project) => project.id === selectedProjectId);
         if (!stillValid) {
             setSelectedProjectId(null);
         }
-    }, [workspaceProjects, selectedProjectId]);
+    }, [workspaceProjects, selectedProjectId, isNavHydrated]);
 
     useEffect(() => {
         if (selectedScope !== 'collection') return;
@@ -1265,6 +1407,9 @@ function App() {
             return;
         }
 
+        const initialTweetInfo = getTweetInfo(url);
+        const normalizedUrl = initialTweetInfo?.canonicalUrl || url;
+
         const tempId = crypto.randomUUID();
         const targetCollectionId = resolveCreateTargetCollectionId({ blockOnEmptyProject: true });
         if (targetCollectionId === undefined) return;
@@ -1272,8 +1417,8 @@ function App() {
         const placeholderItem = {
             id: tempId,
             type: 'link',
-            content: url,
-            sourceUrl: url,
+            content: normalizedUrl,
+            sourceUrl: normalizedUrl,
             linkViewMode: 'preview',
             workspaceId: activeWorkspaceId,
             projectId: null,
@@ -1287,13 +1432,15 @@ function App() {
         try {
             let ogMeta = { title: null, image: null, description: null };
             try {
-                const res = await fetch(`/api/og?url=${encodeURIComponent(url)}`);
+                const res = await fetch(`/api/og?url=${encodeURIComponent(normalizedUrl)}`);
                 if (res.ok) ogMeta = await res.json();
             } catch (ogErr) {
                 console.warn('OG fetch failed:', ogErr);
             }
 
-            const tweetInfo = getTweetInfo(url);
+            const ogCanonicalUrl = String(ogMeta.url || '').trim() || null;
+            const tweetInfo = getTweetInfo(normalizedUrl) || getTweetInfo(ogCanonicalUrl || '');
+            const effectiveUrl = tweetInfo?.canonicalUrl || ogCanonicalUrl || normalizedUrl;
             const normalizedThumbnail = tweetInfo
                 ? (isLikelyTweetAvatarImage(ogMeta.image) ? null : (ogMeta.image || null))
                 : (ogMeta.image || null);
@@ -1316,8 +1463,8 @@ function App() {
             const newItem = {
                 id: tempId,
                 type: 'link',
-                content: url,
-                sourceUrl: url,
+                content: effectiveUrl,
+                sourceUrl: effectiveUrl,
                 title: ogMeta.title || null,
                 description: tweetInfo ? null : (ogMeta.description || null),
                 thumbnail: normalizedThumbnail,
@@ -1410,6 +1557,32 @@ function App() {
         }
     }, [activeWorkspaceId, viewMode, getCanvasPlacement, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
+    const extractFirstHttpUrl = useCallback((value) => {
+        const text = String(value || '').trim();
+        if (!text) return null;
+
+        const normalizeUrlCandidate = (candidate) => {
+            const cleaned = String(candidate || '')
+                .trim()
+                .replace(/[)\],.;!?]+$/, '');
+            if (!cleaned) return null;
+            try {
+                const parsed = new URL(cleaned);
+                if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+                return parsed.href;
+            } catch {
+                return null;
+            }
+        };
+
+        const direct = normalizeUrlCandidate(text);
+        if (direct) return direct;
+
+        const match = text.match(/https?:\/\/[^\s<>"']+/i);
+        if (!match?.[0]) return null;
+        return normalizeUrlCandidate(match[0]);
+    }, []);
+
     const handlePasteClipboard = useCallback(async () => {
         try {
             const clipboardItems = await navigator.clipboard.read();
@@ -1427,13 +1600,11 @@ function App() {
                     const text = await blob.text();
                     const trimmed = text.trim();
                     if (!trimmed) continue;
-                    try {
-                        const url = new URL(trimmed);
-                        if (['http:', 'https:'].includes(url.protocol)) {
-                            await saveLink(trimmed);
-                            return;
-                        }
-                    } catch {}
+                    const detectedUrl = extractFirstHttpUrl(trimmed);
+                    if (detectedUrl) {
+                        await saveLink(detectedUrl);
+                        return;
+                    }
                     await saveText(trimmed);
                     return;
                 }
@@ -1443,19 +1614,10 @@ function App() {
             // Clipboard API may require user gesture or permission
             setToast({ message: 'Could not read clipboard', type: 'error' });
         }
-    }, [saveImageFromBlob, saveLink, saveText]);
+    }, [extractFirstHttpUrl, saveImageFromBlob, saveLink, saveText]);
 
     // Clipboard Paste Listener
     useEffect(() => {
-        const isURL = (text) => {
-            try {
-                const url = new URL(text);
-                return ['http:', 'https:'].includes(url.protocol);
-            } catch {
-                return false;
-            }
-        };
-
         const saveImageFromBase64 = async (base64Data) => {
             try {
                 const response = await fetch(base64Data);
@@ -1513,8 +1675,9 @@ function App() {
 
             const text = clipboardData.getData('text/plain');
             if (text) {
-                if (isURL(text)) {
-                    await saveLink(text);
+                const detectedUrl = extractFirstHttpUrl(text);
+                if (detectedUrl) {
+                    await saveLink(detectedUrl);
                 } else {
                     await saveText(text);
                 }
@@ -1534,7 +1697,7 @@ function App() {
 
         document.addEventListener('paste', handlePaste);
         return () => document.removeEventListener('paste', handlePaste);
-    }, [activeWorkspaceId, saveImageFromBlob, saveLink, saveText]);
+    }, [activeWorkspaceId, extractFirstHttpUrl, saveImageFromBlob, saveLink, saveText]);
 
     const handleClear = async () => {
         try {
@@ -1874,15 +2037,18 @@ function App() {
     const handleBackNavigate = () => {
         if (selectedScope === 'collection') {
             const parentProjectId = activeCollection?.projectId || null;
+            persistLocalNavSelection(activeWorkspaceId, null, parentProjectId);
             setSelectedCollectionId(null);
             setSelectedProjectId(parentProjectId);
             return;
         }
         if (selectedScope === 'project') {
+            persistLocalNavSelection(activeWorkspaceId, null, null);
             setSelectedProjectId(null);
             return;
         }
         if (selectedCollectionId) {
+            persistLocalNavSelection(activeWorkspaceId, null, selectedProjectId);
             setSelectedCollectionId(null);
         }
     };
@@ -2737,6 +2903,7 @@ function App() {
                 workspaces={workspaces}
                 activeWorkspaceId={activeWorkspaceId}
                 onWorkspaceChange={(workspaceId) => {
+                    persistLocalNavSelection(workspaceId, null, null);
                     setActiveWorkspaceId(workspaceId);
                     setSelectedCollectionId(null);
                     setSelectedProjectId(null);
@@ -2774,10 +2941,12 @@ function App() {
                         selectedCollectionId={selectedCollectionId}
                         selectedProjectId={selectedProjectId}
                         onAllItems={() => {
+                            persistLocalNavSelection(activeWorkspaceId, null, null);
                             setSelectedCollectionId(null);
                             setSelectedProjectId(null);
                         }}
                         onProjectSelect={(projectId) => {
+                            persistLocalNavSelection(activeWorkspaceId, null, projectId || null);
                             setSelectedCollectionId(null);
                             setSelectedProjectId(projectId || null);
                         }}
@@ -2795,6 +2964,11 @@ function App() {
                         }}
                         onCollectionSelect={(collectionId) => {
                             const selectedCollection = workspaceCollections.find((collection) => collection.id === collectionId);
+                            persistLocalNavSelection(
+                                activeWorkspaceId,
+                                collectionId,
+                                selectedCollection?.projectId || null
+                            );
                             setSelectedCollectionId(collectionId);
                             setSelectedProjectId(selectedCollection?.projectId || null);
                             markCollectionAsLastUsed(collectionId);
@@ -2881,6 +3055,7 @@ function App() {
                                             type="button"
                                             className="hover:text-default-font"
                                             onClick={() => {
+                                                persistLocalNavSelection(activeWorkspaceId, null, null);
                                                 setSelectedCollectionId(null);
                                                 setSelectedProjectId(null);
                                             }}
@@ -2894,6 +3069,7 @@ function App() {
                                                     type="button"
                                                     className="hover:text-default-font"
                                                     onClick={() => {
+                                                        persistLocalNavSelection(activeWorkspaceId, null, activeProject.id);
                                                         setSelectedCollectionId(null);
                                                         setSelectedProjectId(activeProject.id);
                                                     }}

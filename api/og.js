@@ -138,13 +138,15 @@ function scoreMetadataImageCandidate(url, { isTweetLink = false } = {}) {
 
 function parseMetadataFromHtml(html, url) {
   if (!html || typeof html !== 'string') {
-    return { title: null, image: null, description: null };
+    return { title: null, image: null, description: null, url: null };
   }
 
   const isTweetLink = isTweetStatusUrl(url);
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
   const title = getFirstMetaMatch(html, ['og:title', 'twitter:title', 'title']) || (titleMatch ? titleMatch[1] : null);
   const description = getFirstMetaMatch(html, ['og:description', 'twitter:description', 'description']);
+  const canonicalMetaUrl = getFirstMetaMatch(html, ['og:url', 'twitter:url', 'url']);
+  const canonicalUrl = toAbsoluteUrl(canonicalMetaUrl, url);
 
   const imageCandidates = [
     ...getMetaMatches(html, 'og:image:secure_url'),
@@ -167,5 +169,6 @@ function parseMetadataFromHtml(html, url) {
     title: title || null,
     image: image || null,
     description: description || null,
+    url: canonicalUrl || null,
   };
 }

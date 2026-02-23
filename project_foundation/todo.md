@@ -14,6 +14,12 @@
 - 2026-02-23: Added persisted UI state `localStorage['dreamlab_sidebar_collapsed']`.
 - 2026-02-23: Added top-edge sidebar toggle and ensured it does not overlap the workspace settings control area.
 - 2026-02-23: Fixed layout regression where shortcuts section stopped anchoring to bottom by restoring wrapper flex context (`flex h-full`).
+- 2026-02-23: Investigated reload-context regression where app reset to first workspace + all items after page refresh.
+- 2026-02-23: Implemented deterministic nav restore in `src/App.jsx` with centralized local persistence key `dreamlab_nav_context_v2` plus legacy-key compatibility.
+- 2026-02-23: Hardened restore arbitration to prefer richer context (`collection > project > workspace`), then newest timestamp, then local tie-break.
+- 2026-02-23: Added immediate local persistence on explicit navigation actions (workspace/project/collection/all-items/breadcrumb/back) to survive fast reloads.
+- 2026-02-23: Updated `setActiveContext` in `src/lib/storage.js` to persist `updated_at` explicitly and throw on Supabase write failure.
+- 2026-02-23: Updated `supabase-schema.sql` with idempotent `active_contexts.updated_at` column guard and `update_active_contexts_ts` trigger.
 
 ## Review
 - Evidence to capture for each task:
@@ -27,9 +33,16 @@
 - Fold/unfold works.
 - Workspace strip remains visible.
 - Shortcuts returned to bottom after flex wrapper fix.
+- Evidence (2026-02-23):
+- Diff includes targeted nav restore changes in:
+  - `src/App.jsx`
+  - `src/lib/storage.js`
+  - `supabase-schema.sql`
+- Added DEV restore-decision diagnostics (`[NavRestore] first-load decision`) to trace local/db candidate selection.
+- Build command run: `npm run build` still fails on unrelated existing schema import resolution (`src/services/analysisSchemaRegistry.js`), no new restore-related compile errors observed.
 
 ## Result
-- Status: Completed (sidebar fold rollout + follow-up layout correction).
-- Final summary: Sidebar is now foldable with persisted state and a safe toggle position, and sidebar internal bottom anchoring has been restored.
+- Status: Implemented (navigation restore hardening) — pending end-user confirmation on reload scenario.
+- Final summary: Reload restore now uses deterministic normalized candidates and immediate local nav writes to prevent fallback to first workspace/all items when valid context exists.
 - Remaining risks:
 - Build pipeline still has unrelated schema path resolution error and needs separate fix.

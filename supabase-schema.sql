@@ -161,6 +161,9 @@ CREATE TABLE IF NOT EXISTS active_contexts (
 ALTER TABLE active_contexts
     ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE SET NULL;
 
+ALTER TABLE active_contexts
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
 -- =============================================================
 -- Indexes
 -- =============================================================
@@ -323,6 +326,21 @@ CREATE TRIGGER update_collections_ts BEFORE UPDATE ON collections
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_items_ts BEFORE UPDATE ON items
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'update_active_contexts_ts'
+          AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER update_active_contexts_ts
+        BEFORE UPDATE ON active_contexts
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END;
+$$;
 
 -- Auto-create profile on user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()

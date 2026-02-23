@@ -81,6 +81,7 @@ Current status theme:
 - Canvas-first workflow with inline creation, viewport-aware placement, and cloud-backed persistence.
 - Extension compliance hardening shipped to support Chrome Web Store packaging and review readiness.
 - App-shell navigation now supports foldable project/collection sidebar behavior with persistent user preference.
+- Reload restore now uses deterministic workspace/project/collection context arbitration with immediate local writes on explicit navigation actions.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -156,6 +157,18 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.36.0] - 2026-02-23
+Key outcomes:
+- Added versioned local navigation payload `dreamlab_nav_context_v2` in `src/App.jsx`, while preserving legacy key compatibility.
+- Reworked first-load restore normalization to derive missing workspace/project from valid collection/project IDs.
+- Changed restore selection strategy to specificity-first (`collection > project > workspace`), then timestamp, then local tie-break.
+- Added synchronous local persistence in explicit navigation handlers to survive fast reload after context changes.
+- Hardened `setActiveContext` to explicitly write `updated_at` and surface Supabase write failures.
+- Added idempotent SQL guard/trigger for `active_contexts.updated_at`.
+
+Net effect:
+- Reload from non-default workspace/project/collection no longer falls back to first workspace/all items when valid persisted context exists.
+
 ### [0.35.0] - 2026-02-23
 Key outcomes:
 - Added foldable project/collection sidebar in `src/App.jsx` with persisted collapsed state (`dreamlab_sidebar_collapsed`).
@@ -244,7 +257,7 @@ Frequent problem categories and durable fix patterns:
 
 3. Navigation state regressions under realtime or tab lifecycle events.
 - Typical symptom: context jumps back to "All Items" or stale scope.
-- Durable fix: restore navigation context only on initial load, keep subsequent refreshes data-only.
+- Durable fix: restore context only on initial load, but use versioned local payload + normalized candidate derivation + specificity-first arbitration; persist local context synchronously on explicit nav actions and keep subsequent realtime refreshes data-only.
 
 4. Layout and interaction mismatch between grid and canvas workflows.
 - Typical symptom: drag/reorder oddities, spacing waste, or mode-inappropriate detail behavior.

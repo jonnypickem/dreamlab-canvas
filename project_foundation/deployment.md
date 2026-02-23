@@ -48,6 +48,7 @@ These must also be set in Vercel project settings for production.
 - Run `supabase-schema.sql` in the Supabase SQL Editor
 - Create a storage bucket named `dreamlab-media`
 - RLS policies are required on all tables AND `storage.objects` — see schema file for details
+- After navigation-context updates, re-run latest idempotent schema so `active_contexts.updated_at` and trigger coverage are present.
 
 ## Vercel Configuration
 
@@ -94,6 +95,7 @@ Before packaging a production zip:
 
 - All `storage.js` functions are async — every caller must `await`
 - Supabase RLS: `.insert().select().single()` needs both INSERT and SELECT policies
+- Reload-restore behavior depends on both local nav payload (`dreamlab_nav_context_v2`) and `active_contexts.updated_at`; stale schema can mask restore fixes
 - Bottom toolbar positioning: use `absolute bottom-[46px]` (Tailwind), never `fixed` or inline styles
 - The `content.js` bridge uses `postMessage` — it does NOT write to localStorage directly
 - After reinstalling the extension, ALL open tabs need a hard refresh

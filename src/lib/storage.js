@@ -140,16 +140,32 @@ export async function getActiveContext() {
 
 export async function setActiveContext(workspaceId, collectionId = null, projectId = null) {
     const userId = await getCurrentUserId();
-    if (!userId) return;
+    if (!userId) return null;
 
-    await supabase
+    const { data, error } = await supabase
         .from('active_contexts')
         .upsert({
             user_id: userId,
             workspace_id: workspaceId || null,
             project_id: projectId || null,
             collection_id: collectionId || null,
-        }, { onConflict: 'user_id' });
+            updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' })
+        .select('workspace_id, project_id, collection_id, updated_at')
+        .single();
+
+    if (error) {
+        console.error('setActiveContext error:', error);
+        throw error;
+    }
+
+    const updatedAt = data?.updated_at ? new Date(data.updated_at).getTime() : 0;
+    return {
+        workspaceId: data?.workspace_id || null,
+        projectId: data?.project_id || null,
+        collectionId: data?.collection_id || null,
+        updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+    };
 }
 
 // ── Workspaces ──────────────────────────────────────────────────────
