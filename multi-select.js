@@ -615,6 +615,7 @@ async function saveSelectedImages() {
 
   let successCount = 0;
   let failureCount = 0;
+  let firstErrorMessage = '';
 
   for (const image of selectedImages) {
     try {
@@ -645,8 +646,11 @@ async function saveSelectedImages() {
       }
 
       successCount += 1;
-    } catch {
+    } catch (error) {
       failureCount += 1;
+      if (!firstErrorMessage) {
+        firstErrorMessage = String(error?.message || 'Save failed.').trim() || 'Save failed.';
+      }
     }
   }
 
@@ -654,9 +658,11 @@ async function saveSelectedImages() {
     setStatus(`Saved ${successCount} image${successCount === 1 ? '' : 's'} to Dreamlab.`, 'success');
     setTimeout(() => window.close(), 700);
   } else if (successCount > 0) {
-    setStatus(`Saved ${successCount}, failed ${failureCount}.`, 'error');
+    const detail = firstErrorMessage ? ` First error: ${firstErrorMessage}` : '';
+    setStatus(`Saved ${successCount}, failed ${failureCount}.${detail}`, 'error');
   } else {
-    setStatus('No images were saved. Verify Dreamlab is open.', 'error');
+    const detail = firstErrorMessage ? ` ${firstErrorMessage}` : ' Verify Dreamlab is open.';
+    setStatus(`No images were saved.${detail}`, 'error');
   }
 
   state.isSaving = false;

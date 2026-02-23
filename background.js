@@ -216,6 +216,14 @@ function sanitizeDestination(input) {
   };
 }
 
+function getCollectionWorkspaceId(collection, projects) {
+  if (!collection || typeof collection !== 'object') return null;
+  if (collection.workspaceId) return collection.workspaceId;
+  if (!collection.projectId) return null;
+  const project = (Array.isArray(projects) ? projects : []).find((candidate) => candidate.id === collection.projectId);
+  return project?.workspaceId || null;
+}
+
 function sanitizeDomainToken(input) {
   const value = String(input || '').trim().toLowerCase();
   if (!value) return null;
@@ -1652,10 +1660,16 @@ async function resolveEffectiveCaptureDestination(targetTabId = null) {
 function applyDestinationToItem(item, destination) {
   const normalizedDestination = sanitizeDestination(destination);
   const sourceItem = isObject(item) ? item : {};
+  const hasWorkspaceId = Object.prototype.hasOwnProperty.call(sourceItem, 'workspaceId');
+  const hasCollectionId = Object.prototype.hasOwnProperty.call(sourceItem, 'collectionId');
   return {
     ...sourceItem,
-    workspaceId: sourceItem.workspaceId || normalizedDestination.workspaceId || null,
-    collectionId: sourceItem.collectionId ?? normalizedDestination.collectionId ?? null,
+    workspaceId: hasWorkspaceId
+      ? sourceItem.workspaceId
+      : (normalizedDestination.workspaceId || null),
+    collectionId: hasCollectionId
+      ? sourceItem.collectionId
+      : (normalizedDestination.collectionId ?? null),
   };
 }
 
@@ -2603,7 +2617,7 @@ async function saveItemToWebApp(item, options = {}) {
   }
 
   if (!targetTab) {
-    targetTab = await getPreferredDreamlabTab();
+    targetTab = await ensureDreamlabTab();
   }
 
   const response = await sendTabMessageWithBridge(targetTab.id, {
@@ -2620,15 +2634,38 @@ async function saveItemToWebApp(item, options = {}) {
 
 async function queuePendingAndTrySave(item, options = {}) {
   const skipPendingStorage = Boolean(options?.skipPendingStorage);
-  const targetTabId = Number(options?.targetTabId) || null;
-  const destination = await resolveEffectiveCaptureDestination(targetTabId);
-  const itemWithDestination = applyDestinationToItem(item, destination);
+  const requestedTargetTabId = Number(options?.targetTabId) || null;
+  let pendingStored = false;
+  let itemWithDestination = applyDestinationToItem(item, null);
 
   try {
+    let resolvedTargetTab = null;
+    if (requestedTargetTabId) {
+      try {
+        const maybeTab = await getTab(requestedTargetTabId);
+        if (maybeTab?.id && isDreamlabUrl(maybeTab.url)) {
+          resolvedTargetTab = maybeTab;
+        }
+      } catch {
+        // Fall back to ensureDreamlabTab below.
+      }
+    }
+
+    if (!resolvedTargetTab) {
+      resolvedTargetTab = await ensureDreamlabTab();
+    }
+
+    const destination = await resolveEffectiveCaptureDestination(resolvedTargetTab?.id || null);
+    itemWithDestination = applyDestinationToItem(item, destination);
+
     if (!skipPendingStorage) {
       await setStorage({ [STORAGE_KEYS.pendingCapture]: itemWithDestination });
+      pendingStored = true;
     }
-    const saveResult = await saveItemToWebApp(itemWithDestination, options);
+    const saveResult = await saveItemToWebApp(itemWithDestination, {
+      ...options,
+      targetTabId: resolvedTargetTab?.id || requestedTargetTabId || null,
+    });
     await removeStorage(STORAGE_KEYS.pendingCapture);
     return {
       success: true,
@@ -2636,16 +2673,23 @@ async function queuePendingAndTrySave(item, options = {}) {
     };
   } catch (error) {
     // Keep pending capture for popup review.
-    if (skipPendingStorage) {
+    if (!pendingStored) {
       try {
-        await setStorage({
-          [STORAGE_KEYS.pendingCapture]: {
+        const fallbackPendingItem = skipPendingStorage
+          ? {
             type: item?.type || 'image',
             title: item?.title || 'Pending Capture',
             sourceUrl: item?.sourceUrl || '',
             timestamp: Date.now(),
             error: error?.message || 'Save failed',
-          },
+          }
+          : {
+            ...itemWithDestination,
+            timestamp: itemWithDestination?.timestamp || Date.now(),
+            error: error?.message || 'Save failed',
+          };
+        await setStorage({
+          [STORAGE_KEYS.pendingCapture]: fallbackPendingItem,
         });
       } catch {
         // Ignore pending fallback write failures.
@@ -2724,7 +2768,9 @@ async function executeCommandFromTab(command, tabId) {
   const tab = tabId
     ? await chrome.tabs.get(tabId).catch(() => null)
     : (await queryTabs({ active: true, currentWindow: true }))[0];
-  if (!tab) return;
+  if (!tab) {
+    throw new Error('No active tab available for command execution.');
+  }
 
   if (command === 'save-page') {
     const captureBlockReason = getCaptureBlockReason(tab.url || '');
@@ -2734,7 +2780,7 @@ async function executeCommandFromTab(command, tabId) {
         type: 'error',
         durationMs: 4200,
       });
-      return;
+      throw new Error(captureBlockReason);
     }
 
     let selectedText = '';
@@ -2748,8 +2794,15 @@ async function executeCommandFromTab(command, tabId) {
       selectedText = '';
     }
 
+    await showInPageToast(tab.id, {
+      message: 'Saving page to Dreamlab...',
+      type: 'info',
+      durationMs: 2400,
+    });
+
+    let saveResult;
     if (selectedText) {
-      await queuePendingAndTrySave({
+      saveResult = await queuePendingAndTrySave({
         type: 'text',
         content: selectedText,
         sourceUrl: tab.url,
@@ -2766,9 +2819,36 @@ async function executeCommandFromTab(command, tabId) {
         sourceUrl: tab.url,
         timestamp: Date.now(),
       });
-      await queuePendingAndTrySave(linkItem);
+      saveResult = await queuePendingAndTrySave(linkItem);
     }
-    return;
+
+    if (saveResult?.success) {
+      const destinationSummary = await getDreamlabDestinationSummary(saveResult.targetTabId || null);
+      await showInPageToast(tab.id, {
+        message: `Saved to ${destinationSummary}.`,
+        type: 'success',
+        durationMs: 3200,
+      });
+      return;
+    }
+
+    const storageErrorType = classifyStorageErrorMessage(saveResult?.error);
+    const errorDetail = String(saveResult?.error || '').trim();
+    let message = 'Saved as pending capture; open the Dreamlab Capture popup to retry.';
+    if (storageErrorType === 'indexeddb') {
+      message = 'Could not write capture to browser media storage (IndexedDB). Open the Dreamlab Capture popup to retry.';
+    } else if (storageErrorType === 'extension-storage') {
+      message = 'Extension storage (chrome.storage.local) is full. Open the Dreamlab Capture popup to retry.';
+    } else if (storageErrorType === 'localstorage') {
+      message = 'Dreamlab localStorage is full. Open the Dreamlab Capture popup to retry.';
+    }
+    const suffix = errorDetail ? ` (${errorDetail})` : '';
+    await showInPageToast(tab.id, {
+      message: `${message}${suffix}`,
+      type: 'error',
+      durationMs: 5000,
+    });
+    throw new Error(saveResult?.error || 'Failed to save page capture.');
   }
 
   if (command === 'capture-visible') {
@@ -2780,7 +2860,7 @@ async function executeCommandFromTab(command, tabId) {
         type: 'error',
         durationMs: 4200,
       });
-      return;
+      throw new Error(captureBlockReason);
     }
 
     let chosenTab = tab;
@@ -2842,7 +2922,7 @@ async function executeCommandFromTab(command, tabId) {
         type: 'error',
         durationMs: 4200,
       });
-      return;
+      throw new Error(captureBlockReason);
     }
 
     try {
@@ -2954,13 +3034,19 @@ async function executeCommandFromTab(command, tabId) {
           type: 'error',
           durationMs: 5000,
         });
+        const saveError = new Error(saveResult.error || 'Full-page capture save failed.');
+        saveError.toastShown = true;
+        throw saveError;
       }
     } catch (error) {
-      await showInPageToast(tab.id, {
-        message: error?.message || 'Full-page capture failed.',
-        type: 'error',
-        durationMs: 5000,
-      });
+      if (!error?.toastShown) {
+        await showInPageToast(tab.id, {
+          message: error?.message || 'Full-page capture failed.',
+          type: 'error',
+          durationMs: 5000,
+        });
+      }
+      throw error;
     }
     return;
   }
@@ -2974,7 +3060,7 @@ async function executeCommandFromTab(command, tabId) {
         type: 'error',
         durationMs: 4200,
       });
-      return;
+      throw new Error(captureBlockReason);
     }
 
     await chrome.scripting.insertCSS({
@@ -2998,7 +3084,7 @@ async function executeCommandFromTab(command, tabId) {
         type: 'error',
         durationMs: 4200,
       });
-      return;
+      throw new Error(captureBlockReason);
     }
 
     try {
@@ -3037,7 +3123,9 @@ async function executeCommandFromTab(command, tabId) {
           type: 'error',
           durationMs: 4200,
         });
-        return;
+        const colorError = new Error(payload.error || 'Color picking failed.');
+        colorError.toastShown = true;
+        throw colorError;
       }
 
       const hex = String(payload.color || '').trim().toUpperCase();
@@ -3047,7 +3135,9 @@ async function executeCommandFromTab(command, tabId) {
           type: 'error',
           durationMs: 3600,
         });
-        return;
+        const invalidColorError = new Error('Picked color was invalid.');
+        invalidColorError.toastShown = true;
+        throw invalidColorError;
       }
 
       const destinationTab = await ensureDreamlabTab();
@@ -3084,13 +3174,19 @@ async function executeCommandFromTab(command, tabId) {
           type: 'error',
           durationMs: 4200,
         });
+        const saveError = new Error(saveResult.error || 'Color save failed.');
+        saveError.toastShown = true;
+        throw saveError;
       }
     } catch (error) {
-      await showInPageToast(tab.id, {
-        message: error?.message || 'Color eyedropper failed.',
-        type: 'error',
-        durationMs: 4200,
-      });
+      if (!error?.toastShown) {
+        await showInPageToast(tab.id, {
+          message: error?.message || 'Color eyedropper failed.',
+          type: 'error',
+          durationMs: 4200,
+        });
+      }
+      throw error;
     }
     return;
   }
@@ -3104,7 +3200,7 @@ async function executeCommandFromTab(command, tabId) {
         type: 'error',
         durationMs: 4200,
       });
-      return;
+      throw new Error(captureBlockReason);
     }
 
     await chrome.scripting.insertCSS({
@@ -3216,11 +3312,16 @@ async function dispatchCommand({ command, tabId, origin }) {
     await executeCommandFromTab(command, tabId);
   } catch (error) {
     console.error(`Command "${command}" failed (${origin}):`, error?.message || error);
+    throw error;
   }
 }
 
 chrome.commands.onCommand.addListener(async (command) => {
-  await dispatchCommand({ command, origin: 'commands-api' });
+  try {
+    await dispatchCommand({ command, origin: 'commands-api' });
+  } catch {
+    // User-facing toasts are handled inside command execution paths.
+  }
 });
 
 /**
@@ -3383,8 +3484,10 @@ async function handleRuntimeMessage(request, sender) {
       if (!request.item || typeof request.item !== 'object') {
         return { success: false, error: 'No capture payload provided.' };
       }
-      await saveItemToWebApp(request.item);
-      return { success: true };
+      return await queuePendingAndTrySave(request.item, {
+        targetTabId: request.targetTabId || null,
+        skipPendingStorage: true,
+      });
     }
 
     case ACTIONS.openMultiSelect: {
@@ -3424,12 +3527,19 @@ async function handleRuntimeMessage(request, sender) {
       if (!VALID_COMMAND_SET.has(request.command)) {
         return { success: false, error: 'Unknown command.' };
       }
-      await dispatchCommand({
-        command: request.command,
-        tabId: sender?.tab?.id || null,
-        origin: request.origin || 'content-fallback',
-      });
-      return { success: true };
+      try {
+        await dispatchCommand({
+          command: request.command,
+          tabId: sender?.tab?.id || null,
+          origin: request.origin || 'content-fallback',
+        });
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error?.message || `Command "${request.command}" failed.`,
+        };
+      }
     }
 
     case ACTIONS.getShortcutBindings: {

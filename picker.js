@@ -110,11 +110,6 @@
             // Resolve relative URLs to absolute
             try { content = new URL(content, document.baseURI).href; } catch (e) { }
 
-            // Success!
-            showHighlight(visualElement || target, "Captured!");
-            msg.style.background = '#15803d';
-            msg.style.borderColor = '#166534';
-
             // Get page metadata for title/description
             const getMeta = (name) => {
                 const el = document.querySelector(`meta[property="${name}"], meta[name="${name}"]`);
@@ -133,9 +128,34 @@
                 timestamp: Date.now()
             };
 
-            chrome.runtime.sendMessage({ action: 'saveCapturedItem', item: item });
+            showHighlight(visualElement || target, "Saving...");
+            msg.style.background = '#171717';
+            msg.style.borderColor = '#404040';
 
-            setTimeout(cleanup, 800);
+            const saveResponse = await new Promise((resolve) => {
+                chrome.runtime.sendMessage({ action: 'saveCapturedItem', item: item }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        resolve({
+                            success: false,
+                            error: chrome.runtime.lastError.message || 'Could not contact extension background worker.',
+                        });
+                        return;
+                    }
+                    resolve(response || { success: false, error: 'No response from extension.' });
+                });
+            });
+
+            if (saveResponse?.success) {
+                showHighlight(visualElement || target, "Captured!");
+                msg.style.background = '#15803d';
+                msg.style.borderColor = '#166534';
+                setTimeout(cleanup, 800);
+            } else {
+                const errorMessage = String(saveResponse?.error || 'Failed to save capture to Dreamlab.').trim();
+                msg.textContent = errorMessage || 'Failed to save capture to Dreamlab.';
+                msg.style.background = '#b91c1c';
+                msg.style.borderColor = '#991b1b';
+            }
         } else {
             // Failure
             console.log("Dreamlab Picker: No visual content found.");
