@@ -83,9 +83,9 @@ Before packaging a production zip:
 5. Confirm no remote hosted code execution (`eval`, dynamic remote script execution) exists in extension runtime.
 6. Confirm packaging includes only required extension runtime assets.
 7. Confirm compliance docs are present and referenced:
-   - `Project foundation/extension-compliance-prerequisites.md`
-   - `Project foundation/privacy-policy-extension.md`
-   - `Project foundation/chrome-web-store-submission-fields.md`
+   - `project_foundation/extension-compliance-prerequisites.md`
+   - `project_foundation/privacy-policy-extension.md`
+   - `project_foundation/chrome-web-store-submission-fields.md`
 8. Confirm public policy URLs are live and accessible without login:
    - `https://dreamlab-canvas.vercel.app/extension-privacy-policy.html`
    - `https://dreamlab-canvas.vercel.app/extension-data-compliance.html`

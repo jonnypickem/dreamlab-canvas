@@ -14,21 +14,70 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 -   **Repository**: [github.com/jonnypickem/dreamlab-canvas](https://github.com/jonnypickem/dreamlab-canvas)
 
 ## Compliance Documentation
--   **Extension Compliance Prerequisites**: `Project foundation/extension-compliance-prerequisites.md`
--   **Extension Privacy Policy (Internal Draft)**: `Project foundation/privacy-policy-extension.md`
--   **Chrome Web Store Field Answers**: `Project foundation/chrome-web-store-submission-fields.md`
+-   **Extension Compliance Prerequisites**: `project_foundation/extension-compliance-prerequisites.md`
+-   **Extension Privacy Policy (Internal Draft)**: `project_foundation/privacy-policy-extension.md`
+-   **Chrome Web Store Field Answers**: `project_foundation/chrome-web-store-submission-fields.md`
 -   **Public Extension Privacy Policy URL**: `/extension-privacy-policy.html`
 -   **Public Extension Compliance URL**: `/extension-data-compliance.html`
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Extension compliance hardening shipped for Chrome Web Store packaging: production host cleanup, sensitive-surface capture blocks, local/private metadata extraction blocks, popup/options disclosure surfaces, and improved multi-select filtering/selection reliability.
+-   **Last Major Change**: App-shell navigation ergonomics update: project/collection sidebar is now foldable with persisted state, while keeping the workspace strip fixed and interactive.
 
 ## Changelog
 
+### [0.35.0] - 2026-02-23
+#### Added
+- **Foldable Project/Collection Sidebar** (`src/App.jsx`):
+  - Added app-shell state `isSidebarCollapsed` for folding only the secondary sidebar panel.
+  - Added persistent fold preference via `localStorage['dreamlab_sidebar_collapsed']`.
+  - Added top-edge toggle control using Subframe `IconButton` + Feather chevrons.
+  - Preserved fixed workspace strip behavior (`WorkspaceStrip` remains visible and interactive).
+
+#### Changed
+- **Sidebar Mounting in App Shell** (`src/App.jsx`):
+  - Wrapped `<Sidebar />` in a width-animating shell (`w-72` -> `w-0`) with transition behavior.
+  - Kept sidebar mounted while collapsed to avoid unnecessary internal state churn.
+  - Added pointer-event safety so collapsed panel does not intercept main-surface interactions.
+
+#### Fixed
+- **Sidebar Vertical Layout Regression After Fold Wrapper** (`src/App.jsx`):
+  - Root cause: wrapper introduced around sidebar dropped flex context, breaking bottom anchoring behavior of shortcuts section.
+  - Fix: restored parent wrapper to `flex h-full`, re-enabling expected stretch/grow behavior.
+  - Result: shortcuts section returns to bottom anchoring as intended.
+
+#### Problems & Fixes
+- **Problem**: Initial fold implementation caused sidebar content to justify to top and shortcuts to float upward.
+- **Cause**: The new wrapper used `h-full` but not `flex`, so `Sidebar` layout assumptions no longer held.
+- **Fix**: Updated wrapper to `flex h-full`; validated bottom anchoring and non-overlap with workspace settings control.
+
+### [0.34.0] - 2026-02-21
+#### Added
+- **App/Extension Build Diagnostics for Org Data Bridge** (`src/App.jsx`, `content.js`, `background.js`, `multi-select.js`, `floating-widget.js`):
+  - Added `appBuildId` to `DREAMLAB_GET_ORG_DATA` response payloads so extension surfaces can identify which web-app build they are connected to.
+  - Added bridge propagation from web app -> content script -> background runtime response.
+  - Added console diagnostics in multi-select and floating widget (`[MultiSelect] Connected Dreamlab app build: ...`, `[Dreamlab Widget] Connected app build: ...`).
+
+#### Changed
+- **Extension Packaging Artifact Refreshed** (`dreamlab-canvas-extension.zip`):
+  - Repacked production extension zip with latest runtime fixes and diagnostics changes.
+
+#### Fixed
+- **Capture Destination Routing for Non-Smart-Picker Actions** (`src/App.jsx`, `background.js`):
+  - Fixed invalid collection routing when UI sentinel `__unsorted__` leaked into extension bridge payloads.
+  - Normalized `selectedCollectionId === "__unsorted__"` to `null` in web app org-data bridge.
+  - Added defensive normalization for incoming save payloads to treat `collectionId: "__unsorted__"` as `null`.
+  - Hardened background destination fallback resolution to only use real collection IDs from current org snapshot.
+  - Restores save reliability for commands that use destination routing (`pick-color`, full-page screenshot, area screenshot, area recording), while preserving smart-picker behavior.
+
+#### Problems & Fixes
+- **Problem**: Saves failed for color picker, full/regular screenshots, and area recording while smart picker still worked.
+- **Cause**: These failing actions use destination context resolution; they could inherit `collectionId: "__unsorted__"` (UI-only sentinel) and pass an invalid collection ID into save flow.
+- **Fix**: Sanitized sentinel values on both web-app bridge and background destination resolution paths, and added build-id diagnostics to quickly detect app/extension version drift in future incidents.
+
 ### [0.33.0] - 2026-02-19
 #### Added
-- **Compliance + Submission Documentation Set** (`Project foundation/extension-compliance-prerequisites.md`, `Project foundation/privacy-policy-extension.md`, `Project foundation/chrome-web-store-submission-fields.md`):
+- **Compliance + Submission Documentation Set** (`project_foundation/extension-compliance-prerequisites.md`, `project_foundation/privacy-policy-extension.md`, `project_foundation/chrome-web-store-submission-fields.md`):
   - Added internal compliance prerequisite checklist for production packaging and review.
   - Added extension privacy policy draft aligned to runtime behavior and user-trigger model.
   - Added German Chrome Web Store submission answer sheet for permission, data-use, and reviewer-note fields.
@@ -40,7 +89,7 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
   - Added popup and options disclosure cards summarizing host-access scope and user-triggered capture model.
   - Added runtime messaging endpoints to expose compliance/privacy summaries and open public policy URLs directly from extension UI.
 
-- **Analysis Schema Mirror in Project Foundation** (`Project foundation/analysis_parameters/**`):
+- **Analysis Schema Mirror in Project Foundation** (`project_foundation/analysis_parameters/**`):
   - Added mirrored primitive and lens schema JSON set under project foundation docs for easier governance/reference alongside compliance docs.
 
 #### Changed
@@ -54,7 +103,7 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
   - Normalized image identities with stable per-entry keys so duplicate `src` values can be selected independently.
   - Added project-aware collection labels (`Project / Collection`), render fallback cards for blocked previews, and improved visible-image refresh retries.
 
-- **Deployment Guidance** (`Project foundation/DEPLOYMENT.md`):
+- **Deployment Guidance** (`project_foundation/deployment.md`):
   - Added extension production compliance checklist section covering permission review, runtime guardrails, disclosure parity, and public policy URL verification.
 
 #### Fixed

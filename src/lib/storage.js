@@ -26,6 +26,7 @@ function itemFromDb(row) {
         projectId: null,
         collectionId: row.collection_id || null,
         sortOrder: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : null,
+        projectSortOrder: Number.isFinite(Number(row.project_sort_order)) ? Number(row.project_sort_order) : null,
         contentStorage: row.content_storage || null,
         thumbnail: row.thumbnail || null,
         thumbnailStorage: row.thumbnail_storage || null,
@@ -55,6 +56,7 @@ function itemToDb(item, userId) {
     if (item.workspaceId !== undefined) row.workspace_id = item.workspaceId;
     if (item.collectionId !== undefined) row.collection_id = item.collectionId;
     if (item.sortOrder !== undefined) row.sort_order = item.sortOrder;
+    if (item.projectSortOrder !== undefined) row.project_sort_order = item.projectSortOrder;
     if (item.contentStorage !== undefined) row.content_storage = item.contentStorage;
     if (item.thumbnail !== undefined) row.thumbnail = item.thumbnail;
     if (item.thumbnailStorage !== undefined) row.thumbnail_storage = item.thumbnailStorage;
@@ -118,19 +120,21 @@ function collectionFromDb(row) {
 
 export async function getActiveContext() {
     const userId = await getCurrentUserId();
-    if (!userId) return { workspaceId: null, projectId: null, collectionId: null };
+    if (!userId) return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
 
     const { data, error } = await supabase
         .from('active_contexts')
-        .select('workspace_id, project_id, collection_id')
+        .select('workspace_id, project_id, collection_id, updated_at')
         .eq('user_id', userId)
         .maybeSingle();
 
-    if (error || !data) return { workspaceId: null, projectId: null, collectionId: null };
+    if (error || !data) return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
+    const updatedAt = data.updated_at ? new Date(data.updated_at).getTime() : 0;
     return {
         workspaceId: data.workspace_id || null,
         projectId: data.project_id || null,
         collectionId: data.collection_id || null,
+        updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
     };
 }
 
@@ -405,6 +409,7 @@ export async function updateItem(id, updates) {
     if (updates.workspaceId !== undefined) row.workspace_id = updates.workspaceId;
     if (updates.collectionId !== undefined) row.collection_id = updates.collectionId;
     if (updates.sortOrder !== undefined) row.sort_order = updates.sortOrder;
+    if (updates.projectSortOrder !== undefined) row.project_sort_order = updates.projectSortOrder;
     if (updates.contentStorage !== undefined) row.content_storage = updates.contentStorage;
     if (updates.thumbnail !== undefined) row.thumbnail = updates.thumbnail;
     if (updates.thumbnailStorage !== undefined) row.thumbnail_storage = updates.thumbnailStorage;

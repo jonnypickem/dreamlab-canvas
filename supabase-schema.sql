@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS items (
     workspace_id UUID REFERENCES workspaces(id) ON DELETE SET NULL,
     collection_id UUID REFERENCES collections(id) ON DELETE SET NULL,
     sort_order BIGINT,
+    project_sort_order BIGINT,
     type TEXT NOT NULL,
     content TEXT NOT NULL,
     title TEXT,
@@ -127,6 +128,14 @@ CREATE TABLE IF NOT EXISTS items (
 
 ALTER TABLE items
     ADD COLUMN IF NOT EXISTS sort_order BIGINT;
+
+ALTER TABLE items
+    ADD COLUMN IF NOT EXISTS project_sort_order BIGINT;
+
+UPDATE items
+SET project_sort_order = sort_order
+WHERE project_sort_order IS NULL
+  AND sort_order IS NOT NULL;
 
 -- 7. Primitive Analysis Cache
 CREATE TABLE IF NOT EXISTS primitive_analysis (

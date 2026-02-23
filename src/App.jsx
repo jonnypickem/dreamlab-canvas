@@ -63,6 +63,7 @@ const STAGE_A_AUTO_BACKFILL_ENABLED = true;
 const COLLECTION_SORT_STEP = 1000;
 const ITEM_SORT_STEP = 1000;
 const UNSORTED_COLLECTION_ID = '__unsorted__';
+const LOCAL_NAV_UPDATED_AT_KEY = 'dreamlab_nav_updated_at';
 
 function resolveAppBuildId() {
     const explicitBuildId = String(import.meta.env.VITE_APP_BUILD_ID || '').trim();
@@ -102,14 +103,25 @@ function normalizeProjectId(projectId) {
     return projectId || null;
 }
 
+function parsePersistedTimestamp(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 function getItemSortOrder(item) {
     const order = Number(item?.sortOrder);
     return Number.isFinite(order) ? order : null;
 }
 
-function compareItemsForDisplay(a, b) {
-    const aOrder = getItemSortOrder(a);
-    const bOrder = getItemSortOrder(b);
+function getProjectSortOrder(item) {
+    const order = Number(item?.projectSortOrder);
+    return Number.isFinite(order) ? order : null;
+}
+
+function compareItemsForDisplay(a, b, scope = 'collection') {
+    const resolveOrder = scope === 'project' ? getProjectSortOrder : getItemSortOrder;
+    const aOrder = resolveOrder(a);
+    const bOrder = resolveOrder(b);
 
     if (aOrder !== null || bOrder !== null) {
         if (aOrder === null) return 1;
@@ -176,14 +188,14 @@ function resolveMovedItemId(previousIds, nextIds, movedIdHint) {
     return nextIds.find((id, index) => previousIds[index] !== id) || null;
 }
 
-function getNeighborSortOrderForMove(orderedIds, movedId, itemById) {
+function getNeighborSortOrderForMove(orderedIds, movedId, itemById, getSortOrder = getItemSortOrder) {
     const movedIndex = orderedIds.indexOf(movedId);
     if (movedIndex < 0) return { needsRebalance: true, sortOrder: null };
 
     const previousId = movedIndex > 0 ? orderedIds[movedIndex - 1] : null;
     const nextId = movedIndex < orderedIds.length - 1 ? orderedIds[movedIndex + 1] : null;
-    const previousOrder = previousId ? getItemSortOrder(itemById.get(previousId)) : null;
-    const nextOrder = nextId ? getItemSortOrder(itemById.get(nextId)) : null;
+    const previousOrder = previousId ? getSortOrder(itemById.get(previousId)) : null;
+    const nextOrder = nextId ? getSortOrder(itemById.get(nextId)) : null;
 
     if (previousOrder !== null && nextOrder !== null) {
         const gap = previousOrder - nextOrder;
@@ -475,8 +487,8 @@ function App() {
     }), [items, searchQuery, activeWorkspaceId, selectedScope, selectedCollectionId, tagFilter, projectCollectionIds]);
 
     const orderedFilteredItems = useMemo(
-        () => [...filteredItems].sort(compareItemsForDisplay),
-        [filteredItems]
+        () => [...filteredItems].sort((a, b) => compareItemsForDisplay(a, b, selectedScope)),
+        [filteredItems, selectedScope]
     );
 
     const hasActiveGridFilters = Boolean(searchQuery.trim() || tagFilter);
@@ -565,32 +577,96 @@ function App() {
         setCollections(c);
 
         if (isFirstLoad) {
-            // Set active context from persistence, or fallback to first workspace
-            if (ctx.workspaceId && ws.some(w => w.id === ctx.workspaceId)) {
-                setActiveWorkspaceId(ctx.workspaceId);
-                if (ctx.collectionId) {
-                    const selectedCollection = ctx.collectionId === UNSORTED_COLLECTION_ID
-                        ? { id: UNSORTED_COLLECTION_ID, projectId: null }
-                        : c.find((collection) => (
-                            collection.id === ctx.collectionId
-                            && getCollectionWorkspaceId(collection) === ctx.workspaceId
-                        ));
-                    if (selectedCollection) {
-                        setSelectedCollectionId(ctx.collectionId);
-                        setSelectedProjectId(selectedCollection.projectId || null);
-                    } else {
-                        setSelectedCollectionId(null);
-                        const projectIsValid = ctx.projectId && p.some((project) => (
-                            project.id === ctx.projectId && project.workspaceId === ctx.workspaceId
-                        ));
-                        setSelectedProjectId(projectIsValid ? ctx.projectId : null);
-                    }
-                } else {
-                    setSelectedCollectionId(null);
-                    const projectIsValid = ctx.projectId && p.some((project) => (
-                        project.id === ctx.projectId && project.workspaceId === ctx.workspaceId
+            const validateCandidate = (candidate) => {
+                if (!candidate?.workspaceId) return null;
+                const workspaceIsValid = ws.some((workspace) => workspace.id === candidate.workspaceId);
+                if (!workspaceIsValid) return null;
+
+                let resolvedCollectionId = null;
+                let resolvedProjectId = null;
+
+                if (candidate.collectionId === UNSORTED_COLLECTION_ID) {
+                    resolvedCollectionId = UNSORTED_COLLECTION_ID;
+                } else if (candidate.collectionId) {
+                    const selectedCollection = c.find((collection) => (
+                        collection.id === candidate.collectionId
+                        && getCollectionWorkspaceId(collection) === candidate.workspaceId
                     ));
-                    setSelectedProjectId(projectIsValid ? ctx.projectId : null);
+                    if (selectedCollection) {
+                        resolvedCollectionId = selectedCollection.id;
+                        resolvedProjectId = selectedCollection.projectId || null;
+                    }
+                }
+
+                if (!resolvedCollectionId && candidate.projectId) {
+                    const projectIsValid = p.some((project) => (
+                        project.id === candidate.projectId
+                        && project.workspaceId === candidate.workspaceId
+                    ));
+                    if (projectIsValid) {
+                        resolvedProjectId = candidate.projectId;
+                    }
+                }
+
+                return {
+                    workspaceId: candidate.workspaceId,
+                    collectionId: resolvedCollectionId,
+                    projectId: resolvedProjectId,
+                    updatedAt: parsePersistedTimestamp(candidate.updatedAt),
+                };
+            };
+
+            const localCandidateRaw = (() => {
+                try {
+                    return {
+                        workspaceId: localStorage.getItem('dreamlab_nav_workspace') || null,
+                        collectionId: localStorage.getItem('dreamlab_nav_collection') || null,
+                        projectId: localStorage.getItem('dreamlab_nav_project') || null,
+                        updatedAt: localStorage.getItem(LOCAL_NAV_UPDATED_AT_KEY),
+                    };
+                } catch {
+                    return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
+                }
+            })();
+
+            const dbCandidateRaw = {
+                workspaceId: ctx?.workspaceId || null,
+                projectId: ctx?.projectId || null,
+                collectionId: ctx?.collectionId || null,
+                updatedAt: ctx?.updatedAt || 0,
+            };
+
+            const localCandidate = validateCandidate(localCandidateRaw);
+            const dbCandidate = validateCandidate(dbCandidateRaw);
+
+            let selectedSource = null;
+            let selectedContext = null;
+            if (localCandidate && dbCandidate) {
+                selectedContext = localCandidate.updatedAt >= dbCandidate.updatedAt ? localCandidate : dbCandidate;
+                selectedSource = selectedContext === localCandidate ? 'local' : 'db';
+            } else if (localCandidate) {
+                selectedContext = localCandidate;
+                selectedSource = 'local';
+            } else if (dbCandidate) {
+                selectedContext = dbCandidate;
+                selectedSource = 'db';
+            }
+
+            if (selectedContext) {
+                setActiveWorkspaceId(selectedContext.workspaceId);
+                setSelectedCollectionId(selectedContext.collectionId || null);
+                setSelectedProjectId(selectedContext.projectId || null);
+
+                const shouldHealDbContext = selectedSource === 'local'
+                    && (!dbCandidate || dbCandidate.updatedAt < localCandidate.updatedAt);
+                if (shouldHealDbContext) {
+                    void setActiveContext(
+                        selectedContext.workspaceId,
+                        selectedContext.collectionId,
+                        selectedContext.projectId
+                    ).catch((error) => {
+                        console.error('Failed to self-heal active context from local restore:', error);
+                    });
                 }
             } else if (ws.length > 0) {
                 setActiveWorkspaceId(ws[0].id);
@@ -641,8 +717,11 @@ function App() {
             } else {
                 localStorage.removeItem('dreamlab_nav_project');
             }
+            localStorage.setItem(LOCAL_NAV_UPDATED_AT_KEY, String(Date.now()));
         } catch { /* ignore */ }
-        setActiveContext(activeWorkspaceId, selectedCollectionId, selectedProjectId);
+        void setActiveContext(activeWorkspaceId, selectedCollectionId, selectedProjectId).catch((error) => {
+            console.error('Failed to persist active context:', error);
+        });
     }, [activeWorkspaceId, selectedCollectionId, selectedProjectId, user]);
 
     useEffect(() => {
@@ -831,6 +910,7 @@ function App() {
     }, [user, activeWorkspaceId, selectedProjectId, selectedCollectionId, workspaces, projects, collections, getNextCollectionItemSortOrder, resolveCreateTargetCollectionId, markCollectionAsLastUsed]);
 
     useEffect(() => {
+        if (!navRestoredRef.current) return;
         if (!selectedCollectionId || selectedCollectionId === UNSORTED_COLLECTION_ID) {
             if (selectedCollectionId === UNSORTED_COLLECTION_ID && selectedProjectId) {
                 setSelectedProjectId(null);
@@ -852,6 +932,7 @@ function App() {
     }, [collections, selectedCollectionId, selectedProjectId, activeWorkspaceId]);
 
     useEffect(() => {
+        if (!navRestoredRef.current) return;
         if (!selectedProjectId) return;
         const stillValid = workspaceProjects.some((project) => project.id === selectedProjectId);
         if (!stillValid) {
@@ -2032,7 +2113,7 @@ function App() {
         if (collectionItems.length === 0) return;
 
         const currentOrderedIds = [...collectionItems]
-            .sort(compareItemsForDisplay)
+            .sort((a, b) => compareItemsForDisplay(a, b, 'collection'))
             .map((item) => item.id);
         const collectionItemSet = new Set(collectionItems.map((item) => item.id));
         const orderedIds = nextOrder.filter((id) => collectionItemSet.has(id));
@@ -2065,7 +2146,12 @@ function App() {
             }))
             .filter((entry) => getItemSortOrder(currentById.get(entry.id)) !== entry.sortOrder);
 
-        const { needsRebalance, sortOrder } = getNeighborSortOrderForMove(orderedIds, movedId, currentById);
+        const { needsRebalance, sortOrder } = getNeighborSortOrderForMove(
+            orderedIds,
+            movedId,
+            currentById,
+            getItemSortOrder
+        );
         const currentMovedSortOrder = getItemSortOrder(currentById.get(movedId));
         const shouldUseSingleUpdate = !needsRebalance
             && Number.isFinite(sortOrder)
@@ -2138,21 +2224,180 @@ function App() {
         }
     }, [selectedCollectionId]);
 
-    const handleGridReorderCommit = useCallback((activeId) => {
+    const persistProjectGridReorder = useCallback(async (nextOrder, movedIdHint = null) => {
+        if (!selectedProjectId || !activeWorkspaceId) return;
+        if (!Array.isArray(nextOrder) || nextOrder.length === 0) return;
+
+        const currentItems = itemsRef.current;
+        const projectItems = currentItems.filter((item) => (
+            item.workspaceId === activeWorkspaceId
+            && projectCollectionIds.has(item.collectionId)
+        ));
+        if (projectItems.length === 0) return;
+
+        const currentOrderedIds = [...projectItems]
+            .sort((a, b) => compareItemsForDisplay(a, b, 'project'))
+            .map((item) => item.id);
+        const projectItemSet = new Set(projectItems.map((item) => item.id));
+        const orderedIds = nextOrder.filter((id) => projectItemSet.has(id));
+        const presentIds = new Set(orderedIds);
+
+        currentOrderedIds.forEach((id) => {
+            if (presentIds.has(id)) return;
+            orderedIds.push(id);
+        });
+
+        if (areIdOrdersEqual(currentOrderedIds, orderedIds)) return;
+
+        const movedId = resolveMovedItemId(currentOrderedIds, orderedIds, movedIdHint);
+        if (!movedId) return;
+
+        const currentById = new Map(projectItems.map((item) => [item.id, item]));
+
+        const requestToken = reorderPersistTokenRef.current + 1;
+        reorderPersistTokenRef.current = requestToken;
+        const snapshot = currentItems;
+        const applySnapshot = () => {
+            setItems(snapshot);
+            itemsRef.current = snapshot;
+            reorderDraftIdsRef.current = currentOrderedIds;
+            setReorderDraftIds((prev) => (areIdOrdersEqual(prev, currentOrderedIds) ? prev : currentOrderedIds));
+            setProjectGridDraftIdsByProjectId((prev) => ({
+                ...prev,
+                [selectedProjectId]: currentOrderedIds,
+            }));
+        };
+
+        const rebalanceEntries = orderedIds
+            .map((id, index) => ({
+                id,
+                sortOrder: (orderedIds.length - index) * ITEM_SORT_STEP,
+            }))
+            .filter((entry) => getProjectSortOrder(currentById.get(entry.id)) !== entry.sortOrder);
+
+        const { needsRebalance, sortOrder } = getNeighborSortOrderForMove(
+            orderedIds,
+            movedId,
+            currentById,
+            getProjectSortOrder
+        );
+        const currentMovedSortOrder = getProjectSortOrder(currentById.get(movedId));
+        const shouldUseSingleUpdate = !needsRebalance
+            && Number.isFinite(sortOrder)
+            && currentMovedSortOrder !== sortOrder;
+
+        if (shouldUseSingleUpdate) {
+            setItems((prev) => {
+                const next = prev.map((item) => (
+                    item.id === movedId
+                        ? { ...item, projectSortOrder: sortOrder }
+                        : item
+                ));
+                itemsRef.current = next;
+                return next;
+            });
+
+            suppressItemsRealtimeUntilRef.current = Date.now() + 1800;
+
+            try {
+                const updated = await updateItem(movedId, { projectSortOrder: sortOrder });
+                if (!updated) throw new Error(`Failed to persist order for item ${movedId}`);
+                if (requestToken !== reorderPersistTokenRef.current) return;
+                setItems((prev) => {
+                    const next = prev.map((item) => (item.id === movedId ? updated : item));
+                    itemsRef.current = next;
+                    return next;
+                });
+            } catch (error) {
+                if (requestToken !== reorderPersistTokenRef.current) return;
+                applySnapshot();
+                setToast({ message: error?.message || 'Failed to reorder project items', type: 'error' });
+            }
+            return;
+        }
+
+        if (rebalanceEntries.length === 0) return;
+        const rebalanceSortOrderById = new Map(rebalanceEntries.map((entry) => [entry.id, entry.sortOrder]));
+
+        setItems((prev) => {
+            const next = prev.map((item) => (
+                rebalanceSortOrderById.has(item.id)
+                    ? { ...item, projectSortOrder: rebalanceSortOrderById.get(item.id) }
+                    : item
+            ));
+            itemsRef.current = next;
+            return next;
+        });
+
+        suppressItemsRealtimeUntilRef.current = Date.now() + 1800;
+
+        try {
+            const persisted = await Promise.all(
+                rebalanceEntries.map(async (entry) => {
+                    const updated = await updateItem(entry.id, { projectSortOrder: entry.sortOrder });
+                    if (!updated) throw new Error(`Failed to persist order for item ${entry.id}`);
+                    return updated;
+                })
+            );
+            if (requestToken !== reorderPersistTokenRef.current) return;
+            const persistedById = new Map(persisted.map((item) => [item.id, item]));
+            setItems((prev) => {
+                const next = prev.map((item) => persistedById.get(item.id) || item);
+                itemsRef.current = next;
+                return next;
+            });
+        } catch (error) {
+            if (requestToken !== reorderPersistTokenRef.current) return;
+            applySnapshot();
+            setToast({ message: error?.message || 'Failed to reorder project items', type: 'error' });
+        }
+    }, [selectedProjectId, activeWorkspaceId, projectCollectionIds]);
+
+    const handleGridReorderCommit = useCallback((activeId, overId) => {
         if (!canUseGridReorder) return;
-        const nextOrder = reorderDraftIdsRef.current.length > 0
+        const liveOrder = orderedFilteredItems.map((item) => item.id);
+        let nextOrder = reorderDraftIdsRef.current.length > 0
             ? reorderDraftIdsRef.current
-            : orderedFilteredItems.map((item) => item.id);
+            : liveOrder;
         if (nextOrder.length === 0) return;
+
+        if (areIdOrdersEqual(nextOrder, liveOrder) && activeId && overId && activeId !== overId) {
+            const oldIndex = liveOrder.indexOf(activeId);
+            const newIndex = liveOrder.indexOf(overId);
+            if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
+                nextOrder = moveArrayItem(liveOrder, oldIndex, newIndex);
+            } else {
+                const derivedOrder = getNextDraftOrder(activeId, overId);
+                if (Array.isArray(derivedOrder) && derivedOrder.length > 0) {
+                    nextOrder = derivedOrder;
+                }
+            }
+        }
+
+        if (nextOrder.length === 0) return;
+        if (areIdOrdersEqual(nextOrder, liveOrder)) return;
+
+        reorderDraftIdsRef.current = nextOrder;
+        setReorderDraftIds(nextOrder);
+
         if (selectedScope === 'project' && selectedProjectId) {
             setProjectGridDraftIdsByProjectId((prev) => ({
                 ...prev,
                 [selectedProjectId]: nextOrder,
             }));
+            void persistProjectGridReorder(nextOrder, activeId || null);
             return;
         }
         void persistGridReorder(nextOrder, activeId || null);
-    }, [canUseGridReorder, orderedFilteredItems, persistGridReorder, selectedScope, selectedProjectId]);
+    }, [
+        canUseGridReorder,
+        orderedFilteredItems,
+        getNextDraftOrder,
+        persistGridReorder,
+        persistProjectGridReorder,
+        selectedScope,
+        selectedProjectId,
+    ]);
 
     const activeProjectCanvasDraft = useMemo(() => {
         if (selectedScope !== 'project' || !selectedProjectId) return {};
@@ -2251,7 +2496,7 @@ function App() {
             if (aKnown && bKnown && aIndex !== bIndex) return aIndex - bIndex;
             if (aKnown && !bKnown) return -1;
             if (!aKnown && bKnown) return 1;
-            return compareItemsForDisplay(a, b);
+            return compareItemsForDisplay(a, b, selectedScope);
         });
 
         const selectedTextItems = selectedItemsOrdered.filter(
@@ -2330,7 +2575,7 @@ function App() {
         } catch {
             setToast({ message: 'Failed to copy image', type: 'error' });
         }
-    }, [items, displayGridItems, selectedItems]);
+    }, [items, displayGridItems, selectedItems, selectedScope]);
 
     useEffect(() => {
         const handleCopyShortcut = (event) => {
