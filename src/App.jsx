@@ -68,6 +68,7 @@ const LOCAL_NAV_WORKSPACE_KEY = 'dreamlab_nav_workspace';
 const LOCAL_NAV_COLLECTION_KEY = 'dreamlab_nav_collection';
 const LOCAL_NAV_PROJECT_KEY = 'dreamlab_nav_project';
 const LOCAL_NAV_UPDATED_AT_KEY = 'dreamlab_nav_updated_at';
+const LOCAL_WORKSPACE_NAV_MEMORY_KEY = 'dreamlab_nav_workspace_memory_v1';
 
 function resolveAppBuildId() {
     const explicitBuildId = String(import.meta.env.VITE_APP_BUILD_ID || '').trim();
@@ -181,6 +182,88 @@ function writeLocalNavContext({
     }
 
     return payload;
+}
+
+function normalizeWorkspaceNavMemoryEntry(value) {
+    if (!value || typeof value !== 'object') return null;
+    return {
+        collectionId: normalizePersistedId(value.collectionId),
+        projectId: normalizePersistedId(value.projectId),
+        updatedAt: parsePersistedTimestamp(value.updatedAt),
+    };
+}
+
+function readWorkspaceNavMemory() {
+    try {
+        const raw = localStorage.getItem(LOCAL_WORKSPACE_NAV_MEMORY_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+        const normalized = {};
+        Object.entries(parsed).forEach(([workspaceId, value]) => {
+            const normalizedWorkspaceId = normalizePersistedId(workspaceId);
+            if (!normalizedWorkspaceId) return;
+            const normalizedEntry = normalizeWorkspaceNavMemoryEntry(value);
+            if (!normalizedEntry) return;
+            normalized[normalizedWorkspaceId] = normalizedEntry;
+        });
+        return normalized;
+    } catch {
+        return {};
+    }
+}
+
+function writeWorkspaceNavMemory(memoryByWorkspace = {}) {
+    try {
+        localStorage.setItem(LOCAL_WORKSPACE_NAV_MEMORY_KEY, JSON.stringify(memoryByWorkspace || {}));
+    } catch {
+        // Ignore local storage failures.
+    }
+}
+
+function resolveWorkspaceSelectionFromMemory(
+    workspaceId,
+    memoryEntry,
+    allProjects = [],
+    allCollections = []
+) {
+    const normalizedWorkspaceId = normalizePersistedId(workspaceId);
+    if (!normalizedWorkspaceId) return { collectionId: null, projectId: null };
+    const candidate = normalizeWorkspaceNavMemoryEntry(memoryEntry);
+    if (!candidate) return { collectionId: null, projectId: null };
+
+    if (candidate.collectionId === UNSORTED_COLLECTION_ID) {
+        return { collectionId: UNSORTED_COLLECTION_ID, projectId: null };
+    }
+
+    if (candidate.collectionId) {
+        const collection = allCollections.find((entry) => (
+            entry.id === candidate.collectionId
+            && getCollectionWorkspaceId(entry) === normalizedWorkspaceId
+        ));
+        if (collection) {
+            return {
+                collectionId: collection.id,
+                projectId: collection.projectId || null,
+            };
+        }
+    }
+
+    if (candidate.projectId) {
+        const project = allProjects.find((entry) => (
+            entry.id === candidate.projectId
+            && entry.workspaceId === normalizedWorkspaceId
+        ));
+        if (project) {
+            return {
+                collectionId: null,
+                projectId: project.id,
+            };
+        }
+    }
+
+    return { collectionId: null, projectId: null };
 }
 
 function getItemSortOrder(item) {
@@ -445,6 +528,7 @@ function App() {
     const [projectCanvasDraftByProjectId, setProjectCanvasDraftByProjectId] = useState({});
     const [projectIdToOpenCollectionComposer, setProjectIdToOpenCollectionComposer] = useState(undefined);
     const [lastUsedCollectionByProject, setLastUsedCollectionByProject] = useState({});
+    const [workspaceNavMemoryById, setWorkspaceNavMemoryById] = useState(() => readWorkspaceNavMemory());
     const canvasViewportRef = useRef(null);
     const suppressItemsRealtimeUntilRef = useRef(0);
     const reorderPersistTokenRef = useRef(0);
@@ -469,15 +553,48 @@ function App() {
         event.preventDefault();
     }, [viewMode]);
 
+    const persistWorkspaceNavMemory = useCallback((
+        workspaceId,
+        collectionId = null,
+        projectId = null,
+        updatedAt = Date.now()
+    ) => {
+        const normalizedWorkspaceId = normalizePersistedId(workspaceId);
+        if (!normalizedWorkspaceId) return;
+
+        const nextEntry = {
+            collectionId: normalizePersistedId(collectionId),
+            projectId: normalizePersistedId(projectId),
+            updatedAt: parsePersistedTimestamp(updatedAt) || Date.now(),
+        };
+
+        setWorkspaceNavMemoryById((prev) => {
+            const existing = prev[normalizedWorkspaceId];
+            if (
+                existing
+                && existing.collectionId === nextEntry.collectionId
+                && existing.projectId === nextEntry.projectId
+            ) {
+                return prev;
+            }
+            return {
+                ...prev,
+                [normalizedWorkspaceId]: nextEntry,
+            };
+        });
+    }, []);
+
     const persistLocalNavSelection = useCallback((workspaceId, collectionId = null, projectId = null) => {
         if (!workspaceId) return;
+        const updatedAt = Date.now();
+        persistWorkspaceNavMemory(workspaceId, collectionId, projectId, updatedAt);
         writeLocalNavContext({
             workspaceId,
             collectionId,
             projectId,
-            updatedAt: Date.now(),
+            updatedAt,
         });
-    }, []);
+    }, [persistWorkspaceNavMemory]);
 
     const workspaceCollections = useMemo(() => {
         if (!activeWorkspaceId) return [];
@@ -849,6 +966,22 @@ function App() {
         navRestoredRef.current = false;
         setIsNavHydrated(false);
     }, [user]);
+
+    useEffect(() => {
+        writeWorkspaceNavMemory(workspaceNavMemoryById);
+    }, [workspaceNavMemoryById]);
+
+    useEffect(() => {
+        if (!isNavHydrated) return;
+        if (!activeWorkspaceId) return;
+        persistWorkspaceNavMemory(activeWorkspaceId, selectedCollectionId, selectedProjectId, Date.now());
+    }, [
+        activeWorkspaceId,
+        selectedCollectionId,
+        selectedProjectId,
+        isNavHydrated,
+        persistWorkspaceNavMemory,
+    ]);
 
     // Persist active context whenever it changes
     useEffect(() => {
@@ -2903,10 +3036,26 @@ function App() {
                 workspaces={workspaces}
                 activeWorkspaceId={activeWorkspaceId}
                 onWorkspaceChange={(workspaceId) => {
-                    persistLocalNavSelection(workspaceId, null, null);
+                    persistWorkspaceNavMemory(
+                        activeWorkspaceId,
+                        selectedCollectionId,
+                        selectedProjectId,
+                        Date.now()
+                    );
+                    const rememberedSelection = resolveWorkspaceSelectionFromMemory(
+                        workspaceId,
+                        workspaceNavMemoryById[workspaceId],
+                        projects,
+                        collections
+                    );
+                    persistLocalNavSelection(
+                        workspaceId,
+                        rememberedSelection.collectionId,
+                        rememberedSelection.projectId
+                    );
                     setActiveWorkspaceId(workspaceId);
-                    setSelectedCollectionId(null);
-                    setSelectedProjectId(null);
+                    setSelectedCollectionId(rememberedSelection.collectionId);
+                    setSelectedProjectId(rememberedSelection.projectId);
                 }}
                 onAddWorkspace={async () => {
                     const name = prompt('Workspace Name:');

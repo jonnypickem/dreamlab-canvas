@@ -96,6 +96,7 @@ Before packaging a production zip:
 - All `storage.js` functions are async — every caller must `await`
 - Supabase RLS: `.insert().select().single()` needs both INSERT and SELECT policies
 - Reload-restore behavior depends on both local nav payload (`dreamlab_nav_context_v2`) and `active_contexts.updated_at`; stale schema can mask restore fixes
+- If schema assets are moved (e.g. `analysis_parameters` -> `analysis_and_prompting_schema`), update both frontend import paths and server runtime path resolution before expecting Vercel to deploy new fixes
 - Bottom toolbar positioning: use `absolute bottom-[46px]` (Tailwind), never `fixed` or inline styles
 - The `content.js` bridge uses `postMessage` — it does NOT write to localStorage directly
 - After reinstalling the extension, ALL open tabs need a hard refresh

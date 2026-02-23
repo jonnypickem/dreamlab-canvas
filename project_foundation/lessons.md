@@ -11,6 +11,9 @@
 - For restore arbitration, prefer context specificity (`collection > project > workspace`) before timestamp recency to avoid richer local context being overwritten by stale coarse DB context.
 - For reload-critical navigation UX, write local persistence synchronously inside explicit user navigation handlers (not only in deferred effects).
 - For provider-specific rich previews (for example X/Twitter), canonicalize incoming URLs before save and re-check using `og:url`/`twitter:url` fallback metadata.
+- When a bug appears unresolved after code changes, verify deployment/build health first; stale production bundles can mimic logic failures.
+- If foundational directories are relocated, update every runtime import/path consumer (frontend + server) before judging feature behavior.
+- For multi-workspace apps, store navigation memory per workspace and restore that scope on workspace switch; avoid global reset-to-all-items behavior.
 
 ## Corrections Log
 | Date | Issue | New Rule | Applied Where |
@@ -19,3 +22,5 @@
 | 2026-02-23 | Sidebar wrapper change caused layout to pin to top and broke bottom-anchored shortcuts. | Preserve parent flex context when introducing wrappers around full-height sidebars (`flex h-full`), then re-check bottom anchoring behavior. | `src/App.jsx` sidebar wrapper (`flex h-full`) |
 | 2026-02-23 | Reload from collection view still reset to first workspace/all items despite persisted context keys. | Replace fragmented nav persistence with normalized candidate restore (derive workspace/project from collection), specificity-first arbitration, and immediate local writes on explicit navigation actions. | `src/App.jsx`, `src/lib/storage.js`, `supabase-schema.sql` |
 | 2026-02-23 | Pasted X links in wrapped/non-canonical format rendered generic cards instead of tweet previews. | Parse URL candidates from path/query/hash, normalize to canonical tweet status URL, and reconcile with OG canonical URL before persisting link items. | `src/utils/tweetCard.js`, `src/App.jsx`, `api/og.js`, `background.js` |
+| 2026-02-23 | Navigation fix appeared broken, but the latest build never deployed because schema imports still pointed to removed directory. | Before re-architecting behavior, confirm production build/deploy status and resolve path/import regressions caused by directory moves. | `src/services/analysisSchemaRegistry.js`, `server/stageAQueueRuntime.js` |
+| 2026-02-23 | Switching workspaces dropped user into `All Items` instead of previous context for that workspace. | Persist and restore last selected project/collection per workspace (workspace-scoped memory), and validate remembered targets against live workspace data before applying. | `src/App.jsx` |

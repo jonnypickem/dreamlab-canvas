@@ -83,6 +83,8 @@ Current status theme:
 - App-shell navigation now supports foldable project/collection sidebar behavior with persistent user preference.
 - Reload restore now uses deterministic workspace/project/collection context arbitration with immediate local writes on explicit navigation actions.
 - X/Twitter link saves now normalize wrapped URLs into canonical status targets so rich preview rendering stays deterministic.
+- Production deployment is unblocked after schema path relocation fix; user-confirmed collection/workspace reload remembrance now works on deployed build.
+- Workspace switching now restores each workspace's own remembered project/collection context instead of resetting to `All Items`.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -159,6 +161,24 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.39.0] - 2026-02-23
+Key outcomes:
+- Added workspace-scoped nav memory (`dreamlab_nav_workspace_memory_v1`) in `src/App.jsx`.
+- Workspace switch now saves outgoing workspace selection and restores incoming workspace’s remembered project/collection when still valid.
+- Added normalization/validation to avoid restoring deleted or cross-workspace stale IDs.
+
+Net effect:
+- Cross-workspace navigation preserves user context continuity per workspace.
+
+### [0.38.0] - 2026-02-23
+Key outcomes:
+- Fixed build/deploy blocker by updating primitive schema paths to `analysis_and_prompting_schema` in both frontend registry and Stage A server runtime.
+- Added legacy fallback probe in Stage A runtime to prevent local environment regressions during path transition.
+- Confirmed prior navigation restore work was valid; production symptom was stale bundle from failed deploy.
+
+Net effect:
+- Vercel builds succeed again and reload remembrance behavior is confirmed working in production.
+
 ### [0.37.0] - 2026-02-23
 Key outcomes:
 - Added robust tweet URL canonicalization in both app and extension helpers (`src/utils/tweetCard.js`, `background.js`) with host expansion and wrapped-link candidate decoding.

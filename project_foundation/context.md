@@ -22,9 +22,48 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: X/Twitter link preview reliability hardening: canonical URL parsing from wrapped links, OG canonical URL reconciliation, and mixed-text clipboard URL extraction.
+-   **Last Major Change**: Workspace-scoped navigation memory: each workspace now restores its own last selected project/collection when switching, instead of resetting to `All Items`.
 
 ## Changelog
+
+### [0.39.0] - 2026-02-23
+#### Added
+- **Workspace-Scoped Navigation Memory** (`src/App.jsx`):
+  - Added persisted map key `dreamlab_nav_workspace_memory_v1` to remember `{projectId, collectionId}` per workspace.
+  - Added normalization/validation helpers for workspace-memory entries to avoid restoring stale/deleted targets.
+
+#### Changed
+- **Workspace Switch Behavior** (`src/App.jsx`):
+  - Switching workspaces now persists current workspace context before transition.
+  - Target workspace now restores remembered project/collection when valid.
+  - Default fallback to `All Items` now happens only when remembered target is missing/invalid.
+
+#### Fixed
+- **Cross-Workspace Context Loss**:
+  - Root cause: workspace switch handler hard-reset `selectedProjectId`/`selectedCollectionId` to `null`.
+  - Fix: restored per-workspace remembered context on switch and maintained local memory updates as navigation changes.
+
+#### Problems & Fixes
+- **Problem**: Navigating between workspaces dropped users into `All Items`, losing per-workspace context continuity.
+- **Cause**: nav persistence tracked only active global context, not workspace-specific last scope.
+- **Fix**: introduced workspace-scoped memory store + restore-on-switch logic with live-data validation.
+
+### [0.38.0] - 2026-02-23
+#### Changed
+- **Schema Path Relocation Hotfix for Build/Deploy** (`src/services/analysisSchemaRegistry.js`, `server/stageAQueueRuntime.js`):
+  - Updated primitive schema references from `analysis_parameters/primitive_schemas` to `analysis_and_prompting_schema/primitive_schemas`.
+  - Added legacy runtime fallback path probe in Stage A queue runtime for safer local compatibility.
+
+#### Fixed
+- **Production Build Blocker Preventing Latest Navigation Fixes from Shipping**:
+  - Root cause: unresolved imports to removed `analysis_parameters` directory caused `npm run build`/Vercel failures.
+  - Result: production remained on stale bundle, making navigation issue appear unresolved.
+  - Fix: corrected import/runtime paths, unblocked deployment, and confirmed collection/workspace reload remembrance works in deployed app.
+
+#### Problems & Fixes
+- **Problem**: User still saw reload reset to first workspace/all items despite prior nav restore patches.
+- **Cause**: Latest fixes were not deployed because build failed on relocated schema path imports.
+- **Fix**: Applied path relocation hotfix, redeployed, then validated behavior in production (issue resolved).
 
 ### [0.37.0] - 2026-02-23
 #### Added
