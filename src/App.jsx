@@ -1160,6 +1160,8 @@ function App() {
                 const normalizedCollectionId = selectedCollectionId === UNSORTED_COLLECTION_ID
                     ? null
                     : selectedCollectionId;
+                const localNavContext = readLocalNavContext();
+                const activeContextUpdatedAt = parsePersistedTimestamp(localNavContext.updatedAt);
                 window.postMessage({
                     type: responseChannel,
                     payload: {
@@ -1172,6 +1174,7 @@ function App() {
                             workspaceId: activeWorkspaceId,
                             projectId: selectedProjectId,
                             collectionId: normalizedCollectionId,
+                            updatedAt: activeContextUpdatedAt,
                         },
                     },
                 }, '*');

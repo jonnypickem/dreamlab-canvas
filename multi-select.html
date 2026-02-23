@@ -41,6 +41,7 @@
         </div>
         <button id="toggleViewBtn" class="btn btn-neutral" type="button">Show all images</button>
       </div>
+      <p id="scopeHint" class="scope-hint">Visible only: images currently on-screen in the source tab.</p>
 
       <div class="destination-grid">
         <div class="field">
@@ -66,13 +67,23 @@
           <label for="resolutionSelect">Resolution</label>
           <select id="resolutionSelect">
             <option value="any">Any size</option>
-            <option value="sm">400px+</option>
-            <option value="md">800px+</option>
-            <option value="lg">1200px+</option>
-            <option value="xl">1600px+</option>
-            <option value="known">Known dimensions only</option>
+            <option value="small">Small (400x300+)</option>
+            <option value="medium">Medium (640x480+)</option>
+            <option value="large">Large (1024x768+)</option>
+            <option value="icon">Icon (<=200x200)</option>
           </select>
         </div>
+      </div>
+
+      <div class="filters-row" aria-label="Image type filters">
+        <div id="typeFilters" class="type-filter-group" role="group" aria-label="Type filters">
+          <button type="button" class="type-chip" data-type-filter="high" aria-pressed="false">High image</button>
+          <button type="button" class="type-chip" data-type-filter="icon" aria-pressed="false">Icon</button>
+          <button type="button" class="type-chip" data-type-filter="profile" aria-pressed="false">Profile</button>
+          <button type="button" class="type-chip" data-type-filter="ad" aria-pressed="false">Ad</button>
+          <button type="button" class="type-chip" data-type-filter="other" aria-pressed="false">Other</button>
+        </div>
+        <button id="resetFiltersBtn" class="btn btn-neutral" type="button">Reset filters</button>
       </div>
     </section>
 
@@ -85,6 +96,7 @@
       <div class="footer-left">
         <button id="selectAllBtn" class="btn btn-neutral" type="button">Select all</button>
         <button id="deselectAllBtn" class="btn btn-neutral" type="button">Clear</button>
+        <span id="blockedSummary" class="blocked-summary" hidden></span>
       </div>
 
       <div class="footer-right">

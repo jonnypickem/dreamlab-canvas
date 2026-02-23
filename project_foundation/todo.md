@@ -7,6 +7,21 @@
 - [x] Verify behavior with tests, logs, or diffs.
 - [x] Summarize outcomes and remaining risks.
 
+## Current Task Plan (2026-02-23)
+- [x] Confirm current extension destination precedence and identify why web-app context changes are not adopted.
+- [x] Implement deterministic destination arbitration (web-app context vs extension-local destination) using recency metadata.
+- [x] Wire popup surfaces (floating widget + multi-select) to consume resolved destination state.
+- [x] Verify with targeted checks (`node --check`, grep/diff inspection) and capture behavior expectations.
+- [x] Update context/todo notes with results and remaining risks.
+
+## Current Task Plan (2026-02-23 - Image Review Reliability + Filtering Upgrade)
+- [x] Add persistent multi-select filter preferences in extension storage (`multiSelectPrefsV1`) with runtime get/set actions.
+- [x] Fix visible-vs-all scope semantics so visible sessions start from true on-screen images and never silently map to all-images.
+- [x] Implement classify -> filter -> sort pipeline for resolution prioritization and Google-style tier filters (`small`, `medium`, `large`, `icon`).
+- [x] Add deterministic type classification filters (`high`, `icon`, `profile`, `ad`, `other`) with persisted chip-state and reset.
+- [x] Add explicit selectability diagnostics with card-level reason badges, disabled controls for hard-unsavable URLs, and blocked-summary footer.
+- [x] Verify syntax/build checks and inspect diff contracts for scan fallback behavior.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -27,6 +42,18 @@
 - 2026-02-23: User-confirmed reload context memory works after successful deployment; prior restore failure was a stale deployment issue, not active runtime logic.
 - 2026-02-23: Implemented per-workspace selection memory in `src/App.jsx` so each workspace restores its own last project/collection when switching workspaces.
 - 2026-02-23: Added workspace memory local key `dreamlab_nav_workspace_memory_v1` with validation and fallback behavior for deleted/invalid targets.
+- 2026-02-23: Investigated extension destination drift where old extension collection could override newer web-app navigation context.
+- 2026-02-23: Added timestamp-aware destination arbitration in `background.js` so newer context wins (`activeContext.updatedAt` vs extension destination `updatedAt`).
+- 2026-02-23: Updated app bridge payload in `src/App.jsx` to include `activeContext.updatedAt` for extension recency decisions.
+- 2026-02-23: Updated `floating-widget.js` and `multi-select.js` to consume resolved destination from background org-data response.
+- 2026-02-23: Added auto-sync persistence of resolved destination in background for both org-data reads and capture-save resolution paths.
+- 2026-02-23: Added persistent multi-select preferences in `background.js` (`getMultiSelectPrefs` / `setMultiSelectPrefs`) backed by `multiSelectPrefsV1`.
+- 2026-02-23: Fixed capture-visible bootstrap to request `visible_with_total` and seed review state with true visible images only.
+- 2026-02-23: Hardened `scanSourceImages` scope contract to keep `visibleImages` strict and return all-image recovery sets separately.
+- 2026-02-23: Reworked `multi-select.js` pipeline to resolution-first sorting + tier filtering + type filtering with preference persistence and reset.
+- 2026-02-23: Added explicit unselectable diagnostics (reasons/badges/disabled controls) plus blocked-item summary in multi-select UI.
+- 2026-02-23: Updated `multi-select.html` and `multi-select.css` for scope hints, type chips, reset controls, and blocked-state visuals.
+- 2026-02-23: Fixed top-of-grid click dead-zone in image review by restoring standards-compliant hidden behavior (`[hidden] { display: none !important; }`) and disabling empty-state pointer interception.
 
 ## Review
 - Evidence to capture for each task:
@@ -70,9 +97,55 @@
 - Behavior expectation verified in code path:
   - on workspace switch, current workspace context is persisted,
   - target workspace restores remembered project/collection instead of forced `All Items`.
+- Evidence (2026-02-23):
+- Diff includes targeted extension destination sync changes in:
+  - `background.js`
+  - `src/App.jsx`
+  - `floating-widget.js`
+  - `multi-select.js`
+- Root-cause confirmed in code: `sanitizeDestination()` stamped `updatedAt: Date.now()` on every read, preventing true recency arbitration and effectively preserving stale extension preference precedence.
+- Validation commands passed:
+  - `node --check background.js`
+  - `node --check floating-widget.js`
+  - `node --check multi-select.js`
+  - `npm run build`
+- Expected behavior from code path:
+  - if web-app nav context is newer, extension destination updates to app context,
+  - if extension destination is newer (and web-app unchanged), extension selection remains in effect across sites.
+- Evidence (2026-02-23):
+- Diff includes targeted image-review reliability changes in:
+  - `background.js`
+  - `content.js`
+  - `multi-select.js`
+  - `multi-select.html`
+  - `multi-select.css`
+- Validation commands passed:
+  - `node --check background.js`
+  - `node --check content.js`
+  - `node --check multi-select.js`
+  - `npm run build`
+- Expected behavior from code path:
+  - session opens in strict visible scope with visible-only images,
+  - all-images scan loads only when toggled or explicit recovery path is needed,
+  - results are sorted by resolution priority,
+  - type and resolution filters persist across review reopen until reset,
+  - blocked (hard-unsavable) images are disabled with explicit reasons instead of silent failure.
+- Additional evidence (2026-02-23):
+  - Root cause of “first rows not selectable” traced to `.empty-state` overriding browser hidden behavior (`display:grid`), leaving an overlay that intercepted clicks near top of grid.
+  - Fix applied in `multi-select.css`:
+    - global `[hidden] { display: none !important; }`
+    - `.empty-state { pointer-events: none; }`
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).
 - Final summary: Navigation now remembers context per workspace during switching, not only across reloads; deploy blocker and preview canonicalization fixes remain shipped.
 - Remaining risks:
 - Monitor for any remaining stale-deploy drift between app and extension surfaces.
+- Status: Completed (extension destination recency sync between web app and extension surfaces).
+- Final summary: Extension destination now reconciles app context and extension-local selection by timestamp, then syncs the resolved destination so manual extension changes persist until a newer web-app navigation change occurs.
+- Remaining risks:
+- Project-only active context (no selected collection) still maps to workspace-level destination in extension UI because the widget/multi-select surfaces expose workspace+collection selectors only.
+- Status: Completed (extension image-review reliability + filtering upgrade).
+- Final summary: Multi-select now starts from true visible results, supports persistent resolution/type filters with high-resolution-first ordering, and exposes explicit blocked-source reasons for unselectable items.
+- Remaining risks:
+- Type heuristics (`ad`/`profile`/`icon`) are deterministic but imperfect and may need keyword/size tuning based on real-page edge cases.

@@ -85,6 +85,8 @@ Current status theme:
 - X/Twitter link saves now normalize wrapped URLs into canonical status targets so rich preview rendering stays deterministic.
 - Production deployment is unblocked after schema path relocation fix; user-confirmed collection/workspace reload remembrance now works on deployed build.
 - Workspace switching now restores each workspace's own remembered project/collection context instead of resetting to `All Items`.
+- Extension destination sync now reconciles app active context vs extension-local selection by recency metadata, then persists resolved destination for cross-site continuity.
+- Extension image review now keeps visible/all scope strict, prioritizes high-resolution assets first, and exposes explicit blocked-source reasons for unselectable items.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -161,6 +163,29 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.41.0] - 2026-02-23
+Key outcomes:
+- Added persistent image-review filter preferences in extension storage (`multiSelectPrefsV1`) with background runtime get/set actions.
+- Fixed capture bootstrap and scan contracts so visible sessions start from true on-screen candidates (`visible_with_total`) instead of all-images fallback.
+- Added Google-style resolution tiers (`small`, `medium`, `large`, `icon`) with default resolution-priority sorting.
+- Added deterministic type classification filters (`high`, `icon`, `profile`, `ad`, `other`) with persistent chip state and reset behavior.
+- Added explicit selectability diagnostics (disabled blocked items + reason badges + blocked summary) for hard-unsavable sources.
+- Fixed top-of-grid click dead-zone by enforcing author-level hidden rendering and disabling empty-state pointer interception.
+
+Net effect:
+- Image review behavior is predictable: visible mode stays visible-only, high-resolution images surface first, filter preferences persist, and blocked items no longer fail silently.
+
+### [0.40.0] - 2026-02-23
+Key outcomes:
+- Added `activeContext.updatedAt` to app org-data bridge payload (`src/App.jsx`).
+- Reworked extension destination arbitration in `background.js` to choose newer context between web-app and extension state.
+- Preserved persisted destination timestamps on read and only stamped `updatedAt` on explicit destination writes.
+- Synced resolved destination back into extension storage during org-data reads and save-path destination resolution.
+- Updated floating widget and multi-select to use resolved destination returned by background.
+
+Net effect:
+- If app context changed more recently, extension adopts it; if extension selection is newer and app is unchanged, extension selection persists across sites.
+
 ### [0.39.0] - 2026-02-23
 Key outcomes:
 - Added workspace-scoped nav memory (`dreamlab_nav_workspace_memory_v1`) in `src/App.jsx`.

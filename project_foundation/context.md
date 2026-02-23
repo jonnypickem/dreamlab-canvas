@@ -22,9 +22,94 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Workspace-scoped navigation memory: each workspace now restores its own last selected project/collection when switching, instead of resetting to `All Items`.
+-   **Last Major Change**: Extension image review now enforces strict visible/all scope semantics, high-resolution-first ordering, persistent resolution/type filters, and explicit blocked-source diagnostics.
 
 ## Changelog
+
+### [0.41.0] - 2026-02-23
+#### Added
+- **Persistent Multi-Select Filter Preferences** (`background.js`, `multi-select.js`):
+  - Added `multiSelectPrefsV1` storage contract for image-review filter state.
+  - Added runtime actions:
+    - `getMultiSelectPrefs`
+    - `setMultiSelectPrefs`
+  - Persisted settings now include:
+    - `resolutionTier`: `any | small | medium | large | icon`
+    - `typeFilters`: `high | icon | profile | ad | other`
+    - `sortMode`: `resolution_desc`
+
+- **Type Filter UI + Reset Control** (`multi-select.html`, `multi-select.css`, `multi-select.js`):
+  - Added type chips (`High image`, `Icon`, `Profile`, `Ad`, `Other`).
+  - Added `Reset filters` control that restores defaults and persists immediately.
+
+#### Changed
+- **Visible vs All Scan Semantics** (`background.js`, `content.js`):
+  - `capture-visible` now initializes review using `visible_with_total` scan instead of `all`.
+  - Review session bootstrap now stores true visible candidates in `multiSelectState.visibleImages`.
+  - `scanSourceImages` keeps `visibleImages` strict and returns all-scope recovery images separately.
+  - Removed behavior that silently treated all-image fallback as visible scope.
+
+- **Image Review Pipeline** (`multi-select.js`):
+  - Reworked candidate flow to `classify -> filter -> sort`.
+  - Added resolution-tier filtering:
+    - `Small` >= `400x300`
+    - `Medium` >= `640x480`
+    - `Large` >= `1024x768`
+    - `Icon` <= `200x200`
+  - Added default resolution-priority sorting:
+    - known dimensions first
+    - larger pixel area first
+    - larger max dimension first
+    - stable key tie-break
+
+#### Fixed
+- **Broken Scope Toggle Behavior**:
+  - Root cause: visible bootstrap/fallback paths could seed review with all-image sets.
+  - Fix: strict visible-first contract in scan/request/session paths and explicit all-scope loading on toggle.
+
+- **Silent Unselectable Items** (`multi-select.js`, `multi-select.css`):
+  - Added deterministic selectability evaluation and reason badges/tooltips for blocked sources.
+  - Hard-unsavable URLs (`blob:`, invalid/unsupported schemes, invalid URL) are now visibly disabled.
+  - Preview-blocked but saveable URLs remain selectable.
+
+- **Top-of-Grid Click Dead Zone in Image Review** (`multi-select.css`):
+  - Root cause: `.empty-state` declared `display: grid`, which overrode browser hidden defaults and left a click-intercepting overlay mounted.
+  - Fix: added `[hidden] { display: none !important; }` and `pointer-events: none` on `.empty-state`.
+
+#### Problems & Fixes
+- **Problem**: Image review listed all assets even in visible mode and provided no reason when certain images could not be selected.
+- **Cause**: Scope fallbacks collapsed visible/all semantics; selectability checks existed implicitly without user-facing diagnostics.
+- **Fix**: Enforced strict scope contracts, added persistent filtering/sorting controls, and surfaced blocked-source reasons directly in card UI and footer summary.
+- **Problem**: Users could not select cards in the top rows despite valid image sources.
+- **Cause**: hidden empty-state overlay still captured pointer events because authored CSS overrode hidden display behavior.
+- **Fix**: enforced standards-consistent hidden rendering and made empty-state non-interactive.
+
+### [0.40.0] - 2026-02-23
+#### Added
+- **Active Context Recency Metadata in Extension Bridge** (`src/App.jsx`):
+  - `DREAMLAB_GET_ORG_DATA` payload now includes `activeContext.updatedAt` sourced from local nav persistence.
+  - Extension can now compare app context freshness against extension-local destination freshness.
+
+#### Changed
+- **Extension Destination Arbitration** (`background.js`):
+  - Reworked destination resolution to compare web-app-derived destination vs extension-local destination by `updatedAt`.
+  - Added validation of candidate destinations against live workspace/project/collection snapshot before selection.
+  - If app context is newer, extension destination now auto-syncs to app context.
+  - If extension selection is newer and app context is unchanged, extension selection is preserved.
+
+- **Popup Surface Destination Hydration** (`floating-widget.js`, `multi-select.js`):
+  - Both surfaces now consume background-resolved `destination` from org-data response.
+  - Prevents stale local UI selection from overriding newer app context when reopening extension surfaces.
+
+#### Fixed
+- **Stale Extension Destination Overriding Newer Web-App Context**:
+  - Root cause: destination sanitize path rewrote `updatedAt` during reads (`Date.now()`), breaking meaningful recency arbitration and effectively pinning precedence to prior extension selection.
+  - Fix: preserve stored timestamps on read, stamp only on explicit extension writes, and arbitrate using app `activeContext.updatedAt` vs destination `updatedAt`.
+
+#### Problems & Fixes
+- **Problem**: After changing project/collection in the web app, extension surfaces could keep using the old extension-selected destination on other sites.
+- **Cause**: No reliable cross-surface recency arbitration; read-path timestamp mutation invalidated timestamp comparisons.
+- **Fix**: Added recency metadata to app bridge + timestamp-safe destination sanitize + deterministic background arbitration and sync.
 
 ### [0.39.0] - 2026-02-23
 #### Added

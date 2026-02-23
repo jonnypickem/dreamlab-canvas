@@ -258,6 +258,9 @@
     state.activeContext = response.activeContext && typeof response.activeContext === 'object'
       ? response.activeContext
       : {};
+    state.destination = response.destination && typeof response.destination === 'object'
+      ? response.destination
+      : state.destination;
     state.appBuildId = typeof response.appBuildId === 'string' ? response.appBuildId : '';
     if (state.appBuildId && state.appBuildId !== previousAppBuildId) {
       console.info('[Dreamlab Widget] Connected app build:', state.appBuildId);

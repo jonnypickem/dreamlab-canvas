@@ -8,6 +8,7 @@ const DREAMLAB_APP_URLS = [
 const STORAGE_KEYS = {
   pendingCapture: 'pendingCapture',
   multiSelectState: 'multiSelectState',
+  multiSelectPrefs: 'multiSelectPrefsV1',
   widgetEnabled: 'widgetEnabled',
   floatingWidgetPrefs: 'floatingWidgetPrefs',
   captureDestination: 'captureDestination',
@@ -20,6 +21,8 @@ const ACTIONS = {
   openMultiSelect: 'openMultiSelect',
   getDreamlabOrgData: 'getDreamlabOrgData',
   getMultiSelectState: 'getMultiSelectState',
+  getMultiSelectPrefs: 'getMultiSelectPrefs',
+  setMultiSelectPrefs: 'setMultiSelectPrefs',
   scanSourceImages: 'scanSourceImages',
   executeCommand: 'executeCommand',
   getShortcutBindings: 'getShortcutBindings',
@@ -183,6 +186,14 @@ const DEFAULT_WIDGET_BEHAVIOR_SETTINGS = Object.freeze({
   offsetX: 20,
   offsetY: 20,
 });
+const MULTI_SELECT_ALLOWED_RESOLUTION_TIERS = new Set(['any', 'small', 'medium', 'large', 'icon']);
+const MULTI_SELECT_ALLOWED_TYPE_FILTERS = new Set(['high', 'icon', 'profile', 'ad', 'other']);
+const DEFAULT_MULTI_SELECT_PREFS = Object.freeze({
+  resolutionTier: 'any',
+  typeFilters: [],
+  sortMode: 'resolution_desc',
+  updatedAt: 0,
+});
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -201,19 +212,45 @@ function sanitizeWidgetPrefs(input) {
   };
 }
 
-function sanitizeDestination(input) {
+function sanitizeTimestamp(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.floor(parsed);
+}
+
+function sanitizeDestination(input, options = {}) {
   const value = isObject(input) ? input : {};
+  const normalizedOptions = isObject(options) ? options : {};
   const workspaceId = typeof value.workspaceId === 'string' && value.workspaceId.trim()
     ? value.workspaceId.trim()
     : null;
   const collectionId = typeof value.collectionId === 'string' && value.collectionId.trim()
     ? value.collectionId.trim()
     : null;
+  const parsedUpdatedAt = sanitizeTimestamp(
+    value.updatedAt
+      || value.updated_at
+      || value.timestamp
+  );
+  const fallbackUpdatedAt = sanitizeTimestamp(normalizedOptions.fallbackUpdatedAt);
+  const updatedAt = normalizedOptions.touch === true
+    ? Date.now()
+    : (parsedUpdatedAt || fallbackUpdatedAt || 0);
   return {
     workspaceId,
     collectionId,
-    updatedAt: Date.now(),
+    updatedAt,
   };
+}
+
+function destinationsEqual(a, b, options = {}) {
+  const includeUpdatedAt = options.includeUpdatedAt !== false;
+  const left = sanitizeDestination(a);
+  const right = sanitizeDestination(b);
+  if (left.workspaceId !== right.workspaceId) return false;
+  if (left.collectionId !== right.collectionId) return false;
+  if (!includeUpdatedAt) return true;
+  return left.updatedAt === right.updatedAt;
 }
 
 function getCollectionWorkspaceId(collection, projects) {
@@ -262,6 +299,38 @@ function sanitizeWidgetBehaviorSettings(input) {
     positionPreset,
     offsetX,
     offsetY,
+  };
+}
+
+function sanitizeMultiSelectPrefs(input, options = {}) {
+  const value = isObject(input) ? input : {};
+  const normalizedOptions = isObject(options) ? options : {};
+
+  const resolutionTier = MULTI_SELECT_ALLOWED_RESOLUTION_TIERS.has(value.resolutionTier)
+    ? value.resolutionTier
+    : DEFAULT_MULTI_SELECT_PREFS.resolutionTier;
+
+  const typeFiltersRaw = Array.isArray(value.typeFilters) ? value.typeFilters : [];
+  const typeFilterSet = new Set();
+  typeFiltersRaw.forEach((entry) => {
+    const token = String(entry || '').trim().toLowerCase();
+    if (MULTI_SELECT_ALLOWED_TYPE_FILTERS.has(token)) typeFilterSet.add(token);
+  });
+
+  const sortMode = value.sortMode === 'resolution_desc'
+    ? 'resolution_desc'
+    : DEFAULT_MULTI_SELECT_PREFS.sortMode;
+
+  const parsedUpdatedAt = sanitizeTimestamp(value.updatedAt);
+  const updatedAt = normalizedOptions.touch === true
+    ? Date.now()
+    : (parsedUpdatedAt || DEFAULT_MULTI_SELECT_PREFS.updatedAt);
+
+  return {
+    resolutionTier,
+    typeFilters: [...typeFilterSet],
+    sortMode,
+    updatedAt,
   };
 }
 
@@ -1527,6 +1596,17 @@ async function setWidgetPrefs(input) {
   return prefs;
 }
 
+async function getMultiSelectPrefs() {
+  const stored = await getStorage(STORAGE_KEYS.multiSelectPrefs);
+  return sanitizeMultiSelectPrefs(stored?.[STORAGE_KEYS.multiSelectPrefs]);
+}
+
+async function setMultiSelectPrefs(input) {
+  const prefs = sanitizeMultiSelectPrefs(input, { touch: true });
+  await setStorage({ [STORAGE_KEYS.multiSelectPrefs]: prefs });
+  return prefs;
+}
+
 async function getCaptureDestination() {
   const stored = await getStorage(STORAGE_KEYS.captureDestination);
   const hasStoredValue = Object.prototype.hasOwnProperty.call(stored || {}, STORAGE_KEYS.captureDestination);
@@ -1536,7 +1616,7 @@ async function getCaptureDestination() {
 }
 
 async function setCaptureDestination(input) {
-  const destination = sanitizeDestination(input);
+  const destination = sanitizeDestination(input, { touch: true });
   await setStorage({ [STORAGE_KEYS.captureDestination]: destination });
   return destination;
 }
@@ -1660,66 +1740,125 @@ async function getDreamlabOrgSnapshot(targetTabId = null) {
   }
 }
 
-function resolveDestinationFromSnapshot(storedDestination, snapshot) {
-  if (!snapshot) return sanitizeDestination(null);
-  const activeContext = isObject(snapshot.activeContext) ? snapshot.activeContext : {};
-  const preferred = sanitizeDestination(storedDestination);
-  const workspaces = Array.isArray(snapshot.workspaces) ? snapshot.workspaces : [];
-  const collections = Array.isArray(snapshot.collections) ? snapshot.collections : [];
-  const projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
-  const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+function buildDestinationFromActiveContext(activeContext, workspaces, projects, collections) {
+  const context = isObject(activeContext) ? activeContext : {};
+  const workspaceIds = new Set(
+    (Array.isArray(workspaces) ? workspaces : [])
+      .map((workspace) => workspace?.id)
+      .filter(Boolean)
+  );
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const safeCollections = Array.isArray(collections) ? collections : [];
 
-  const activeCollection = collections.find((collection) => collection.id === activeContext.collectionId) || null;
+  const activeCollection = safeCollections.find((collection) => collection.id === context.collectionId) || null;
   const activeCollectionWorkspaceId = activeCollection
-    ? getCollectionWorkspaceId(activeCollection, projects)
-    : null;
-  const activeWorkspaceId = workspaceIds.has(activeContext.workspaceId)
-    ? activeContext.workspaceId
+    ? getCollectionWorkspaceId(activeCollection, safeProjects)
     : null;
 
-  const fallbackDestination = sanitizeDestination({
-    workspaceId: activeCollectionWorkspaceId || activeWorkspaceId || null,
+  const activeProject = safeProjects.find((project) => project.id === context.projectId) || null;
+  const activeProjectWorkspaceId = workspaceIds.has(activeProject?.workspaceId)
+    ? activeProject.workspaceId
+    : null;
+
+  const activeWorkspaceId = workspaceIds.has(context.workspaceId)
+    ? context.workspaceId
+    : null;
+
+  return sanitizeDestination({
+    workspaceId: activeCollectionWorkspaceId || activeProjectWorkspaceId || activeWorkspaceId || null,
     collectionId: activeCollection ? activeCollection.id : null,
+    updatedAt: context.updatedAt,
   });
+}
 
-  if (!preferred.workspaceId && !preferred.collectionId) {
-    return fallbackDestination;
-  }
+function validateDestinationAgainstSnapshot(destination, workspaces, projects, collections) {
+  const candidate = sanitizeDestination(destination);
+  const workspaceIds = new Set(
+    (Array.isArray(workspaces) ? workspaces : [])
+      .map((workspace) => workspace?.id)
+      .filter(Boolean)
+  );
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const safeCollections = Array.isArray(collections) ? collections : [];
 
-  let resolvedCollection = null;
-  if (preferred.collectionId) {
-    resolvedCollection = collections.find((collection) => collection.id === preferred.collectionId) || null;
-    if (!resolvedCollection) return fallbackDestination;
-  }
-
-  const resolvedWorkspaceIdFromCollection = resolvedCollection
-    ? getCollectionWorkspaceId(resolvedCollection, projects)
-    : null;
-  const resolvedWorkspaceId = resolvedWorkspaceIdFromCollection || preferred.workspaceId || null;
-
-  if (!resolvedWorkspaceId || !workspaces.some((workspace) => workspace.id === resolvedWorkspaceId)) {
-    return fallbackDestination;
-  }
-
-  if (resolvedCollection) {
-    const collectionWorkspaceId = getCollectionWorkspaceId(resolvedCollection, projects);
-    if (collectionWorkspaceId && collectionWorkspaceId !== resolvedWorkspaceId) return fallbackDestination;
+  if (candidate.collectionId) {
+    const selectedCollection = safeCollections.find((collection) => collection.id === candidate.collectionId) || null;
+    if (!selectedCollection) return null;
+    const workspaceIdFromCollection = getCollectionWorkspaceId(selectedCollection, safeProjects);
+    if (!workspaceIdFromCollection || !workspaceIds.has(workspaceIdFromCollection)) return null;
+    if (candidate.workspaceId && candidate.workspaceId !== workspaceIdFromCollection) return null;
     return sanitizeDestination({
-      workspaceId: resolvedWorkspaceId,
-      collectionId: resolvedCollection.id,
+      workspaceId: workspaceIdFromCollection,
+      collectionId: selectedCollection.id,
+      updatedAt: candidate.updatedAt,
     });
   }
 
+  if (candidate.workspaceId && !workspaceIds.has(candidate.workspaceId)) {
+    return null;
+  }
+
   return sanitizeDestination({
-    workspaceId: resolvedWorkspaceId,
+    workspaceId: candidate.workspaceId || null,
     collectionId: null,
+    updatedAt: candidate.updatedAt,
   });
+}
+
+function resolveDestinationFromSnapshot(storedDestination, snapshot) {
+  const preferred = sanitizeDestination(storedDestination);
+  if (!snapshot) return preferred;
+
+  const workspaces = Array.isArray(snapshot.workspaces) ? snapshot.workspaces : [];
+  const collections = Array.isArray(snapshot.collections) ? snapshot.collections : [];
+  const projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+  const activeContext = isObject(snapshot.activeContext) ? snapshot.activeContext : {};
+
+  const preferredCandidate = validateDestinationAgainstSnapshot(preferred, workspaces, projects, collections);
+  const appCandidateRaw = buildDestinationFromActiveContext(activeContext, workspaces, projects, collections);
+  const appCandidate = validateDestinationAgainstSnapshot(appCandidateRaw, workspaces, projects, collections);
+
+  if (!preferredCandidate && !appCandidate) {
+    return sanitizeDestination(null);
+  }
+  if (!preferredCandidate) {
+    return appCandidate;
+  }
+  if (!appCandidate) {
+    return preferredCandidate;
+  }
+
+  const preferredHasScope = Boolean(preferredCandidate.workspaceId || preferredCandidate.collectionId);
+  const appHasScope = Boolean(appCandidate.workspaceId || appCandidate.collectionId);
+  if (!preferredHasScope && appHasScope) return appCandidate;
+  if (!appHasScope && preferredHasScope) return preferredCandidate;
+
+  if (preferredCandidate.updatedAt !== appCandidate.updatedAt) {
+    return appCandidate.updatedAt > preferredCandidate.updatedAt
+      ? appCandidate
+      : preferredCandidate;
+  }
+
+  if (destinationsEqual(preferredCandidate, appCandidate, { includeUpdatedAt: false })) {
+    return preferredCandidate;
+  }
+
+  // If timestamps tie, preserve explicit extension selection for continuity.
+  return preferredCandidate;
 }
 
 async function resolveEffectiveCaptureDestination(targetTabId = null) {
   const storedDestination = await getCaptureDestination();
   const snapshot = await getDreamlabOrgSnapshot(targetTabId);
-  return resolveDestinationFromSnapshot(storedDestination, snapshot);
+  const resolvedDestination = resolveDestinationFromSnapshot(storedDestination, snapshot);
+  if (!destinationsEqual(storedDestination, resolvedDestination)) {
+    try {
+      await setStorage({ [STORAGE_KEYS.captureDestination]: resolvedDestination });
+    } catch {
+      // Ignore destination sync write errors; save flow should still continue.
+    }
+  }
+  return resolvedDestination;
 }
 
 function applyDestinationToItem(item, destination) {
@@ -2633,10 +2772,20 @@ async function requestImageScan(tabId, scope = 'visible') {
   return response;
 }
 
-function normalizeScanImages(scan) {
-  const visibleImages = Array.isArray(scan?.visibleImages) ? scan.visibleImages : [];
-  const allImages = Array.isArray(scan?.images) ? scan.images : [];
-  const totalCount = Number(scan?.totalCount || (allImages.length || visibleImages.length || 0));
+function normalizeScanImages(scan, scope = '') {
+  const normalizedScope = String(scope || '').trim().toLowerCase();
+  const visibleImages = Array.isArray(scan?.visibleImages)
+    ? scan.visibleImages
+    : (normalizedScope === 'visible' ? (Array.isArray(scan?.images) ? scan.images : []) : []);
+  const allImages = Array.isArray(scan?.images)
+    ? scan.images
+    : (normalizedScope === 'all' ? visibleImages : []);
+  const totalCount = Number(
+    scan?.totalCount
+      || (normalizedScope === 'all'
+        ? (allImages.length || visibleImages.length || 0)
+        : (visibleImages.length || allImages.length || 0))
+  );
   return { visibleImages, allImages, totalCount };
 }
 
@@ -2933,14 +3082,14 @@ async function executeCommandFromTab(command, tabId) {
     let chosenScanImages = { visibleImages: [], allImages: [], totalCount: 0 };
 
     try {
-      chosenScan = await requestImageScan(tab.id, 'all');
-      chosenScanImages = normalizeScanImages(chosenScan);
+      chosenScan = await requestImageScan(tab.id, 'visible_with_total');
+      chosenScanImages = normalizeScanImages(chosenScan, 'visible_with_total');
     } catch {
       // Try fallback tabs below.
     }
 
     const shouldTryFallbackTabs = !chosenScan
-      || chosenScanImages.allImages.length === 0
+      || chosenScanImages.visibleImages.length === 0
       || isLikelyTrackingOrAssetUrl(chosenScan.sourceUrl || tab.url || '');
 
     if (shouldTryFallbackTabs) {
@@ -2949,15 +3098,22 @@ async function executeCommandFromTab(command, tabId) {
 
       for (const candidate of fallbackTabs.slice(0, maxCandidates)) {
         try {
-          const candidateScan = await requestImageScan(candidate.id, 'all');
-          const candidateImages = normalizeScanImages(candidateScan);
-          if (candidateImages.allImages.length > chosenScanImages.allImages.length) {
+          const candidateScan = await requestImageScan(candidate.id, 'visible_with_total');
+          const candidateImages = normalizeScanImages(candidateScan, 'visible_with_total');
+          if (candidateImages.visibleImages.length > chosenScanImages.visibleImages.length) {
+            chosenTab = candidate;
+            chosenScan = candidateScan;
+            chosenScanImages = candidateImages;
+          } else if (
+            candidateImages.visibleImages.length === chosenScanImages.visibleImages.length
+            && candidateImages.totalCount > chosenScanImages.totalCount
+          ) {
             chosenTab = candidate;
             chosenScan = candidateScan;
             chosenScanImages = candidateImages;
           }
 
-          const hasGoodCoverage = candidateImages.allImages.length >= 12;
+          const hasGoodCoverage = candidateImages.visibleImages.length >= 6 || candidateImages.totalCount >= 12;
           const looksLikePage = !isLikelyTrackingOrAssetUrl(candidateScan.sourceUrl || candidate.url || '');
           if (hasGoodCoverage && looksLikePage) break;
         } catch {
@@ -2966,12 +3122,12 @@ async function executeCommandFromTab(command, tabId) {
       }
     }
 
-    const allImages = chosenScanImages.allImages;
-    const totalCount = chosenScanImages.totalCount || allImages.length;
+    const visibleImages = chosenScanImages.visibleImages;
+    const totalCount = chosenScanImages.totalCount || visibleImages.length;
     await openMultiSelectWindow({
       sourceTabId: chosenTab.id,
       sourceUrl: chosenScan?.sourceUrl || chosenTab.url || '',
-      visibleImages: allImages,
+      visibleImages,
       totalImagesCount: totalCount,
     });
     return;
@@ -3572,20 +3728,52 @@ async function handleRuntimeMessage(request, sender) {
         return { success: false, error: response?.error || 'Could not load Dreamlab organization data.' };
       }
 
+      const workspaces = Array.isArray(response.workspaces) ? response.workspaces : [];
+      const projects = Array.isArray(response.projects) ? response.projects : [];
+      const collections = Array.isArray(response.collections) ? response.collections : [];
+      const activeContext = isObject(response.activeContext) ? response.activeContext : {};
+
+      const storedDestination = await getCaptureDestination();
+      const resolvedDestination = resolveDestinationFromSnapshot(storedDestination, {
+        workspaces,
+        projects,
+        collections,
+        activeContext,
+      });
+
+      if (!destinationsEqual(storedDestination, resolvedDestination)) {
+        try {
+          await setStorage({ [STORAGE_KEYS.captureDestination]: resolvedDestination });
+        } catch {
+          // Non-fatal: org data can still be returned even if local sync write fails.
+        }
+      }
+
       return {
         success: true,
         sourceTabId: tab.id,
         appBuildId: typeof response.appBuildId === 'string' ? response.appBuildId : '',
-        workspaces: response.workspaces || [],
-        projects: response.projects || [],
-        collections: response.collections || [],
-        activeContext: response.activeContext || {},
+        workspaces,
+        projects,
+        collections,
+        activeContext,
+        destination: resolvedDestination,
       };
     }
 
     case ACTIONS.getMultiSelectState: {
       const stored = await getStorage(STORAGE_KEYS.multiSelectState);
       return { success: true, state: stored?.[STORAGE_KEYS.multiSelectState] || null };
+    }
+
+    case ACTIONS.getMultiSelectPrefs: {
+      const prefs = await getMultiSelectPrefs();
+      return { success: true, prefs };
+    }
+
+    case ACTIONS.setMultiSelectPrefs: {
+      const prefs = await setMultiSelectPrefs(request?.prefs);
+      return { success: true, prefs };
     }
 
     case ACTIONS.executeCommand: {
@@ -3705,7 +3893,8 @@ async function handleRuntimeMessage(request, sender) {
 
       const requestedScope = request.scope || 'visible';
       let scan = await requestImageScan(sourceTabId, requestedScope);
-      let { visibleImages, allImages, totalCount } = normalizeScanImages(scan);
+      let { visibleImages, allImages, totalCount } = normalizeScanImages(scan, requestedScope);
+      let recoveredAllImages = [];
 
       const shouldFallbackToAll = (requestedScope === 'visible' || requestedScope === 'visible_with_total')
         && visibleImages.length === 0
@@ -3714,11 +3903,15 @@ async function handleRuntimeMessage(request, sender) {
       if (shouldFallbackToAll) {
         try {
           const fallbackScan = await requestImageScan(sourceTabId, 'all');
-          const fallback = normalizeScanImages(fallbackScan);
+          const fallback = normalizeScanImages(fallbackScan, 'all');
           if (fallback.allImages.length > 0) {
-            scan = fallbackScan;
-            allImages = fallback.allImages;
-            visibleImages = fallback.allImages;
+            recoveredAllImages = fallback.allImages;
+            if (!scan?.sourceUrl && fallbackScan?.sourceUrl) {
+              scan = {
+                ...(isObject(scan) ? scan : {}),
+                sourceUrl: fallbackScan.sourceUrl,
+              };
+            }
             totalCount = fallback.totalCount || fallback.allImages.length;
           }
         } catch {
@@ -3726,11 +3919,16 @@ async function handleRuntimeMessage(request, sender) {
         }
       }
 
+      // Keep visible scope strict: only return all-scope images for explicit all scans or recovery sets.
+      const fallbackAllImages = recoveredAllImages.length > 0
+        ? recoveredAllImages
+        : (visibleImages.length === 0 ? allImages : []);
+
       return {
         success: true,
         sourceTabId,
         sourceUrl: scan.sourceUrl || stored?.[STORAGE_KEYS.multiSelectState]?.sourceUrl || '',
-        images: allImages,
+        images: requestedScope === 'all' ? allImages : fallbackAllImages,
         visibleImages,
         totalCount,
       };

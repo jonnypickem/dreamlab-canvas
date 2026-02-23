@@ -558,17 +558,18 @@ function scanPageImages(scope = 'visible') {
     if (scope === 'visible_with_total') {
       const visibleImages = getVisibleImages();
       let totalCount = getAllImages().length;
-      let visibleWithFallback = visibleImages;
+      let recoveredAllImages = [];
 
       if (visibleImages.length === 0 && totalCount === 0) {
         const fallbackImages = await getAllImagesWithScroll();
         totalCount = fallbackImages.length;
-        visibleWithFallback = fallbackImages;
+        recoveredAllImages = fallbackImages;
       }
 
       return {
         success: true,
-        visibleImages: visibleWithFallback,
+        visibleImages,
+        images: recoveredAllImages,
         totalCount,
         sourceUrl: window.location.href,
       };
@@ -827,6 +828,8 @@ function getNetworkLoadedImageCandidates() {
       displayWidth: hintedWidth,
       displayHeight: hintedHeight,
       fromNetwork: true,
+      className: '',
+      elementId: '',
     });
   });
 
@@ -849,6 +852,8 @@ function deepScanImages(viewportOnly) {
     results.push({
       src: resolvedUrl,
       alt: payload.alt || '',
+      className: String(payload.className || ''),
+      elementId: String(payload.elementId || ''),
       width: Number.isFinite(intrinsicWidth) && intrinsicWidth > 0 ? Math.round(intrinsicWidth) : 0,
       height: Number.isFinite(intrinsicHeight) && intrinsicHeight > 0 ? Math.round(intrinsicHeight) : 0,
       displayWidth: Number.isFinite(displayWidth) && displayWidth > 0 ? Math.round(displayWidth) : 0,
@@ -870,6 +875,8 @@ function deepScanImages(viewportOnly) {
     const rect = getElementRect(element);
     addResolvedCandidate(resolvedUrl, {
       alt: altText,
+      className: typeof element?.className === 'string' ? element.className : '',
+      elementId: element?.id || '',
       width: element.naturalWidth || Math.round(rect.width),
       height: element.naturalHeight || Math.round(rect.height),
       displayWidth: Math.round(rect.width),
