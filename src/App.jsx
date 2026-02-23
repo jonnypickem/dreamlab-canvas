@@ -2521,7 +2521,7 @@ function App() {
             <div
                 className={`relative flex-none transition-[width] duration-200 ease-out ${isSidebarCollapsed ? 'w-0' : 'w-72'} overflow-visible`}
             >
-                <div className={`h-full ${isSidebarCollapsed ? 'pointer-events-none overflow-hidden' : 'overflow-hidden'}`}>
+                <div className={`flex h-full ${isSidebarCollapsed ? 'pointer-events-none overflow-hidden' : 'overflow-hidden'}`}>
                     <Sidebar
                         projects={workspaceProjects}
                         collections={workspaceCollections}
