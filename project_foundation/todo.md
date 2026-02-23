@@ -20,6 +20,9 @@
 - 2026-02-23: Added immediate local persistence on explicit navigation actions (workspace/project/collection/all-items/breadcrumb/back) to survive fast reloads.
 - 2026-02-23: Updated `setActiveContext` in `src/lib/storage.js` to persist `updated_at` explicitly and throw on Supabase write failure.
 - 2026-02-23: Updated `supabase-schema.sql` with idempotent `active_contexts.updated_at` column guard and `update_active_contexts_ts` trigger.
+- 2026-02-23: Investigated X-link preview regression where pasted links produced generic website cards instead of tweet-style preview.
+- 2026-02-23: Hardened tweet URL parsing in both app and extension helpers to resolve wrapped links (query/hash redirect candidates) and canonicalize to stable status URLs.
+- 2026-02-23: Updated link save pipeline to consume OG canonical URL metadata and added mixed-text clipboard first-URL extraction in `src/App.jsx`.
 
 ## Review
 - Evidence to capture for each task:
@@ -40,9 +43,18 @@
   - `supabase-schema.sql`
 - Added DEV restore-decision diagnostics (`[NavRestore] first-load decision`) to trace local/db candidate selection.
 - Build command run: `npm run build` still fails on unrelated existing schema import resolution (`src/services/analysisSchemaRegistry.js`), no new restore-related compile errors observed.
+- Evidence (2026-02-23):
+- Diff includes targeted X preview reliability changes in:
+  - `src/utils/tweetCard.js`
+  - `src/App.jsx`
+  - `api/og.js`
+  - `background.js`
+- Added OG canonical URL extraction (`og:url`/`twitter:url`) and effective URL reconciliation in save flow.
+- Added mixed-text clipboard URL extraction so wrapped-paste strings still route to link-save.
+- `node --check` passed for `background.js`, `api/og.js`, `src/utils/tweetCard.js`.
 
 ## Result
-- Status: Implemented (navigation restore hardening) — pending end-user confirmation on reload scenario.
-- Final summary: Reload restore now uses deterministic normalized candidates and immediate local nav writes to prevent fallback to first workspace/all items when valid context exists.
+- Status: Implemented (navigation restore hardening + X preview canonicalization) — pending end-user confirmation on paste/save UX.
+- Final summary: Reload restore now uses deterministic normalized candidates with immediate local writes, and X/Twitter link saves now normalize wrapped URLs to canonical status targets so custom previews load consistently.
 - Remaining risks:
 - Build pipeline still has unrelated schema path resolution error and needs separate fix.

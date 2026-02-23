@@ -82,6 +82,7 @@ Current status theme:
 - Extension compliance hardening shipped to support Chrome Web Store packaging and review readiness.
 - App-shell navigation now supports foldable project/collection sidebar behavior with persistent user preference.
 - Reload restore now uses deterministic workspace/project/collection context arbitration with immediate local writes on explicit navigation actions.
+- X/Twitter link saves now normalize wrapped URLs into canonical status targets so rich preview rendering stays deterministic.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -99,6 +100,7 @@ What improved:
 - Save flows hardened for screenshot, recording, and color/link actions.
 - Invalid destination values are sanitized before persistence.
 - Background fallback resolution now prefers valid collection IDs from current org context.
+- Tweet URL parsing now resolves wrapped redirect/query/hash formats and preserves canonical status URLs for preview-specific rendering.
 
 Why it matters:
 - Capture reliability is the product core; routing errors silently destroy trust.
@@ -157,6 +159,16 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.37.0] - 2026-02-23
+Key outcomes:
+- Added robust tweet URL canonicalization in both app and extension helpers (`src/utils/tweetCard.js`, `background.js`) with host expansion and wrapped-link candidate decoding.
+- Extended OG parser (`api/og.js`) to return canonical URL metadata (`og:url` / `twitter:url`) and integrated that fallback into link-save resolution.
+- Updated `saveLink` and paste handling in `src/App.jsx` to normalize incoming URLs and extract first HTTP URL from mixed clipboard text.
+- Ensured saved tweet links use canonical status URLs so custom tweet preview logic receives stable inputs.
+
+Net effect:
+- Pasting X links (including wrapped/non-canonical forms) now produces the intended tweet-style preview instead of generic site fallback cards.
+
 ### [0.36.0] - 2026-02-23
 Key outcomes:
 - Added versioned local navigation payload `dreamlab_nav_context_v2` in `src/App.jsx`, while preserving legacy key compatibility.

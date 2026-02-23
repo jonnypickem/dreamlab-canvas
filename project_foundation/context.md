@@ -22,9 +22,39 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Deterministic reload restore hardening for workspace/project/collection context, including centralized local nav persistence and specificity-first restore arbitration.
+-   **Last Major Change**: X/Twitter link preview reliability hardening: canonical URL parsing from wrapped links, OG canonical URL reconciliation, and mixed-text clipboard URL extraction.
 
 ## Changelog
+
+### [0.37.0] - 2026-02-23
+#### Added
+- **Robust Tweet URL Canonicalization Utilities** (`src/utils/tweetCard.js`, `background.js`):
+  - Added multi-host support (`x.com`, `twitter.com`, `fxtwitter.com`, `mobile.twitter.com`, `m.twitter.com`).
+  - Added decoding/inspection of query/hash candidates so wrapped redirect links can still resolve to tweet status URLs.
+  - Canonicalization now prefers `https://x.com/<username>/status/<id>` and falls back to `https://x.com/i/web/status/<id>` when username is unavailable.
+
+#### Changed
+- **Link Save Metadata Reconciliation** (`src/App.jsx`, `api/og.js`):
+  - `api/og` now returns canonical URL metadata from `og:url`/`twitter:url` when present.
+  - `saveLink` now normalizes incoming URL candidates before OG fetch and reconciles effective URL with OG canonical data.
+  - Tweet link saves now consistently persist canonical status URLs for card rendering.
+
+- **Clipboard URL Detection in Paste Flows** (`src/App.jsx`):
+  - Added first-HTTP-URL extraction for mixed clipboard text.
+  - Paste handlers now route detected URLs to link-save flow even when text contains additional characters/content.
+
+#### Fixed
+- **X Link Custom Preview Not Loading from Wrapped/Pasted URLs** (`src/App.jsx`, `src/utils/tweetCard.js`, `api/og.js`):
+  - Root cause: tweet detection relied on direct path matches and missed wrapped redirect formats (e.g. `x.com/home?...status...`), causing generic link rendering.
+  - Fix: canonicalized tweet targets from path/query/hash candidates, consumed OG canonical URL fallback, and used effective canonical URL in saved link content.
+
+- **Extension/App Tweet Detection Drift Risk** (`background.js`, `src/utils/tweetCard.js`):
+  - Mirrored robust tweet parsing behavior in extension runtime helper to keep detection behavior consistent across capture surfaces.
+
+#### Problems & Fixes
+- **Problem**: Pasting certain X links on the board produced only generic website preview cards instead of tweet-specific rendering.
+- **Cause**: Incoming URL formats were sometimes wrapped/non-canonical and bypassed strict status-path detection.
+- **Fix**: Introduced canonical tweet URL extraction from multiple URL surfaces (path/query/hash), OG canonical URL reconciliation, and mixed-text URL extraction in paste flows.
 
 ### [0.36.0] - 2026-02-23
 #### Added
