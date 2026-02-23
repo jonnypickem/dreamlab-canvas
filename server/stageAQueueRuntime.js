@@ -5,7 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PRIMITIVE_SCHEMA_DIR = path.resolve(__dirname, '../analysis_parameters/primitive_schemas');
+const PRIMARY_PRIMITIVE_SCHEMA_DIR = path.resolve(__dirname, '../analysis_and_prompting_schema/primitive_schemas');
+const LEGACY_PRIMITIVE_SCHEMA_DIR = path.resolve(__dirname, '../analysis_parameters/primitive_schemas');
 const ROOT_ENV_FILE = path.resolve(__dirname, '../.env');
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -144,13 +145,18 @@ function toSha256Hex(input) {
 
 async function loadPrimitiveSchemas() {
     if (schemaCache) return schemaCache;
-    const files = await fs.readdir(PRIMITIVE_SCHEMA_DIR);
+    let schemaDir = PRIMARY_PRIMITIVE_SCHEMA_DIR;
+    if (!fsSync.existsSync(schemaDir) && fsSync.existsSync(LEGACY_PRIMITIVE_SCHEMA_DIR)) {
+        schemaDir = LEGACY_PRIMITIVE_SCHEMA_DIR;
+        console.warn('[StageAQueue] Falling back to legacy primitive schema directory:', schemaDir);
+    }
+    const files = await fs.readdir(schemaDir);
     const schemaFiles = files
         .filter((file) => file.endsWith('.json'))
         .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
     const schemas = [];
     for (const file of schemaFiles) {
-        const fullPath = path.join(PRIMITIVE_SCHEMA_DIR, file);
+        const fullPath = path.join(schemaDir, file);
         const raw = await fs.readFile(fullPath, 'utf8');
         const parsed = JSON.parse(raw);
         if (parsed?.schema_block) {
