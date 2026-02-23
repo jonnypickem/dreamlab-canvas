@@ -55,6 +55,7 @@ import { TextField } from "./ui/components/TextField";
 import { Slider } from "./ui/components/Slider";
 import { ToggleGroup } from "./ui/components/ToggleGroup";
 import { Badge } from "./ui/components/Badge";
+import { IconButton } from "./ui/components/IconButton";
 import * as SubframeCore from "@subframe/core";
 import { FeatherChevronLeft, FeatherChevronRight, FeatherLayoutGrid, FeatherSquare, FeatherSearch } from "@subframe/core";
 
@@ -306,6 +307,14 @@ function isFileDragEvent(event) {
 }
 
 function App() {
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+        try {
+            const stored = localStorage.getItem('dreamlab_sidebar_collapsed');
+            return stored === '1' || stored === 'true';
+        } catch {
+            return false;
+        }
+    });
     const [user, setUser] = useState(undefined); // undefined = loading, null = no auth
     const [items, setItems] = useState([]);
     const [workspaces, setWorkspaces] = useState([]);
@@ -635,6 +644,12 @@ function App() {
         } catch { /* ignore */ }
         setActiveContext(activeWorkspaceId, selectedCollectionId, selectedProjectId);
     }, [activeWorkspaceId, selectedCollectionId, selectedProjectId, user]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('dreamlab_sidebar_collapsed', isSidebarCollapsed ? '1' : '0');
+        } catch { /* ignore */ }
+    }, [isSidebarCollapsed]);
 
     // Load data when user is authenticated
     useEffect(() => {
@@ -2503,78 +2518,95 @@ function App() {
                 lockScroll={viewMode === 'canvas'}
             />
             {/* Sidebar is hidden on mobile in Subframe example, but we keep it responsive or as is */}
-            <Sidebar
-                projects={workspaceProjects}
-                collections={workspaceCollections}
-                extensionShortcuts={extensionShortcuts}
-                selectedCollectionId={selectedCollectionId}
-                selectedProjectId={selectedProjectId}
-                onAllItems={() => {
-                    setSelectedCollectionId(null);
-                    setSelectedProjectId(null);
-                }}
-                onProjectSelect={(projectId) => {
-                    setSelectedCollectionId(null);
-                    setSelectedProjectId(projectId || null);
-                }}
-                onProjectCreate={(projectName) => {
-                    void handleCreateProject(projectName);
-                }}
-                onProjectRename={(project, nextName) => {
-                    void handleRenameProject(project, nextName);
-                }}
-                onProjectDelete={(project) => {
-                    void handleDeleteProject(project);
-                }}
-                onOpenProjectSettings={(project) => {
-                    setEntitySettingsTarget({ type: 'project', entity: project });
-                }}
-                onCollectionSelect={(collectionId) => {
-                    const selectedCollection = workspaceCollections.find((collection) => collection.id === collectionId);
-                    setSelectedCollectionId(collectionId);
-                    setSelectedProjectId(selectedCollection?.projectId || null);
-                    markCollectionAsLastUsed(collectionId);
-                }}
-                onCollectionRename={async (collection, nextNameInput) => {
-                    const nextName = typeof nextNameInput === 'string'
-                        ? nextNameInput
-                        : prompt('Rename collection:', collection?.name || '');
-                    if (!nextName || !nextName.trim()) return;
-                    const updated = await updateCollection(collection.id, { name: nextName.trim() });
-                    if (updated) {
-                        setCollections((prev) => prev.map((candidate) => (
-                            candidate.id === updated.id ? updated : candidate
-                        )));
-                        setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
-                    }
-                }}
-                onCollectionDelete={(collection) => {
-                    void handleDeleteCollection(collection);
-                }}
-                onOpenCollectionSettings={(collection) => {
-                    setEntitySettingsTarget({ type: 'collection', entity: collection });
-                }}
-                onCreateCollection={(projectId, collectionName) => {
-                    void handleCreateCollection(projectId, collectionName);
-                }}
-                onCreateUngroupedCollection={(collectionName) => {
-                    void handleCreateCollection(null, collectionName);
-                }}
-                onCollectionMove={(collection, nextProjectId) => {
-                    void handleMoveCollectionToProject(collection, nextProjectId);
-                }}
-                onCollectionReorder={(payload) => {
-                    void handleCollectionReorder(payload);
-                }}
-                projectIdToOpenCollectionComposer={projectIdToOpenCollectionComposer}
-                onCollectionComposerOpened={() => {
-                    setProjectIdToOpenCollectionComposer(undefined);
-                }}
-                activeWorkspaceId={activeWorkspaceId}
-                activeWorkspaceName={getWorkspaceName(activeWorkspaceId)}
-                totalItemCount={workspaceItemCount}
-                lockScroll={viewMode === 'canvas'}
-            />
+            <div
+                className={`relative flex-none transition-[width] duration-200 ease-out ${isSidebarCollapsed ? 'w-0' : 'w-72'} overflow-visible`}
+            >
+                <div className={`h-full ${isSidebarCollapsed ? 'pointer-events-none overflow-hidden' : 'overflow-hidden'}`}>
+                    <Sidebar
+                        projects={workspaceProjects}
+                        collections={workspaceCollections}
+                        extensionShortcuts={extensionShortcuts}
+                        selectedCollectionId={selectedCollectionId}
+                        selectedProjectId={selectedProjectId}
+                        onAllItems={() => {
+                            setSelectedCollectionId(null);
+                            setSelectedProjectId(null);
+                        }}
+                        onProjectSelect={(projectId) => {
+                            setSelectedCollectionId(null);
+                            setSelectedProjectId(projectId || null);
+                        }}
+                        onProjectCreate={(projectName) => {
+                            void handleCreateProject(projectName);
+                        }}
+                        onProjectRename={(project, nextName) => {
+                            void handleRenameProject(project, nextName);
+                        }}
+                        onProjectDelete={(project) => {
+                            void handleDeleteProject(project);
+                        }}
+                        onOpenProjectSettings={(project) => {
+                            setEntitySettingsTarget({ type: 'project', entity: project });
+                        }}
+                        onCollectionSelect={(collectionId) => {
+                            const selectedCollection = workspaceCollections.find((collection) => collection.id === collectionId);
+                            setSelectedCollectionId(collectionId);
+                            setSelectedProjectId(selectedCollection?.projectId || null);
+                            markCollectionAsLastUsed(collectionId);
+                        }}
+                        onCollectionRename={async (collection, nextNameInput) => {
+                            const nextName = typeof nextNameInput === 'string'
+                                ? nextNameInput
+                                : prompt('Rename collection:', collection?.name || '');
+                            if (!nextName || !nextName.trim()) return;
+                            const updated = await updateCollection(collection.id, { name: nextName.trim() });
+                            if (updated) {
+                                setCollections((prev) => prev.map((candidate) => (
+                                    candidate.id === updated.id ? updated : candidate
+                                )));
+                                setToast({ message: `Renamed to "${updated.name}"`, type: 'success' });
+                            }
+                        }}
+                        onCollectionDelete={(collection) => {
+                            void handleDeleteCollection(collection);
+                        }}
+                        onOpenCollectionSettings={(collection) => {
+                            setEntitySettingsTarget({ type: 'collection', entity: collection });
+                        }}
+                        onCreateCollection={(projectId, collectionName) => {
+                            void handleCreateCollection(projectId, collectionName);
+                        }}
+                        onCreateUngroupedCollection={(collectionName) => {
+                            void handleCreateCollection(null, collectionName);
+                        }}
+                        onCollectionMove={(collection, nextProjectId) => {
+                            void handleMoveCollectionToProject(collection, nextProjectId);
+                        }}
+                        onCollectionReorder={(payload) => {
+                            void handleCollectionReorder(payload);
+                        }}
+                        projectIdToOpenCollectionComposer={projectIdToOpenCollectionComposer}
+                        onCollectionComposerOpened={() => {
+                            setProjectIdToOpenCollectionComposer(undefined);
+                        }}
+                        activeWorkspaceId={activeWorkspaceId}
+                        activeWorkspaceName={getWorkspaceName(activeWorkspaceId)}
+                        totalItemCount={workspaceItemCount}
+                        lockScroll={viewMode === 'canvas'}
+                    />
+                </div>
+                <div className={`absolute top-4 z-40 pointer-events-auto ${isSidebarCollapsed ? 'left-2' : 'right-2'}`}>
+                    <IconButton
+                        variant="neutral-secondary"
+                        size="small"
+                        icon={isSidebarCollapsed ? <FeatherChevronRight /> : <FeatherChevronLeft />}
+                        onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+                        aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                        title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                        className="shadow-sm"
+                    />
+                </div>
+            </div>
 
             <main
                 className="flex grow shrink basis-0 min-w-0 flex-col items-start self-stretch overflow-hidden relative bg-white"
