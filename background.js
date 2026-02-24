@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   pendingCapture: 'pendingCapture',
   multiSelectState: 'multiSelectState',
   multiSelectPrefs: 'multiSelectPrefsV1',
+  widgetHotkeys: 'widgetHotkeysV1',
   widgetEnabled: 'widgetEnabled',
   floatingWidgetPrefs: 'floatingWidgetPrefs',
   captureDestination: 'captureDestination',
@@ -35,6 +36,9 @@ const ACTIONS = {
   setCaptureDestination: 'setCaptureDestination',
   getWidgetBehaviorSettings: 'getWidgetBehaviorSettings',
   setWidgetBehaviorSettings: 'setWidgetBehaviorSettings',
+  getWidgetHotkeys: 'getWidgetHotkeys',
+  setWidgetHotkeys: 'setWidgetHotkeys',
+  openWidgetKeyboardMode: 'openWidgetKeyboardMode',
   openExtensionOptions: 'openExtensionOptions',
   getComplianceState: 'getComplianceState',
   getPrivacySummary: 'getPrivacySummary',
@@ -44,7 +48,7 @@ const ACTIONS = {
 const COMMAND_DEFINITIONS = [
   {
     command: 'save-page',
-    description: 'Save current page to Dreamlab',
+    description: 'Open Dreamlab capture launcher',
   },
   {
     command: 'capture-visible',
@@ -123,6 +127,7 @@ const CONTENT_ACTIONS = {
   saveItem: 'SAVE_ITEM',
   getOrgData: 'GET_ORG_DATA',
   scanPageImages: 'SCAN_PAGE_IMAGES',
+  openWidgetKeyboardMode: 'OPEN_WIDGET_KEYBOARD_MODE',
 };
 
 const CONTEXT_MENU_IDS = {
@@ -186,6 +191,18 @@ const DEFAULT_WIDGET_BEHAVIOR_SETTINGS = Object.freeze({
   offsetX: 20,
   offsetY: 20,
 });
+const WIDGET_HOTKEY_ALLOWED_CHARS = new Set('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split(''));
+const DEFAULT_WIDGET_HOTKEYS = Object.freeze({
+  actionKeyMap: Object.freeze({
+    'save-page': 'S',
+    'capture-visible': 'I',
+    'capture-full-page': 'P',
+    'smart-picker': 'M',
+    'pick-color': 'K',
+    'area-capture': 'A',
+  }),
+  updatedAt: 0,
+});
 const MULTI_SELECT_ALLOWED_RESOLUTION_TIERS = new Set(['any', 'small', 'medium', 'large', 'icon']);
 const MULTI_SELECT_ALLOWED_TYPE_FILTERS = new Set(['high', 'icon', 'profile', 'ad', 'other']);
 const DEFAULT_MULTI_SELECT_PREFS = Object.freeze({
@@ -194,6 +211,12 @@ const DEFAULT_MULTI_SELECT_PREFS = Object.freeze({
   sortMode: 'resolution_desc',
   updatedAt: 0,
 });
+const LINK_PREVIEW_CAPTURE_OPTIONS = Object.freeze({
+  maxWidth: 1280,
+  quality: 0.66,
+  mimeType: 'image/jpeg',
+});
+const LINK_PREVIEW_CAPTURE_SETTLE_MS = 180;
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -299,6 +322,53 @@ function sanitizeWidgetBehaviorSettings(input) {
     positionPreset,
     offsetX,
     offsetY,
+  };
+}
+
+function normalizeWidgetHotkeyChar(value) {
+  const token = String(value || '').trim().toUpperCase();
+  if (token.length !== 1) return '';
+  return WIDGET_HOTKEY_ALLOWED_CHARS.has(token) ? token : '';
+}
+
+function sanitizeWidgetHotkeys(input, options = {}) {
+  const source = isObject(input) ? input : {};
+  const normalizedOptions = isObject(options) ? options : {};
+  const defaultMap = DEFAULT_WIDGET_HOTKEYS.actionKeyMap;
+  const inputMap = isObject(source.actionKeyMap) ? source.actionKeyMap : {};
+
+  const nextMap = {};
+  const usedChars = new Set();
+
+  ACTION_DEFINITIONS.forEach((entry) => {
+    const actionId = entry.actionId;
+    const requested = normalizeWidgetHotkeyChar(inputMap[actionId]);
+    if (requested && !usedChars.has(requested)) {
+      nextMap[actionId] = requested;
+      usedChars.add(requested);
+      return;
+    }
+
+    const fallback = normalizeWidgetHotkeyChar(defaultMap[actionId]);
+    if (fallback && !usedChars.has(fallback)) {
+      nextMap[actionId] = fallback;
+      usedChars.add(fallback);
+      return;
+    }
+
+    const available = [...WIDGET_HOTKEY_ALLOWED_CHARS].find((token) => !usedChars.has(token)) || '';
+    nextMap[actionId] = available;
+    if (available) usedChars.add(available);
+  });
+
+  const parsedUpdatedAt = sanitizeTimestamp(source.updatedAt);
+  const updatedAt = normalizedOptions.touch === true
+    ? Date.now()
+    : (parsedUpdatedAt || DEFAULT_WIDGET_HOTKEYS.updatedAt);
+
+  return {
+    actionKeyMap: nextMap,
+    updatedAt,
   };
 }
 
@@ -1107,6 +1177,108 @@ async function aggressiveStorageCompression(dataUrl) {
   return current;
 }
 
+function normalizePageIdentityUrl(candidate) {
+  try {
+    const parsed = new URL(candidate);
+    return (parsed.origin + parsed.pathname)
+      .replace(/\/$/, '')
+      .replace('://www.', '://');
+  } catch {
+    return String(candidate || '').trim();
+  }
+}
+
+function isSamePageIdentity(left, right) {
+  const normalizedLeft = normalizePageIdentityUrl(left);
+  const normalizedRight = normalizePageIdentityUrl(right);
+  if (!normalizedLeft || !normalizedRight) return false;
+  return normalizedLeft === normalizedRight;
+}
+
+async function captureLinkPreviewScreenshot(tab) {
+  if (!tab?.id || !tab?.windowId) return null;
+  if (getCaptureBlockReason(tab.url || '')) return null;
+
+  let originalScrollX = 0;
+  let originalScrollY = 0;
+  try {
+    const initialScroll = await executeScriptFn(
+      tab.id,
+      () => ({
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0,
+      })
+    );
+    originalScrollX = Math.floor(Number(initialScroll?.x) || 0);
+    originalScrollY = Math.floor(Number(initialScroll?.y) || 0);
+  } catch {
+    return null;
+  }
+
+  try {
+    await executeScriptFn(
+      tab.id,
+      async () => {
+        const root = document.scrollingElement || document.documentElement;
+        if (root && typeof root.scrollTo === 'function') {
+          root.scrollTo({ left: 0, top: 0, behavior: 'instant' });
+        }
+        window.scrollTo(0, 0);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }
+    );
+    await wait(LINK_PREVIEW_CAPTURE_SETTLE_MS);
+
+    const rawDataUrl = await captureVisibleTab(tab.windowId, { format: 'png' });
+    if (!rawDataUrl || typeof rawDataUrl !== 'string' || !rawDataUrl.startsWith('data:image/')) {
+      return null;
+    }
+
+    try {
+      const compressed = await compressImageDataUrl(rawDataUrl, LINK_PREVIEW_CAPTURE_OPTIONS);
+      if (compressed && typeof compressed === 'string' && compressed.startsWith('data:image/')) {
+        return compressed;
+      }
+    } catch {
+      // Ignore compression issues and fall back to raw capture below.
+    }
+
+    return rawDataUrl;
+  } catch {
+    return null;
+  } finally {
+    try {
+      await executeScriptFn(tab.id, (x, y) => {
+        window.scrollTo(x, y);
+      }, [originalScrollX, originalScrollY]);
+    } catch {
+      // Ignore scroll restore failures.
+    }
+  }
+}
+
+async function resolveLinkPreviewThumbnail({ tab, sourceUrl, metadataImage }) {
+  const ogThumbnail = metadataImage || null;
+  if (!tab?.id || !tab?.windowId) {
+    return { thumbnail: ogThumbnail, previewSource: ogThumbnail ? 'og' : null };
+  }
+  if (getTweetInfo(sourceUrl)) {
+    return { thumbnail: ogThumbnail, previewSource: ogThumbnail ? 'og' : null };
+  }
+
+  const samePageCaptureTarget = isSamePageIdentity(tab.url, sourceUrl);
+  if (!samePageCaptureTarget) {
+    return { thumbnail: ogThumbnail, previewSource: ogThumbnail ? 'og' : null };
+  }
+
+  const screenshotThumbnail = await captureLinkPreviewScreenshot(tab);
+  if (screenshotThumbnail) {
+    return { thumbnail: screenshotThumbnail, previewSource: 'screenshot' };
+  }
+
+  return { thumbnail: ogThumbnail, previewSource: ogThumbnail ? 'og' : null };
+}
+
 async function showInPageToast(tabId, { message, type = 'info', durationMs = 2600 }) {
   if (!tabId || !message) return;
 
@@ -1630,6 +1802,17 @@ async function setWidgetBehaviorSettings(input) {
   const settings = sanitizeWidgetBehaviorSettings(input);
   await setStorage({ [STORAGE_KEYS.widgetBehaviorSettings]: settings });
   return settings;
+}
+
+async function getWidgetHotkeys() {
+  const stored = await getStorage(STORAGE_KEYS.widgetHotkeys);
+  return sanitizeWidgetHotkeys(stored?.[STORAGE_KEYS.widgetHotkeys]);
+}
+
+async function setWidgetHotkeys(input) {
+  const hotkeys = sanitizeWidgetHotkeys(input, { touch: true });
+  await setStorage({ [STORAGE_KEYS.widgetHotkeys]: hotkeys });
+  return hotkeys;
 }
 
 function createWindow(createData) {
@@ -2611,18 +2794,9 @@ async function fetchPinterestOEmbedMetadata(url) {
 }
 
 async function getPageMetadata(tabId, targetUrl) {
-  const normalize = (candidate) => {
-    try {
-      const parsed = new URL(candidate);
-      return (parsed.origin + parsed.pathname).replace(/\/$/, '').replace('://www.', '://');
-    } catch {
-      return candidate;
-    }
-  };
-
   try {
     const [activeTab] = await queryTabs({ active: true, currentWindow: true });
-    const isCurrentPage = activeTab && normalize(activeTab.url) === normalize(targetUrl);
+    const isCurrentPage = activeTab && isSamePageIdentity(activeTab.url, targetUrl);
     const pinterestPinPage = isPinterestPinUrl(targetUrl);
     const pinterestPinId = pinterestPinPage ? getPinterestPinId(targetUrl) : '';
     let pinDomMetadata = {};
@@ -2961,13 +3135,19 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   } else if (info.menuItemId === CONTEXT_MENU_IDS.page) {
     const urlToScrape = info.linkUrl || tab.url;
     const metadata = await getPageMetadata(tab.id, urlToScrape);
+    const preview = await resolveLinkPreviewThumbnail({
+      tab,
+      sourceUrl: urlToScrape,
+      metadataImage: metadata.image || null,
+    });
     item = {
       type: 'link',
       content: metadata.title || tab.title || urlToScrape,
       title: metadata.title || tab.title || null,
       description: isUsefulDescription(metadata.description) ? metadata.description : null,
-      thumbnail: metadata.image || null,
+      thumbnail: preview.thumbnail,
       sourceUrl: urlToScrape,
+      metadata: preview.previewSource ? { previewSource: preview.previewSource } : null,
       timestamp: Date.now(),
     };
     item = await enrichLinkCapture(item);
@@ -3024,13 +3204,19 @@ async function executeCommandFromTab(command, tabId) {
       });
     } else {
       const metadata = await getPageMetadata(tab.id, tab.url);
+      const preview = await resolveLinkPreviewThumbnail({
+        tab,
+        sourceUrl: tab.url,
+        metadataImage: metadata.image || null,
+      });
       const linkItem = await enrichLinkCapture({
         type: 'link',
         content: metadata.title || tab.title || tab.url,
         title: metadata.title || tab.title || null,
         description: isUsefulDescription(metadata.description) ? metadata.description : null,
-        thumbnail: metadata.image || null,
+        thumbnail: preview.thumbnail,
         sourceUrl: tab.url,
+        metadata: preview.previewSource ? { previewSource: preview.previewSource } : null,
         timestamp: Date.now(),
       });
       saveResult = await queuePendingAndTrySave(linkItem);
@@ -3463,12 +3649,13 @@ async function getShortcutBindings() {
 }
 
 async function getWidgetConfig() {
-  const [enabled, prefs, destination, shortcuts, behaviorSettings] = await Promise.all([
+  const [enabled, prefs, destination, shortcuts, behaviorSettings, hotkeys] = await Promise.all([
     getWidgetEnabled(),
     getWidgetPrefs(),
     getCaptureDestination(),
     getShortcutBindings(),
     getWidgetBehaviorSettings(),
+    getWidgetHotkeys(),
   ]);
   return {
     enabled,
@@ -3476,7 +3663,30 @@ async function getWidgetConfig() {
     destination,
     shortcuts,
     behaviorSettings,
+    hotkeyMap: hotkeys.actionKeyMap || {},
   };
+}
+
+async function openWidgetKeyboardModeForTab(tabId = null, triggerSource = 'shortcut') {
+  const tab = tabId
+    ? await getTab(tabId).catch(() => null)
+    : (await queryTabs({ active: true, currentWindow: true }))[0];
+
+  if (!tab?.id) {
+    throw new Error('No active tab available for widget launcher.');
+  }
+
+  const response = await sendTabMessageWithBridge(tab.id, {
+    action: CONTENT_ACTIONS.openWidgetKeyboardMode,
+    triggerSource,
+    sourceTabId: tab.id,
+  }, { frameId: 0 });
+
+  if (!response || response.success !== true) {
+    throw new Error(response?.error || 'Could not open capture widget launcher.');
+  }
+
+  return { tabId: tab.id };
 }
 
 function getComplianceState() {
@@ -3523,6 +3733,14 @@ const _commandDebounce = new Map();
 const COMMAND_DEBOUNCE_MS = 300;
 
 async function dispatchCommand({ command, tabId, origin }) {
+  if (
+    command === 'save-page'
+    && (origin === 'commands-api' || origin === 'content-fallback')
+  ) {
+    await openWidgetKeyboardModeForTab(tabId, 'launcher_shortcut');
+    return;
+  }
+
   const key = `${tabId || 'active'}:${command}`;
   const now = Date.now();
   const last = _commandDebounce.get(key) || 0;
@@ -3858,6 +4076,28 @@ async function handleRuntimeMessage(request, sender) {
     case ACTIONS.setWidgetBehaviorSettings: {
       const settings = await setWidgetBehaviorSettings(request?.settings);
       return { success: true, settings };
+    }
+
+    case ACTIONS.getWidgetHotkeys: {
+      const hotkeys = await getWidgetHotkeys();
+      return { success: true, hotkeys };
+    }
+
+    case ACTIONS.setWidgetHotkeys: {
+      const hotkeys = await setWidgetHotkeys(request?.hotkeys);
+      return { success: true, hotkeys };
+    }
+
+    case ACTIONS.openWidgetKeyboardMode: {
+      try {
+        const result = await openWidgetKeyboardModeForTab(
+          request?.sourceTabId || sender?.tab?.id || null,
+          request?.triggerSource || 'shortcut'
+        );
+        return { success: true, tabId: result.tabId };
+      } catch (error) {
+        return { success: false, error: error?.message || 'Could not open capture widget launcher.' };
+      }
     }
 
     case ACTIONS.openExtensionOptions: {

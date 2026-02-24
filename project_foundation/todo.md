@@ -22,6 +22,21 @@
 - [x] Add explicit selectability diagnostics with card-level reason badges, disabled controls for hard-unsavable URLs, and blocked-summary footer.
 - [x] Verify syntax/build checks and inspect diff contracts for scan fallback behavior.
 
+## Current Task Plan (2026-02-24 - Link Screenshot Preview Pipeline)
+- [x] Add extension helper to capture top-of-page viewport screenshot for link previews with non-fatal failure handling.
+- [x] Compress screenshot previews to mid-resolution JPEG and preserve fallback to OG image when capture is unavailable.
+- [x] Wire screenshot-first preview selection into extension link-save entry points (context menu page save + save-page command).
+- [x] Preserve tweet/X link behavior by skipping screenshot override and retaining existing embed/thumbnail normalization flow.
+- [x] Verify runtime integrity via syntax/build checks.
+
+## Current Task Plan (2026-02-24 - Single Shortcut Launcher Workflow)
+- [x] Rework extension keyboard entrypoint to launcher-first model (`Alt+Shift+S`).
+- [x] Add persistent widget hotkey map storage and runtime API (`widgetHotkeysV1`).
+- [x] Implement widget await-hotkey behavior (mapped key executes, unmapped interaction closes).
+- [x] Keep widget layout unchanged while adding behavior-only keyboard mode logic.
+- [x] Add options-page hotkey customization with validation (single char, unique keys).
+- [x] Update compliance/privacy wording and project foundation logs.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -54,6 +69,16 @@
 - 2026-02-23: Added explicit unselectable diagnostics (reasons/badges/disabled controls) plus blocked-item summary in multi-select UI.
 - 2026-02-23: Updated `multi-select.html` and `multi-select.css` for scope hints, type chips, reset controls, and blocked-state visuals.
 - 2026-02-23: Fixed top-of-grid click dead-zone in image review by restoring standards-compliant hidden behavior (`[hidden] { display: none !important; }`) and disabling empty-state pointer interception.
+- 2026-02-24: Implemented screenshot-first link preview capture in `background.js` for extension link saves (context menu page + save-page command).
+- 2026-02-24: Added top-of-page capture helper with scroll restore + settle wait + JPEG compression (`maxWidth: 1280`, `quality: 0.66`) and OG fallback on failure.
+- 2026-02-24: Added same-page guard for screenshot usage (`origin + pathname` identity) to avoid misleading previews for cross-page destination links.
+- 2026-02-24: Added non-breaking preview source annotation (`metadata.previewSource: "screenshot" | "og"`).
+- 2026-02-24: Implemented single launcher shortcut flow (`Alt+Shift+S`) by routing `save-page` command to widget keyboard launcher for command/fallback origins.
+- 2026-02-24: Added persistent widget hotkey contract `widgetHotkeysV1` and runtime actions (`getWidgetHotkeys`, `setWidgetHotkeys`, `openWidgetKeyboardMode`) in `background.js`.
+- 2026-02-24: Updated `floating-widget.js` with await-hotkey mode (no layout changes): mapped key runs action, unmapped key/Escape/outside click closes widget.
+- 2026-02-24: Updated `content.js` shortcut fallback to launcher-only forwarding and added relay event `DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE`.
+- 2026-02-24: Added options-page hotkey controls in `options.html`/`options.js` with single-char normalization and duplicate-key validation.
+- 2026-02-24: Updated public extension policy/compliance wording for launcher + widget-hotkey capture trigger model.
 
 ## Review
 - Evidence to capture for each task:
@@ -135,6 +160,18 @@
   - Fix applied in `multi-select.css`:
     - global `[hidden] { display: none !important; }`
     - `.empty-state { pointer-events: none; }`
+- Evidence (2026-02-24):
+- Diff includes targeted screenshot-preview changes in:
+  - `background.js`
+  - `project_foundation/todo.md`
+- Validation commands passed:
+  - `node --check background.js`
+  - `npm run build`
+- Expected behavior from code path:
+  - extension link saves for current page prefer captured/compressed screenshot preview,
+  - cross-page destination link saves continue OG preview fallback,
+  - tweet links keep existing embed-centric preview behavior,
+  - failed capture/compression falls back to OG image without blocking save.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).
