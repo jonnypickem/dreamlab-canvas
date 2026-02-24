@@ -8,7 +8,10 @@
     "dev:server": "cd server && node index.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "extension:package": "node scripts/extension-package.mjs",
+    "extension:verify": "node scripts/verify-extension-zip.mjs",
+    "extension:release": "npm run extension:package && npm run extension:verify"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

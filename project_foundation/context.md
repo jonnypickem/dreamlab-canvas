@@ -22,9 +22,97 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Extension image review now enforces strict visible/all scope semantics, high-resolution-first ordering, persistent resolution/type filters, and explicit blocked-source diagnostics.
+-   **Last Major Change**: Added deterministic extension packaging + parity verification workflow to prevent stale launcher files in distributed zip artifacts.
 
 ## Changelog
+
+### [0.44.0] - 2026-02-24
+#### Added
+- **Deterministic Extension Packaging Scripts** (`scripts/extension-package-files.mjs`, `scripts/extension-package.mjs`):
+  - Added explicit extension file manifest for packaging.
+  - Added single-path packaging script outputting `dreamlab-canvas-extension.zip` from fixed file inputs.
+
+- **Artifact Parity + Launcher Contract Verification** (`scripts/verify-extension-zip.mjs`):
+  - Added zip/source parity checks for all packaged extension files (entry set + byte equality).
+  - Added launcher-contract assertions in zipped artifacts:
+    - zipped `content.js` must contain canonical + alias listener tokens,
+    - zipped `background.js` must contain canonical sender + stale unknown-action recovery tokens.
+
+#### Changed
+- **Release Workflow Commands** (`package.json`):
+  - Added:
+    - `npm run extension:package`
+    - `npm run extension:verify`
+    - `npm run extension:release` (package + verify)
+
+#### Fixed
+- **Persistent `"Unknown action"` After Local Source Fixes**:
+  - Root cause: distributed zip still contained stale `content.js` / `background.js` launcher code despite source being fixed.
+  - Fix: script-driven packaging + mandatory parity verification + launcher-token checks before reinstall/distribution.
+
+#### Problems & Fixes
+- **Problem**: Reinstalled extension could still fail launcher with `"Unknown action"` even after code-level contract fix.
+- **Cause**: artifact drift between workspace source and packaged zip.
+- **Fix**: deterministic package manifest and enforced zip/source parity gate.
+
+### [0.43.0] - 2026-02-24
+#### Changed
+- **Launcher Open Reliability Handshake** (`content.js`, `floating-widget.js`):
+  - Added request/ack handshake for launcher-open events:
+    - content relay sends `DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE` with `requestId`
+    - widget responds with `DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE_ACK`
+  - Content now returns launcher-open success only after widget ack (timeout otherwise).
+
+- **Background Launcher Recovery Path** (`background.js`):
+  - `openWidgetKeyboardModeForTab` now:
+    - attempts normal open first,
+    - if no ack, clears legacy widget marker/host,
+    - reinjects `floating-widget.js`,
+    - retries open once before failing.
+
+#### Fixed
+- **Silent No-Open Shortcut Failures on Stale Tabs**:
+  - Root cause: relay path considered `window.postMessage` success in content script as launcher success, even when widget runtime on tab was stale and never opened.
+  - Fix: explicit widget acknowledgment + recovery reinjection path.
+
+- **Invalid Runtime Token CSS Fetch Noise** (`floating-widget.js`):
+  - Added guard to skip token stylesheet fetch when runtime URL resolves to `chrome-extension://invalid/`.
+
+#### Problems & Fixes
+- **Problem**: `Alt+Shift+S` could appear to do nothing on already-open tabs after extension reload/update.
+- **Cause**: stale widget singleton/runtime mismatch; background had no end-to-end confirmation that widget actually opened.
+- **Fix**: launcher ack contract + stale-marker cleanup + reinjection retry.
+
+### [0.42.0] - 2026-02-24
+#### Added
+- **Widget Hotkey Preferences** (`background.js`, `options.js`, `options.html`):
+  - Added persistent storage contract `widgetHotkeysV1`.
+  - Added runtime actions:
+    - `getWidgetHotkeys`
+    - `setWidgetHotkeys`
+  - Added options-page controls for per-action hotkey mapping (single character `A-Z`/`0-9`, duplicate-key validation).
+
+#### Changed
+- **Single Shortcut Launcher Model** (`manifest.json`, `background.js`, `content.js`):
+  - Primary keyboard entry now routes through launcher shortcut `Alt+Shift+S`.
+  - `save-page` command now opens widget keyboard mode for shortcut origins, instead of immediate capture.
+  - Content-script fallback keyboard forwarding now forwards launcher shortcut only.
+
+- **Widget Keyboard Await Mode** (`floating-widget.js`):
+  - Widget enters await-hotkey mode when opened by launcher and by bubble click.
+  - Mapped key executes action; unmapped key, `Escape`, outside click, or close button collapses widget.
+  - Action key chips now display configured widget hotkeys from `hotkeyMap`.
+  - Layout/geometry of widget remained unchanged (behavior-only update).
+
+#### Fixed
+- **Shortcut Scalability Constraint**:
+  - Root cause: multi-command global shortcut model collided with Chrome command-slot constraints and increased configuration overhead.
+  - Fix: launcher-first shortcut flow with widget-scoped hotkey execution.
+
+#### Problems & Fixes
+- **Problem**: Too many direct extension shortcuts created operational overhead and browser-level command-slot pressure.
+- **Cause**: capture actions were distributed across multiple global commands.
+- **Fix**: consolidated to one launcher shortcut and moved per-action keys into configurable widget keyboard mode.
 
 ### [0.41.0] - 2026-02-23
 #### Added

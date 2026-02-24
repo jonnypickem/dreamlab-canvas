@@ -64,6 +64,7 @@ body {
 
 #excluded-domains,
 select,
+input[type="text"],
 input[type="number"] {
   width: 100%;
   border: 1px solid var(--dl-neutral-300);
@@ -74,6 +75,10 @@ input[type="number"] {
   font-size: 13px;
   line-height: 1.4;
   font-family: inherit;
+}
+
+.hotkey-grid input[type="text"] {
+  text-transform: uppercase;
 }
 
 #excluded-domains {

@@ -3705,6 +3705,38 @@ async function getWidgetConfig() {
   };
 }
 
+async function requestWidgetKeyboardMode(tabId, triggerSource) {
+  return await sendTabMessageWithBridge(tabId, {
+    action: CONTENT_ACTIONS.openWidgetKeyboardMode,
+    triggerSource,
+    sourceTabId: tabId,
+  }, { frameId: 0 });
+}
+
+async function clearLegacyWidgetMarkers(tabId) {
+  await executeScriptFn(
+    tabId,
+    () => {
+      try {
+        delete window.__dreamlabFloatingWidgetLoaded;
+      } catch {
+        window.__dreamlabFloatingWidgetLoaded = false;
+      }
+      const host = document.getElementById('dreamlab-floating-widget-host');
+      if (host && host.parentNode) {
+        host.parentNode.removeChild(host);
+      }
+      return true;
+    }
+  );
+}
+
+function isUnknownActionResponse(response) {
+  if (!response || response.success !== false) return false;
+  const message = String(response.error || '').toLowerCase();
+  return message.includes('unknown action');
+}
+
 async function openWidgetKeyboardModeForTab(tabId = null, triggerSource = 'shortcut') {
   const tab = tabId
     ? await getTab(tabId).catch(() => null)
@@ -3714,18 +3746,49 @@ async function openWidgetKeyboardModeForTab(tabId = null, triggerSource = 'short
     throw new Error('No active tab available for widget launcher.');
   }
 
-  // Ensure widget runtime is present on tabs that existed before extension load/reload.
+  let response = null;
+  try {
+    response = await requestWidgetKeyboardMode(tab.id, triggerSource);
+  } catch (error) {
+    response = { success: false, error: error?.message || 'Could not open capture widget launcher.' };
+  }
+
+  if (response?.success === true) {
+    return { tabId: tab.id };
+  }
+
+  const firstError = String(response?.error || 'Could not open capture widget launcher.');
+  const staleActionMismatch = isUnknownActionResponse(response);
+
+  if (staleActionMismatch) {
+    console.warn('[Dreamlab Launcher] Detected stale content action contract; forcing reinjection:', firstError);
+  }
+
+  // Recovery path for stale tabs after extension update/reload.
+  try {
+    await clearLegacyWidgetMarkers(tab.id);
+  } catch {
+    // Non-fatal; marker cleanup is best-effort.
+  }
+  if (staleActionMismatch) {
+    try {
+      await executeScript(tab.id, ['content.js']);
+    } catch {
+      // Non-fatal; follow-up retry still provides final outcome.
+    }
+  }
   try {
     await executeScript(tab.id, ['floating-widget.js']);
   } catch {
-    // Non-fatal; message path below still attempts to open keyboard mode.
+    // Non-fatal; the follow-up message attempt provides final outcome.
   }
+  await wait(40);
 
-  const response = await sendTabMessageWithBridge(tab.id, {
-    action: CONTENT_ACTIONS.openWidgetKeyboardMode,
-    triggerSource,
-    sourceTabId: tab.id,
-  }, { frameId: 0 });
+  try {
+    response = await requestWidgetKeyboardMode(tab.id, triggerSource);
+  } catch (error) {
+    response = { success: false, error: error?.message || 'Could not open capture widget launcher.' };
+  }
 
   if (!response || response.success !== true) {
     throw new Error(response?.error || 'Could not open capture widget launcher.');
@@ -3782,7 +3845,22 @@ async function dispatchCommand({ command, tabId, origin }) {
     command === 'save-page'
     && (origin === 'commands-api' || origin === 'content-fallback')
   ) {
-    await openWidgetKeyboardModeForTab(tabId, 'launcher_shortcut');
+    try {
+      await openWidgetKeyboardModeForTab(tabId, 'launcher_shortcut');
+    } catch (error) {
+      console.error(`[Dreamlab Launcher] open failed (${origin}):`, error?.message || error);
+      const activeTab = tabId
+        ? await getTab(tabId).catch(() => null)
+        : (await queryTabs({ active: true, currentWindow: true }))[0];
+      if (activeTab?.id) {
+        await showInPageToast(activeTab.id, {
+          type: 'error',
+          message: error?.message || 'Could not open capture launcher.',
+          durationMs: 3400,
+        });
+      }
+      throw error;
+    }
     return;
   }
 

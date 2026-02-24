@@ -43,6 +43,40 @@
       </div>
     </section>
 
+    <section class="card" aria-label="Widget keyboard hotkeys">
+      <h2>Widget Keyboard Hotkeys</h2>
+      <p class="help">Set one unique key per action (A-Z or 0-9). These keys are used when the widget is open in keyboard mode.</p>
+      <div class="field-grid hotkey-grid">
+        <label class="field">
+          <span>Save Page</span>
+          <input id="hotkey-save-page" type="text" maxlength="1" data-hotkey-action="save-page" />
+        </label>
+        <label class="field">
+          <span>Image Review</span>
+          <input id="hotkey-capture-visible" type="text" maxlength="1" data-hotkey-action="capture-visible" />
+        </label>
+        <label class="field">
+          <span>Full Screenshot</span>
+          <input id="hotkey-capture-full-page" type="text" maxlength="1" data-hotkey-action="capture-full-page" />
+        </label>
+        <label class="field">
+          <span>Smart Picker</span>
+          <input id="hotkey-smart-picker" type="text" maxlength="1" data-hotkey-action="smart-picker" />
+        </label>
+        <label class="field">
+          <span>Pick Color</span>
+          <input id="hotkey-pick-color" type="text" maxlength="1" data-hotkey-action="pick-color" />
+        </label>
+        <label class="field">
+          <span>Area Capture</span>
+          <input id="hotkey-area-capture" type="text" maxlength="1" data-hotkey-action="area-capture" />
+        </label>
+      </div>
+      <div class="actions docs">
+        <button id="reset-hotkeys" type="button" class="btn subtle">Reset Hotkeys</button>
+      </div>
+    </section>
+
     <section class="card" aria-label="Compliance and privacy">
       <h2>Compliance & Privacy</h2>
       <p id="compliance-summary" class="help">Loading compliance summary...</p>

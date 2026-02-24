@@ -1,4 +1,6 @@
 (() => {
+  if (window.__dreamlabFloatingWidgetLoaded === true) return;
+  window.__dreamlabFloatingWidgetLoaded = true;
   if (window !== window.top) return;
   if (!/^https?:$/i.test(window.location.protocol)) return;
   const DREAMLAB_ORIGINS = new Set([
@@ -55,15 +57,23 @@
     behaviorSettings: { ...DEFAULT_WIDGET_BEHAVIOR_SETTINGS },
     destination: { workspaceId: null, collectionId: null },
     shortcuts: [],
+    hotkeyMap: {},
+    awaitingHotkey: false,
+    openedBy: '',
     workspaces: [],
     projects: [],
     collections: [],
     activeContext: {},
     appBuildId: '',
     initialized: false,
+    initPromise: null,
   };
 
   const ui = {};
+  const awaitModeListeners = {
+    keydown: null,
+    pointerdown: null,
+  };
 
   let tokensCssCache = null;
 
@@ -98,6 +108,17 @@
         return part.length === 1 ? part.toUpperCase() : part;
       })
       .join('');
+  }
+
+  function normalizeHotkey(value) {
+    const token = String(value || '').trim().toUpperCase();
+    if (token.length !== 1) return '';
+    return /^[A-Z0-9]$/.test(token) ? token : '';
+  }
+
+  function getActionHotkey(actionId) {
+    if (!actionId) return '';
+    return normalizeHotkey(state.hotkeyMap?.[actionId] || '');
   }
 
   function getCollectionWorkspaceId(collection, projects) {
@@ -154,6 +175,96 @@
         prefs: state.prefs,
       });
     }
+  }
+
+  function clearAwaitModeListeners() {
+    if (awaitModeListeners.keydown) {
+      window.removeEventListener('keydown', awaitModeListeners.keydown, true);
+      awaitModeListeners.keydown = null;
+    }
+    if (awaitModeListeners.pointerdown) {
+      document.removeEventListener('pointerdown', awaitModeListeners.pointerdown, true);
+      awaitModeListeners.pointerdown = null;
+    }
+  }
+
+  function buildHotkeyCommandMap() {
+    const map = new Map();
+    (Array.isArray(state.shortcuts) ? state.shortcuts : []).forEach((entry) => {
+      const actionId = String(entry?.actionId || '');
+      const command = String(entry?.executeCommand || entry?.command || '').trim();
+      const key = getActionHotkey(actionId);
+      if (!actionId || !command || !key) return;
+      if (!map.has(key)) map.set(key, command);
+    });
+    return map;
+  }
+
+  function exitAwaitHotkeyMode() {
+    state.awaitingHotkey = false;
+    state.openedBy = '';
+    clearAwaitModeListeners();
+  }
+
+  function closeFromAwaitMode() {
+    exitAwaitHotkeyMode();
+    setExpanded(false, { persist: false });
+  }
+
+  function enterAwaitHotkeyMode(openedBy = 'shortcut') {
+    exitAwaitHotkeyMode();
+    state.awaitingHotkey = true;
+    state.openedBy = String(openedBy || 'shortcut');
+    setStatus('Press an action hotkey, or Esc to close.');
+
+    awaitModeListeners.keydown = (event) => {
+      if (!state.awaitingHotkey) return;
+      if (event.repeat) return;
+
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const insideWidget = path.includes(ui.host) || path.includes(ui.shadowRoot);
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeFromAwaitMode();
+        return;
+      }
+
+      if (insideWidget) {
+        const targetTag = event.target?.tagName || '';
+        if (targetTag === 'INPUT' || targetTag === 'TEXTAREA' || targetTag === 'SELECT') {
+          return;
+        }
+      }
+
+      const key = normalizeHotkey(event.key);
+      const command = key ? buildHotkeyCommandMap().get(key) : '';
+      if (!command) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeFromAwaitMode();
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      exitAwaitHotkeyMode();
+      void runAction(command).finally(() => {
+        setExpanded(false, { persist: false });
+      });
+    };
+    window.addEventListener('keydown', awaitModeListeners.keydown, true);
+
+    awaitModeListeners.pointerdown = (event) => {
+      if (!state.awaitingHotkey) return;
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const insideWidget = path.includes(ui.host) || path.includes(ui.shadowRoot);
+      if (!insideWidget) {
+        closeFromAwaitMode();
+      }
+    };
+    document.addEventListener('pointerdown', awaitModeListeners.pointerdown, true);
   }
 
   function setSelectOptions(select, options, placeholderText, selectedValue) {
@@ -213,11 +324,12 @@
       const actionId = entry.actionId || entry.command || '';
       const command = entry.executeCommand || entry.command || '';
       const icon = ACTION_ICON_BY_ID[actionId] || ICONS.savePage;
+      const actionHotkey = getActionHotkey(actionId);
       return `
         <button class="dlw-action-tile" type="button" data-command="${escapeHtml(command)}" title="${escapeHtml(entry.description || entry.label || '')}">
           <span class="dlw-action-icon">${iconSvg(icon)}</span>
           <span class="dlw-action-label">${escapeHtml(entry.label || command || 'Action')}</span>
-          <span class="dlw-shortcut-chip">${escapeHtml(formatShortcutChip(entry.shortcut))}</span>
+          <span class="dlw-shortcut-chip">${escapeHtml(formatShortcutChip(actionHotkey))}</span>
         </button>
       `;
     }).join('');
@@ -286,18 +398,9 @@
     setStatus('Destination updated.', 'success');
   }
 
-  async function loadTokensCssText() {
+  function loadTokensCssText() {
     if (tokensCssCache) return tokensCssCache;
-    try {
-      const url = chrome.runtime.getURL('extension-design-tokens.css');
-      const response = await fetch(url);
-      if (response.ok) {
-        tokensCssCache = await response.text();
-        return tokensCssCache;
-      }
-    } catch {
-      // Fall through to inline fallback.
-    }
+    // Keep token CSS inline to avoid extension-URL fetch dependency in stale tab contexts.
     tokensCssCache = `:host{--dl-brand-primary:#ea580c;--dl-brand-primary-strong:#c2410c;--dl-brand-soft:#fff7ed;--dl-neutral-0:#fff;--dl-neutral-25:#fcfcfd;--dl-neutral-50:#fafafa;--dl-neutral-100:#f5f5f5;--dl-neutral-200:#e5e5e5;--dl-neutral-300:#d4d4d4;--dl-neutral-500:#737373;--dl-neutral-700:#404040;--dl-neutral-900:#171717;--dl-success-600:#16a34a;--dl-error-600:#dc2626;--dl-radius-sm:6px;--dl-radius-md:8px;--dl-radius-pill:999px;--dl-shadow-sm:0 1px 2px rgba(23,23,23,.08);--dl-shadow-lg:0 14px 36px rgba(23,23,23,.24);--dl-focus-ring:0 0 0 3px rgba(234,88,12,.18);} `;
     return tokensCssCache;
   }
@@ -470,7 +573,7 @@
     const shadowRoot = host.attachShadow({ mode: 'open' });
 
     const tokensStyle = document.createElement('style');
-    tokensStyle.textContent = await loadTokensCssText();
+    tokensStyle.textContent = loadTokensCssText();
     shadowRoot.appendChild(tokensStyle);
 
     const style = document.createElement('style');
@@ -521,8 +624,14 @@
     ui.collectionSelect = shadowRoot.querySelector('[data-role="collection-select"]');
     ui.status = shadowRoot.querySelector('[data-role="status"]');
 
-    ui.bubble.addEventListener('click', () => setExpanded(true));
-    shadowRoot.querySelector('[data-role="collapse"]').addEventListener('click', () => setExpanded(false));
+    ui.bubble.addEventListener('click', () => {
+      setExpanded(true);
+      enterAwaitHotkeyMode('mouse_click');
+    });
+    shadowRoot.querySelector('[data-role="collapse"]').addEventListener('click', () => {
+      exitAwaitHotkeyMode();
+      setExpanded(false);
+    });
 
     shadowRoot.querySelector('[data-role="open-options"]').addEventListener('click', async () => {
       const response = await sendBackgroundMessage({ action: BACKGROUND_ACTIONS.openExtensionOptions });
@@ -539,6 +648,7 @@
       if (!target) return;
       const command = target.getAttribute('data-command');
       if (!command) return;
+      exitAwaitHotkeyMode();
       void runAction(command);
     });
 
@@ -566,6 +676,7 @@
   }
 
   function teardownWidget() {
+    exitAwaitHotkeyMode();
     if (!ui.host) return;
     ui.host.remove();
     Object.keys(ui).forEach((key) => {
@@ -676,6 +787,9 @@
     state.behaviorSettings = sanitizeWidgetBehaviorSettings(response.behaviorSettings);
     state.destination = response.destination || { workspaceId: null, collectionId: null };
     state.shortcuts = Array.isArray(response.shortcuts) ? response.shortcuts : [];
+    state.hotkeyMap = response.hotkeyMap && typeof response.hotkeyMap === 'object'
+      ? response.hotkeyMap
+      : {};
 
     const shouldHide = hostMatchesExcludedDomains(
       window.location.hostname,
@@ -737,15 +851,66 @@
         }
         void refreshWidgetState();
       }
+      if (Object.prototype.hasOwnProperty.call(changes, 'widgetHotkeys')) {
+        const nextHotkeys = changes.widgetHotkeys?.newValue;
+        state.hotkeyMap = nextHotkeys && typeof nextHotkeys.actionKeyMap === 'object'
+          ? nextHotkeys.actionKeyMap
+          : {};
+        renderActions();
+      }
     });
   }
 
   async function initialize() {
+    if (state.initPromise) return state.initPromise;
     if (state.initialized) return;
     state.initialized = true;
-    registerStorageListener();
-    await refreshWidgetState();
+    state.initPromise = (async () => {
+      registerStorageListener();
+      await refreshWidgetState();
+    })().finally(() => {
+      state.initPromise = null;
+    });
+    return state.initPromise;
   }
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const payload = event.data || {};
+    if (payload.type !== 'DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE') return;
+    const triggerSource = String(payload.triggerSource || 'shortcut');
+    const requestId = String(payload.requestId || '');
+    void (async () => {
+      await initialize();
+      if (!ui.host) {
+        try {
+          await refreshWidgetState();
+        } catch {
+          // keep failure path below
+        }
+      }
+      if (!ui.host) {
+        if (requestId) {
+          window.postMessage({
+            type: 'DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE_ACK',
+            requestId,
+            success: false,
+            error: 'Capture launcher widget is unavailable on this page.',
+          }, '*');
+        }
+        return;
+      }
+      setExpanded(true, { persist: false });
+      enterAwaitHotkeyMode(triggerSource);
+      if (requestId) {
+        window.postMessage({
+          type: 'DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE_ACK',
+          requestId,
+          success: true,
+        }, '*');
+      }
+    })();
+  });
 
   void initialize();
 })();

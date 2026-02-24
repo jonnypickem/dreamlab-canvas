@@ -87,6 +87,9 @@ Current status theme:
 - Workspace switching now restores each workspace's own remembered project/collection context instead of resetting to `All Items`.
 - Extension destination sync now reconciles app active context vs extension-local selection by recency metadata, then persists resolved destination for cross-site continuity.
 - Extension image review now keeps visible/all scope strict, prioritizes high-resolution assets first, and exposes explicit blocked-source reasons for unselectable items.
+- Extension keyboard workflow now uses a single launcher shortcut (`Alt+Shift+S`) and widget-scoped configurable action hotkeys.
+- Launcher open path now requires widget acknowledgment and auto-recovers stale tabs via marker cleanup + reinjection retry.
+- Extension release workflow now enforces deterministic packaging and zip/source parity checks before distribution.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -163,6 +166,37 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.44.0] - 2026-02-24
+Key outcomes:
+- Added deterministic extension packaging scripts with explicit file manifest and single output path (`dreamlab-canvas-extension.zip`).
+- Added artifact parity verifier that checks zip entry set + byte equality against source files.
+- Added launcher-contract checks in zipped `content.js` / `background.js` to catch stale action-contract artifacts before install/share.
+- Added `npm` workflow commands: `extension:package`, `extension:verify`, `extension:release`.
+
+Net effect:
+- Reinstalled extension artifacts now reliably match current source; stale zip drift no longer masks launcher fixes.
+
+### [0.43.0] - 2026-02-24
+Key outcomes:
+- Added launcher open request/ack handshake between content relay and floating widget.
+- Updated background launcher open flow to verify widget ack success before returning success.
+- Added stale-tab recovery path: clear legacy widget marker/host, reinject `floating-widget.js`, retry open once.
+- Guarded widget token stylesheet fetch against `chrome-extension://invalid/` runtime URLs to reduce invalid-runtime noise.
+
+Net effect:
+- `Alt+Shift+S` launcher behavior is now end-to-end validated and resilient on tabs that were open before extension reload/update.
+
+### [0.42.0] - 2026-02-24
+Key outcomes:
+- Consolidated global keyboard entry to launcher shortcut (`Alt+Shift+S`) and routed shortcut-origin `save-page` command to widget keyboard launcher mode.
+- Added persistent widget hotkey mapping contract (`widgetHotkeysV1`) with background runtime get/set actions.
+- Added options-page controls for per-action hotkey customization (single-character `A-Z`/`0-9`, duplicate validation).
+- Added widget await-mode behavior: mapped key executes action; unmapped key, Escape, outside click, and close button collapse the widget.
+- Kept widget visual layout unchanged; changes are behavior/state only.
+
+Net effect:
+- Shortcut UX scales better under Chrome command limits while preserving strict user-triggered capture semantics.
+
 ### [0.41.0] - 2026-02-23
 Key outcomes:
 - Added persistent image-review filter preferences in extension storage (`multiSelectPrefsV1`) with background runtime get/set actions.

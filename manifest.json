@@ -45,37 +45,7 @@
                 "default": "Alt+Shift+S",
                 "mac": "Alt+Shift+S"
             },
-            "description": "Save current page to Dreamlab"
-        },
-        "capture-visible": {
-            "suggested_key": {
-                "default": "Alt+Shift+C",
-                "mac": "Alt+Shift+C"
-            },
-            "description": "Open image capture review"
-        },
-        "capture-full-page": {
-            "suggested_key": {
-                "default": "Alt+Shift+P",
-                "mac": "Alt+Shift+P"
-            },
-            "description": "Capture full page screenshot"
-        },
-        "smart-picker": {
-            "description": "Pick an image or background from page"
-        },
-        "pick-color": {
-            "description": "Pick a color from the current page"
-        },
-        "area-select": {
-            "suggested_key": {
-                "default": "Alt+Shift+A",
-                "mac": "Alt+Shift+A"
-            },
-            "description": "Capture a selected area screenshot"
-        },
-        "area-record": {
-            "description": "Record a selected area"
+            "description": "Open Dreamlab capture launcher"
         }
     }
 }

@@ -16,7 +16,11 @@ const ACTIONS = {
   scanPageImages: 'SCAN_PAGE_IMAGES',
   triggerMultiSelect: 'TRIGGER_MULTI_SELECT',
   legacyScanVisibleImages: 'SCAN_VISIBLE_IMAGES',
+  // Canonical launcher-open action sent by background/content contract.
+  openWidgetKeyboardMode: 'OPEN_WIDGET_KEYBOARD_MODE',
 };
+// Temporary compatibility alias for stale runtime contexts during extension upgrades.
+const LEGACY_OPEN_WIDGET_KEYBOARD_MODE_ACTION = 'openWidgetKeyboardMode';
 
 const BACKGROUND_ACTIONS = {
   openMultiSelect: 'openMultiSelect',
@@ -30,6 +34,7 @@ const BACKGROUND_ACTIONS = {
   getCaptureDestination: 'getCaptureDestination',
   setCaptureDestination: 'setCaptureDestination',
 };
+const WIDGET_OPEN_ACK_TIMEOUT_MS = 1500;
 const SENSITIVE_HOST_PATTERN = /(bank|banking|wallet|payments?|checkout|billing|secure|auth|passport|idp|accounts?)/i;
 const SENSITIVE_PATH_PATTERN = /\/(login|signin|sign-in|account|security|password|checkout|payment|billing|wallet|verification)\b/i;
 
@@ -628,6 +633,50 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
     }
 
+    if (
+      request.action === ACTIONS.openWidgetKeyboardMode
+      || request.action === LEGACY_OPEN_WIDGET_KEYBOARD_MODE_ACTION
+    ) {
+      const requestId = `widget-open-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      let resolved = false;
+
+      const finalize = (payload) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeoutHandle);
+        window.removeEventListener('message', handleWidgetAck);
+        sendResponse(payload);
+      };
+
+      const handleWidgetAck = (event) => {
+        if (event.source !== window) return;
+        const payload = event.data || {};
+        if (payload.type !== 'DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE_ACK') return;
+        if (String(payload.requestId || '') !== requestId) return;
+        if (payload.success === false) {
+          finalize({
+            success: false,
+            error: String(payload.error || 'Capture launcher widget did not open.'),
+          });
+          return;
+        }
+        finalize({ success: true });
+      };
+
+      window.addEventListener('message', handleWidgetAck);
+      const timeoutHandle = window.setTimeout(() => {
+        finalize({ success: false, error: 'Capture launcher widget did not respond.' });
+      }, WIDGET_OPEN_ACK_TIMEOUT_MS);
+
+      window.postMessage({
+        type: 'DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE',
+        triggerSource: String(request?.triggerSource || 'shortcut'),
+        sourceTabId: Number(request?.sourceTabId || 0) || null,
+        requestId,
+      }, '*');
+      return true;
+    }
+
     sendResponse({ success: false, error: 'Unknown action.' });
   } catch (error) {
     sendResponse({ success: false, error: error?.message || 'Content script error.' });
@@ -996,11 +1045,6 @@ function getAllImages() {
 // characters in event.key (e.g. Cmd+Alt+S → key:"ß", code:"KeyS").
 const SHORTCUT_MAP = [
   { code: 'KeyS', command: 'save-page' },
-  { code: 'KeyC', command: 'capture-visible' },
-  { code: 'KeyP', command: 'capture-full-page' },
-  { code: 'KeyI', command: 'smart-picker' },
-  { code: 'KeyK', command: 'pick-color' },
-  { code: 'KeyA', command: 'area-select' },
 ];
 
 const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);

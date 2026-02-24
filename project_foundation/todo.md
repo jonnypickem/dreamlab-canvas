@@ -37,6 +37,27 @@
 - [x] Add options-page hotkey customization with validation (single char, unique keys).
 - [x] Update compliance/privacy wording and project foundation logs.
 
+## Current Task Plan (2026-02-24 - Launcher Open Reliability Hotfix)
+- [x] Add explicit open-ack handshake between content relay and floating widget for keyboard launcher events.
+- [x] Make background launcher flow verify widget ack success before declaring shortcut open successful.
+- [x] Add stale-tab recovery path (clear legacy widget marker/host, reinject widget runtime, retry open).
+- [x] Reduce invalid-extension-url noise by guarding token stylesheet fetch when runtime URL is invalid.
+- [x] Re-run syntax/build checks and repack extension artifact.
+
+## Current Task Plan (2026-02-24 - Launcher "Unknown action" Contract Hotfix)
+- [x] Normalize content inbound launcher action to canonical `OPEN_WIDGET_KEYBOARD_MODE`.
+- [x] Keep temporary compatibility alias (`openWidgetKeyboardMode`) for stale-tab upgrade resilience.
+- [x] Harden stale mismatch recovery by forcing `content.js` + `floating-widget.js` reinjection when first response indicates unknown action.
+- [x] Improve launcher failure observability with origin-scoped error logging and existing in-page toast fallback.
+- [x] Re-run static checks/build and repack extension artifact.
+
+## Current Task Plan (2026-02-24 - Artifact Parity + Deterministic Extension Packaging)
+- [x] Add deterministic extension packaging script with explicit extension file list.
+- [x] Add zip/source parity verification script that fails on missing/unexpected entries or byte mismatch.
+- [x] Add launcher-contract assertions against zipped `content.js` / `background.js` to prevent stale-contract bundles.
+- [x] Wire single-command workflow in `package.json` (`extension:release`) for package + verify.
+- [x] Rebuild zip via script and validate parity before distribution.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -79,6 +100,16 @@
 - 2026-02-24: Updated `content.js` shortcut fallback to launcher-only forwarding and added relay event `DREAMLAB_WIDGET_OPEN_KEYBOARD_MODE`.
 - 2026-02-24: Added options-page hotkey controls in `options.html`/`options.js` with single-char normalization and duplicate-key validation.
 - 2026-02-24: Updated public extension policy/compliance wording for launcher + widget-hotkey capture trigger model.
+- 2026-02-24: Hotfixed launcher-open reliability by adding widget ack handshake (`content.js` <-> `floating-widget.js`) and background retry recovery for stale tabs (`background.js`).
+- 2026-02-24: Added stale marker cleanup (`window.__dreamlabFloatingWidgetLoaded` + `dreamlab-floating-widget-host`) before recovery reinjection to avoid silent no-open after extension reload/update.
+- 2026-02-24: Fixed launcher-open race where open-event could arrive before widget mount (`ui.host` not ready) by awaiting initialization in widget message handler and extending relay ack timeout.
+- 2026-02-24: Removed runtime token CSS fetch dependency from widget mount path (inline tokens only) to avoid `chrome-extension://invalid/` fetch failures in stale contexts.
+- 2026-02-24: Fixed launcher `"Unknown action"` failure by aligning content inbound launcher action contract to canonical `OPEN_WIDGET_KEYBOARD_MODE` while retaining one-release lowercase alias compatibility.
+- 2026-02-24: Updated launcher recovery path to force `content.js` reinjection before widget reinjection when an unknown-action response indicates stale content runtime.
+- 2026-02-24: Identified persistence cause: distributed zip contained stale launcher files even though source files were already fixed.
+- 2026-02-24: Added deterministic extension packaging script `scripts/extension-package.mjs` with explicit file manifest (`scripts/extension-package-files.mjs`).
+- 2026-02-24: Added parity + contract verifier `scripts/verify-extension-zip.mjs` to compare zip bytes to source and assert launcher-critical tokens in zipped files.
+- 2026-02-24: Added `npm` workflow commands `extension:package`, `extension:verify`, and `extension:release` to enforce package-then-verify flow.
 
 ## Review
 - Evidence to capture for each task:
@@ -172,6 +203,48 @@
   - cross-page destination link saves continue OG preview fallback,
   - tweet links keep existing embed-centric preview behavior,
   - failed capture/compression falls back to OG image without blocking save.
+- Evidence (2026-02-24):
+- Diff includes targeted launcher reliability changes in:
+  - `background.js`
+  - `content.js`
+  - `floating-widget.js`
+- Validation commands passed:
+  - `node --check background.js`
+  - `node --check content.js`
+  - `node --check floating-widget.js`
+  - `node --check options.js`
+  - `npm run build`
+- Expected behavior from code path:
+  - shortcut launch succeeds only when widget instance acknowledges open event,
+  - stale/invalid tab runtime attempts one recovery reinjection path automatically,
+  - launcher no longer silently succeeds while widget fails to appear.
+- Evidence (2026-02-24):
+- Diff includes targeted launcher contract mismatch fixes in:
+  - `content.js`
+  - `background.js`
+- Validation commands passed:
+  - `node --check content.js`
+  - `node --check background.js`
+  - `node --check floating-widget.js`
+  - `npm run build`
+- Expected behavior from code path:
+  - content listener accepts canonical launcher action (`OPEN_WIDGET_KEYBOARD_MODE`) and temporary lowercase alias,
+  - unknown-action first responses trigger `content.js` + `floating-widget.js` reinjection before one retry,
+  - launcher failures now log explicit origin-scoped errors and show user-visible toast feedback.
+- Evidence (2026-02-24):
+- Diff includes deterministic packaging/parity workflow changes in:
+  - `scripts/extension-package-files.mjs`
+  - `scripts/extension-package.mjs`
+  - `scripts/verify-extension-zip.mjs`
+  - `package.json`
+- Validation commands passed:
+  - `node --check scripts/extension-package.mjs`
+  - `node --check scripts/verify-extension-zip.mjs`
+  - `npm run extension:release`
+- Expected behavior from code path:
+  - extension zip is rebuilt from a fixed manifest list each release,
+  - zip/source parity mismatches fail verification immediately,
+  - launcher-contract regressions in distributed zip are caught before reinstall/sharing.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).

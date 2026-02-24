@@ -1,6 +1,8 @@
 const ACTIONS = {
   getWidgetBehaviorSettings: 'getWidgetBehaviorSettings',
   setWidgetBehaviorSettings: 'setWidgetBehaviorSettings',
+  getWidgetHotkeys: 'getWidgetHotkeys',
+  setWidgetHotkeys: 'setWidgetHotkeys',
   getComplianceState: 'getComplianceState',
   getPrivacySummary: 'getPrivacySummary',
   openComplianceDoc: 'openComplianceDoc',
@@ -12,6 +14,14 @@ const DEFAULT_SETTINGS = {
   offsetX: 20,
   offsetY: 20,
 };
+const DEFAULT_HOTKEYS = Object.freeze({
+  'save-page': 'S',
+  'capture-visible': 'I',
+  'capture-full-page': 'P',
+  'smart-picker': 'M',
+  'pick-color': 'K',
+  'area-capture': 'A',
+});
 
 const ui = {};
 
@@ -33,6 +43,8 @@ function cacheDom() {
   ui.privacySummary = document.getElementById('privacy-summary');
   ui.openPrivacyDoc = document.getElementById('open-privacy-doc');
   ui.openComplianceDoc = document.getElementById('open-compliance-doc');
+  ui.resetHotkeys = document.getElementById('reset-hotkeys');
+  ui.hotkeyInputs = Array.from(document.querySelectorAll('[data-hotkey-action]'));
 }
 
 function bindEvents() {
@@ -48,6 +60,15 @@ function bindEvents() {
   });
   ui.openComplianceDoc?.addEventListener('click', () => {
     void openComplianceDoc('compliance');
+  });
+  ui.resetHotkeys?.addEventListener('click', () => {
+    applyHotkeyValues(DEFAULT_HOTKEYS);
+    setStatus('Default hotkeys restored in form. Click Save Settings to apply.', '');
+  });
+  ui.hotkeyInputs.forEach((input) => {
+    input.addEventListener('input', () => {
+      input.value = normalizeHotkeyChar(input.value);
+    });
   });
 }
 
@@ -146,6 +167,39 @@ function applyFormValues(settings) {
   ui.offsetY.value = String(next.offsetY);
 }
 
+function normalizeHotkeyChar(value) {
+  const token = String(value || '').trim().toUpperCase();
+  if (token.length !== 1) return '';
+  return /^[A-Z0-9]$/.test(token) ? token : '';
+}
+
+function applyHotkeyValues(map) {
+  const source = map && typeof map === 'object' ? map : {};
+  ui.hotkeyInputs.forEach((input) => {
+    const actionId = String(input.getAttribute('data-hotkey-action') || '');
+    input.value = normalizeHotkeyChar(source[actionId] || DEFAULT_HOTKEYS[actionId] || '');
+  });
+}
+
+function readHotkeyValues() {
+  const map = {};
+  const seen = new Set();
+  for (const input of ui.hotkeyInputs) {
+    const actionId = String(input.getAttribute('data-hotkey-action') || '');
+    if (!actionId) continue;
+    const token = normalizeHotkeyChar(input.value);
+    if (!token) {
+      throw new Error('Each action hotkey must be one letter (A-Z) or digit (0-9).');
+    }
+    if (seen.has(token)) {
+      throw new Error(`Duplicate hotkey "${token}" is not allowed.`);
+    }
+    seen.add(token);
+    map[actionId] = token;
+  }
+  return map;
+}
+
 function readFormValues() {
   return sanitizeSettings({
     excludedDomains: parseExcludedDomains(ui.excludedDomains?.value || ''),
@@ -158,12 +212,20 @@ function readFormValues() {
 async function loadSettings() {
   setStatus('Loading widget settings...');
   try {
-    const settingsResponse = await runtimeMessage({ action: ACTIONS.getWidgetBehaviorSettings }, { retries: 2 });
+    const [settingsResponse, hotkeysResponse] = await Promise.all([
+      runtimeMessage({ action: ACTIONS.getWidgetBehaviorSettings }, { retries: 2 }),
+      runtimeMessage({ action: ACTIONS.getWidgetHotkeys }, { retries: 2 }).catch(() => null),
+    ]);
 
     if (!settingsResponse?.success) {
       throw new Error(settingsResponse?.error || 'Could not load widget settings.');
     }
     applyFormValues(settingsResponse.settings || DEFAULT_SETTINGS);
+    if (hotkeysResponse?.success && hotkeysResponse.hotkeys?.actionKeyMap) {
+      applyHotkeyValues(hotkeysResponse.hotkeys.actionKeyMap);
+    } else {
+      applyHotkeyValues(DEFAULT_HOTKEYS);
+    }
     const [complianceResponse, privacyResponse] = await Promise.all([
       runtimeMessage({ action: ACTIONS.getComplianceState }, { retries: 2 }).catch(() => null),
       runtimeMessage({ action: ACTIONS.getPrivacySummary }, { retries: 2 }).catch(() => null),
@@ -172,6 +234,7 @@ async function loadSettings() {
     setStatus('Widget settings loaded.');
   } catch (error) {
     applyFormValues(DEFAULT_SETTINGS);
+    applyHotkeyValues(DEFAULT_HOTKEYS);
     setStatus(error?.message || 'Could not load widget settings.', 'error');
   }
 }
@@ -194,16 +257,28 @@ async function saveSettings() {
   setStatus('Saving widget settings...');
 
   try {
-    const response = await runtimeMessage({
+    const hotkeyMap = readHotkeyValues();
+
+    const settingsResponse = await runtimeMessage({
       action: ACTIONS.setWidgetBehaviorSettings,
       settings,
     });
 
-    if (!response?.success) {
-      throw new Error(response?.error || 'Could not save widget settings.');
+    if (!settingsResponse?.success) {
+      throw new Error(settingsResponse?.error || 'Could not save widget settings.');
     }
 
-    applyFormValues(response.settings || settings);
+    const hotkeysResponse = await runtimeMessage({
+      action: ACTIONS.setWidgetHotkeys,
+      hotkeys: { actionKeyMap: hotkeyMap },
+    });
+
+    if (!hotkeysResponse?.success) {
+      throw new Error(hotkeysResponse?.error || 'Could not save widget hotkeys.');
+    }
+
+    applyFormValues(settingsResponse.settings || settings);
+    applyHotkeyValues(hotkeysResponse.hotkeys?.actionKeyMap || hotkeyMap);
     setStatus('Widget settings saved.', 'success');
   } catch (error) {
     setStatus(error?.message || 'Could not save widget settings.', 'error');
