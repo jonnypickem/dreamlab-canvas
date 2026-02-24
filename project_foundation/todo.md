@@ -72,6 +72,11 @@
 - [x] Add object URL cache pressure controls and release-on-unmount cleanup for legacy `idb://` sources.
 - [x] Wire new media source policy into grid/canvas/modal/detail image surfaces and verify build.
 
+## Current Task Plan (2026-02-24 - Sidebar Shortcut Guide Removal)
+- [x] Remove shortcut guide section from sidebar bottom area.
+- [x] Remove sidebar-only shortcut polling/listener plumbing in app shell.
+- [x] Verify build integrity after cleanup.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -132,6 +137,7 @@
 - 2026-02-24: Added signed URL in-flight dedupe + persistent IndexedDB cache in `src/lib/supabaseStorage.js` and batch resolver API `getMediaUrls()`.
 - 2026-02-24: Added object URL cache eviction and source release cleanup (`src/lib/mediaStore.js`, `src/hooks/useResolvedImageSource.js`) to reduce long-session memory growth.
 - 2026-02-24: Wired variant-aware source selection into `ItemCard`, `CanvasItem`, `ItemModal`, and `CanvasDetailPanel` with canvas zoom-triggered original upgrade logic.
+- 2026-02-24: Removed the sidebar bottom shortcut guide section and deleted sidebar-specific extension shortcut polling in `src/components/Sidebar.jsx` and `src/App.jsx`.
 
 ## Review
 - Evidence to capture for each task:
@@ -302,6 +308,16 @@
   - image/link media can resolve context-aware sources (`preview` in grid, `canvas` in normal canvas zoom, `original` in modal/deep zoom),
   - legacy items missing variants are backfilled lazily and deduped/rate-limited,
   - signed URL fetches are deduped and persisted, reducing repeated URL churn across re-renders.
+- Evidence (2026-02-24):
+- Diff includes targeted sidebar shortcut-removal changes in:
+  - `src/components/Sidebar.jsx`
+  - `src/App.jsx`
+- Validation commands passed:
+  - `npm run build`
+- Expected behavior from code path:
+  - sidebar no longer renders shortcut-guide rows at the bottom,
+  - sidebar shortcut polling/listener effect is removed from app shell,
+  - settings shortcut management remains available in `SettingsModal`.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).
