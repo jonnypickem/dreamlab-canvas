@@ -1216,6 +1216,7 @@ async function captureLinkPreviewScreenshot(tab) {
   }
 
   try {
+    await setExtensionCaptureUiVisibility(tab.id, false);
     await executeScriptFn(
       tab.id,
       async () => {
@@ -1247,6 +1248,7 @@ async function captureLinkPreviewScreenshot(tab) {
   } catch {
     return null;
   } finally {
+    await setExtensionCaptureUiVisibility(tab.id, true);
     try {
       await executeScriptFn(tab.id, (x, y) => {
         window.scrollTo(x, y);
@@ -1375,6 +1377,42 @@ async function setInPageToastVisibility(tabId, isVisible) {
     );
   } catch {
     // Ignore visibility toggle failures.
+  }
+}
+
+async function setExtensionCaptureUiVisibility(tabId, isVisible) {
+  if (!tabId) return;
+  try {
+    await executeScriptFn(
+      tabId,
+      (visible) => {
+        const targets = [
+          '__dreamlab_extension_toast_root__',
+          'dreamlab-floating-widget-host',
+        ];
+        targets.forEach((id) => {
+          const element = document.getElementById(id);
+          if (!element) return;
+
+          if (!visible) {
+            if (!Object.prototype.hasOwnProperty.call(element.dataset, 'dreamlabCaptureDisplay')) {
+              element.dataset.dreamlabCaptureDisplay = element.style.display || '';
+            }
+            element.style.display = 'none';
+            return;
+          }
+
+          const previousDisplay = Object.prototype.hasOwnProperty.call(element.dataset, 'dreamlabCaptureDisplay')
+            ? element.dataset.dreamlabCaptureDisplay
+            : '';
+          element.style.display = previousDisplay || '';
+          delete element.dataset.dreamlabCaptureDisplay;
+        });
+      },
+      [Boolean(isVisible)]
+    );
+  } catch {
+    // Ignore capture UI visibility toggle failures.
   }
 }
 
@@ -3342,11 +3380,11 @@ async function executeCommandFromTab(command, tabId) {
       const destinationTab = await ensureDreamlabTab();
       let screenshot = null;
       await wait(160);
-      await setInPageToastVisibility(tab.id, false);
+      await setExtensionCaptureUiVisibility(tab.id, false);
       try {
         screenshot = await captureFullPageScreenshot(tab);
       } finally {
-        await setInPageToastVisibility(tab.id, true);
+        await setExtensionCaptureUiVisibility(tab.id, true);
       }
       const originalByteEstimate = estimateDataUrlBytes(screenshot.dataUrl);
 
@@ -3674,6 +3712,13 @@ async function openWidgetKeyboardModeForTab(tabId = null, triggerSource = 'short
 
   if (!tab?.id) {
     throw new Error('No active tab available for widget launcher.');
+  }
+
+  // Ensure widget runtime is present on tabs that existed before extension load/reload.
+  try {
+    await executeScript(tab.id, ['floating-widget.js']);
+  } catch {
+    // Non-fatal; message path below still attempts to open keyboard mode.
   }
 
   const response = await sendTabMessageWithBridge(tab.id, {
@@ -4181,8 +4226,13 @@ async function handleRuntimeMessage(request, sender) {
       try {
         // Wait for overlay DOM removal to complete
         await wait(120);
-
-        const dataUrl = await captureVisibleTab(tab.windowId, { format: 'png' });
+        await setExtensionCaptureUiVisibility(tab.id, false);
+        let dataUrl = null;
+        try {
+          dataUrl = await captureVisibleTab(tab.windowId, { format: 'png' });
+        } finally {
+          await setExtensionCaptureUiVisibility(tab.id, true);
+        }
 
         // Crop using OffscreenCanvas
         const { rect, dpr } = request;
