@@ -22,9 +22,25 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Added deterministic extension packaging + parity verification workflow to prevent stale launcher files in distributed zip artifacts.
+-   **Last Major Change**: Unified card media-type indicator placement to bottom-left across grid and canvas views, with inline text-edit overlap prevention.
 
 ## Changelog
+
+### [0.45.0] - 2026-02-24
+#### Changed
+- **Card Type Indicator Placement Unification** (`src/components/ItemCard.jsx`, `src/components/CanvasItem.jsx`):
+  - Moved card type indicator badge from `top-left` to `bottom-left` in both grid and canvas cards.
+  - Preserved hover-only reveal behavior and existing visual style.
+
+#### Fixed
+- **Inline Note Editing Overlap** (`src/components/ItemCard.jsx`):
+  - Added guard to hide the type indicator while editing text cards inline.
+  - Prevents top-surface overlays from interfering with typing focus/content legibility.
+
+#### Problems & Fixes
+- **Problem**: Type indicator in card top-left could overlap note content during inline text editing and felt inconsistent across surfaces.
+- **Cause**: Type indicator placement was anchored to top-left in both grid and canvas card components without edit-state suppression.
+- **Fix**: Repositioned indicator to bottom-left for both surfaces and suppressed indicator during grid text-card edit mode.
 
 ### [0.44.0] - 2026-02-24
 #### Added

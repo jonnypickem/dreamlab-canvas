@@ -90,6 +90,7 @@ Current status theme:
 - Extension keyboard workflow now uses a single launcher shortcut (`Alt+Shift+S`) and widget-scoped configurable action hotkeys.
 - Launcher open path now requires widget acknowledgment and auto-recovers stale tabs via marker cleanup + reinjection retry.
 - Extension release workflow now enforces deterministic packaging and zip/source parity checks before distribution.
+- Grid and canvas card media-type indicators are now unified at bottom-left; grid text-card edit mode suppresses the indicator to avoid content overlap.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -166,6 +167,15 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.45.0] - 2026-02-24
+Key outcomes:
+- Moved media-type badges from top-left to bottom-left in both grid and canvas card components.
+- Preserved hover-only indicator behavior and existing card control placements.
+- Added text-editing guard so grid text cards do not show the badge during inline edit mode.
+
+Net effect:
+- Card UI is visually consistent across surfaces and inline note editing is no longer obstructed by the type badge.
+
 ### [0.44.0] - 2026-02-24
 Key outcomes:
 - Added deterministic extension packaging scripts with explicit file manifest and single output path (`dreamlab-canvas-extension.zip`).

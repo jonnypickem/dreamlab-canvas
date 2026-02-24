@@ -352,7 +352,7 @@ const CanvasItem = ({
                     onOpenDetails?.(item);
                 }}
             >
-                <div className="absolute top-2 left-2 z-20 flex opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <div className="absolute bottom-2 left-2 z-20 flex opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                     <div className="bg-white shadow-sm border border-neutral-100 p-1.5 rounded-md flex items-center justify-center">
                         <div className="text-orange-600">
                             {getTypeIcon(item.type)}

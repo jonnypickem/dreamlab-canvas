@@ -124,11 +124,13 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
             )}
 
             {/* Type Indicator - Visible on Hover */}
-            <div className="absolute top-2 left-2 z-10 flex opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <div className="bg-white shadow-sm border border-neutral-100 p-1.5 rounded-md flex items-center justify-center">
-                    {React.cloneElement(getTypeIcon(), { className: "text-orange-600", size: 14 })}
+            {!(item.type === 'text' && isEditing) && (
+                <div className="absolute bottom-2 left-2 z-10 flex opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <div className="bg-white shadow-sm border border-neutral-100 p-1.5 rounded-md flex items-center justify-center">
+                        {React.cloneElement(getTypeIcon(), { className: "text-orange-600", size: 14 })}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Content Rendering */}
             {item.isLoading ? (

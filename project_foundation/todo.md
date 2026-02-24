@@ -58,6 +58,12 @@
 - [x] Wire single-command workflow in `package.json` (`extension:release`) for package + verify.
 - [x] Rebuild zip via script and validate parity before distribution.
 
+## Current Task Plan (2026-02-24 - Card Type Icon Placement Unification)
+- [x] Move grid card type indicator from top-left to bottom-left while keeping hover-only behavior.
+- [x] Move canvas card type indicator from top-left to bottom-left with matching spacing/style.
+- [x] Suppress grid text-card type icon during inline editing to prevent overlap while typing.
+- [x] Verify build integrity and confirm no interaction regressions in card controls.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -110,6 +116,8 @@
 - 2026-02-24: Added deterministic extension packaging script `scripts/extension-package.mjs` with explicit file manifest (`scripts/extension-package-files.mjs`).
 - 2026-02-24: Added parity + contract verifier `scripts/verify-extension-zip.mjs` to compare zip bytes to source and assert launcher-critical tokens in zipped files.
 - 2026-02-24: Added `npm` workflow commands `extension:package`, `extension:verify`, and `extension:release` to enforce package-then-verify flow.
+- 2026-02-24: Moved media-type badges on grid/canvas cards from top-left to bottom-left for consistent placement and lower content interference.
+- 2026-02-24: Added grid-only guard to hide text-card media-type badge while inline note editing is active.
 
 ## Review
 - Evidence to capture for each task:
@@ -245,6 +253,18 @@
   - extension zip is rebuilt from a fixed manifest list each release,
   - zip/source parity mismatches fail verification immediately,
   - launcher-contract regressions in distributed zip are caught before reinstall/sharing.
+- Evidence (2026-02-24):
+- Diff includes targeted card type-indicator placement changes in:
+  - `src/components/ItemCard.jsx`
+  - `src/components/CanvasItem.jsx`
+- Validation commands passed:
+  - `npm run build`
+- Additional validation note:
+  - `node --check` on `.jsx` files is not supported in this Node runtime (`ERR_UNKNOWN_FILE_EXTENSION`); build compile succeeded.
+- Expected behavior from code path:
+  - grid and canvas media-type indicators now appear bottom-left on hover,
+  - grid text-card indicator is hidden during inline editing,
+  - selection and details controls remain in existing positions.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).
