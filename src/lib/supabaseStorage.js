@@ -141,6 +141,29 @@ async function writePersistedSignedUrl(pathOrUrl, payload) {
     }
 }
 
+async function deletePersistedSignedUrl(pathOrUrl) {
+    try {
+        const db = await openSignedUrlDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(SIGNED_URL_STORE, 'readwrite');
+            const store = tx.objectStore(SIGNED_URL_STORE);
+            store.delete(pathOrUrl);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error || new Error('Signed URL cache delete failed'));
+            tx.onabort = () => reject(tx.error || new Error('Signed URL cache delete aborted'));
+        });
+    } catch {
+        // Best-effort persistence only.
+    }
+}
+
+export function invalidateMediaUrl(pathOrUrl) {
+    if (!pathOrUrl || typeof pathOrUrl !== 'string') return;
+    _signedUrlCache.delete(pathOrUrl);
+    _signedUrlInFlight.delete(pathOrUrl);
+    void deletePersistedSignedUrl(pathOrUrl);
+}
+
 /**
  * Get a signed URL for a storage path. Returns the input as-is for
  * http(s) URLs, data-URLs, and legacy idb:// references.
@@ -148,8 +171,15 @@ async function writePersistedSignedUrl(pathOrUrl, payload) {
  * @param {number} expiresIn  seconds (default 1 hour)
  * @returns {Promise<string>}
  */
-export async function getMediaUrl(pathOrUrl, expiresIn = 3600) {
+export async function getMediaUrl(pathOrUrl, expiresIn = 3600, options = {}) {
     if (!pathOrUrl) return '';
+    const normalizedExpiresIn = Number.isFinite(Number(expiresIn))
+        ? Number(expiresIn)
+        : 3600;
+    const normalizedOptions = (expiresIn && typeof expiresIn === 'object')
+        ? expiresIn
+        : options;
+    const forceRefresh = Boolean(normalizedOptions?.forceRefresh);
 
     // Already a renderable URL — pass through.
     if (
@@ -169,6 +199,14 @@ export async function getMediaUrl(pathOrUrl, expiresIn = 3600) {
         } catch {
             return '';
         }
+    }
+
+    if (!isSupabaseStoragePath(pathOrUrl)) {
+        return '';
+    }
+
+    if (forceRefresh) {
+        invalidateMediaUrl(pathOrUrl);
     }
 
     // Check cache first
@@ -192,14 +230,14 @@ export async function getMediaUrl(pathOrUrl, expiresIn = 3600) {
         // Supabase storage path — get a signed URL.
         const { data, error } = await supabase.storage
             .from(BUCKET)
-            .createSignedUrl(pathOrUrl, expiresIn);
+            .createSignedUrl(pathOrUrl, normalizedExpiresIn);
 
         if (error) throw error;
         const url = data?.signedUrl || '';
 
         // Cache the signed URL
         if (url) {
-            const expiresAt = Date.now() + (expiresIn * 1000) - CACHE_MARGIN_MS;
+            const expiresAt = Date.now() + (normalizedExpiresIn * 1000) - CACHE_MARGIN_MS;
             _signedUrlCache.set(pathOrUrl, {
                 url,
                 expiresAt,
@@ -245,8 +283,20 @@ export async function deleteMedia(path) {
  */
 export function isSupabaseStoragePath(value) {
     if (!value || typeof value !== 'string') return false;
-    // Supabase paths look like "{uuid}/images/{uuid}.jpg"
-    return /^[0-9a-f-]+\/(images|thumbnails|videos)\//.test(value);
+    const path = value.trim();
+    if (!path) return false;
+    if (
+        path.startsWith('http://')
+        || path.startsWith('https://')
+        || path.startsWith('data:')
+        || path.startsWith('blob:')
+        || path.startsWith('idb://')
+    ) {
+        return false;
+    }
+    if (!path.includes('/')) return false;
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    return /\/(images|thumbnails|videos)\//.test(normalized);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────

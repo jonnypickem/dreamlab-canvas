@@ -2,10 +2,12 @@ import { getMediaUrl, isSupabaseStoragePath, uploadMediaVariant } from '../lib/s
 import { updateItem } from '../lib/storage';
 import { generateThumbnail } from '../utils/imageResize';
 import { hasCompleteMediaVariants } from '../utils/mediaSourcePolicy';
+import { getProxyUrl, isExternalUrl } from '../utils/imageProxy';
 
 const RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+const EXTENDED_RETRY_COOLDOWN_MS = 20 * 60 * 1000;
 const inFlight = new Set();
-const lastFailedAt = new Map();
+const retryAfterAt = new Map();
 let queue = Promise.resolve();
 
 function mergeMetadataWithVariants(item, variants) {
@@ -28,6 +30,11 @@ async function sourceToBlob(sourcePath) {
     let fetchUrl = sourcePath;
     if (isSupabaseStoragePath(sourcePath)) {
         fetchUrl = await getMediaUrl(sourcePath);
+        if (!fetchUrl) {
+            throw new Error('Could not resolve storage path for media variant backfill.');
+        }
+    } else if (isExternalUrl(sourcePath)) {
+        fetchUrl = getProxyUrl(sourcePath);
     }
     const response = await fetch(fetchUrl);
     if (!response.ok) {
@@ -104,6 +111,21 @@ async function runBackfill(item) {
     if (item.type === 'link') return backfillLinkItem(item);
 }
 
+function getRetryDelayMs(error) {
+    const message = String(error?.message || '').toLowerCase();
+    if (
+        message.includes('cors')
+        || message.includes('failed to fetch')
+        || message.includes('(400)')
+        || message.includes('(401)')
+        || message.includes('(403)')
+        || message.includes('(404)')
+    ) {
+        return EXTENDED_RETRY_COOLDOWN_MS;
+    }
+    return RETRY_COOLDOWN_MS;
+}
+
 export function queueItemMediaVariantBackfill(item) {
     const itemId = String(item?.id || '').trim();
     if (!itemId) return;
@@ -111,14 +133,14 @@ export function queueItemMediaVariantBackfill(item) {
     if (item.type !== 'image' && item.type !== 'link') return;
     if (inFlight.has(itemId)) return;
 
-    const lastFailed = Number(lastFailedAt.get(itemId) || 0);
-    if (Date.now() - lastFailed < RETRY_COOLDOWN_MS) return;
+    const blockedUntil = Number(retryAfterAt.get(itemId) || 0);
+    if (Date.now() < blockedUntil) return;
 
     inFlight.add(itemId);
     queue = queue
         .then(() => runBackfill(item))
-        .catch(() => {
-            lastFailedAt.set(itemId, Date.now());
+        .catch((error) => {
+            retryAfterAt.set(itemId, Date.now() + getRetryDelayMs(error));
         })
         .finally(() => {
             inFlight.delete(itemId);

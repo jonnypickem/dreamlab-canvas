@@ -108,6 +108,11 @@ function cleanTextForDisplay(text) {
         .trim();
 }
 
+const isRenderableUrl = (value) => (
+    typeof value === 'string'
+    && (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:') || value.startsWith('blob:'))
+);
+
 function formatTextIntoParagraphs(text) {
     const cleaned = cleanTextForDisplay(text);
     if (!cleaned) return [];
@@ -181,11 +186,24 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const [colorValue, setColorValue] = useState(item.type === 'color' ? item.content : '#000000');
     const [textContentDirty, setTextContentDirty] = useState(false);
     const [centerLinkText, setCenterLinkText] = useState(true);
-    const resolvedModalMediaSource = useItemMediaSource(item, { context: 'modal' });
+    const [mediaRetryToken, setMediaRetryToken] = useState(0);
+    const [imagePreviewError, setImagePreviewError] = useState(false);
+    const [linkPreviewError, setLinkPreviewError] = useState(false);
+    const sourceRetryAttemptedRef = useRef(false);
+    const resolvedModalMediaSource = useItemMediaSource(item, { context: 'modal', retryToken: mediaRetryToken });
     const resolvedImageSource = item.type === 'image' ? resolvedModalMediaSource : '';
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = (item.type === 'link' ? resolvedModalMediaSource : '') || useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
-    const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
+    const imageSource = resolvedImageSource || (isRenderableUrl(item.content) ? item.content : '');
+    const linkThumbnailSource = resolvedLinkThumbnailSource || (isRenderableUrl(item.thumbnail) ? item.thumbnail : '');
+    const requestSourceRefreshOnce = () => {
+        if (sourceRetryAttemptedRef.current) return false;
+        sourceRetryAttemptedRef.current = true;
+        setImagePreviewError(false);
+        setLinkPreviewError(false);
+        setMediaRetryToken((value) => value + 1);
+        return true;
+    };
 
     const emitToast = (message, type = 'info') => {
         if (onToast) onToast({ message, type });
@@ -207,6 +225,10 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         setLinkViewMode(resolveInitialLinkViewMode(item));
         setColorValue(item.type === 'color' ? item.content : '#000000');
         setTextContentDirty(false);
+        setImagePreviewError(false);
+        setLinkPreviewError(false);
+        setMediaRetryToken(0);
+        sourceRetryAttemptedRef.current = false;
     }, [item, isTweetLink]);
 
     // Auto-refresh tweet metadata and repair older broken tweet cards.
@@ -426,7 +448,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
         try {
             switch (item.type) {
                 case 'image': {
-                    const imageSource = resolvedImageSource || item.content;
+                    if (!imageSource) throw new Error('No image source available');
                     const blob = await fetchImageViaProxy(imageSource);
                     let pngBlob = blob;
                     if (blob.type !== 'image/png') {
@@ -499,7 +521,7 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
 
     const handleDownload = async () => {
         const source = item.type === 'image'
-            ? (resolvedImageSource || item.content)
+            ? imageSource
             : item.type === 'video'
                 ? (resolvedVideoSource || '')
                 : (item.type === 'link' ? linkThumbnailSource : null);
@@ -658,12 +680,24 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                             {({ zoomIn, zoomOut, resetTransform }) => (
                                 <>
                                     <TransformComponent wrapperClass="!w-full !h-full" contentClass="!w-full !h-full flex items-center justify-center">
-                                        <img
-                                            className="max-w-full max-h-full object-contain"
-                                            src={resolvedImageSource || item.content}
-                                            alt="Preview"
-                                            draggable={false}
-                                        />
+                                        {imageSource && !imagePreviewError ? (
+                                            <img
+                                                className="max-w-full max-h-full object-contain"
+                                                src={imageSource}
+                                                alt="Preview"
+                                                draggable={false}
+                                                onError={() => {
+                                                    if (requestSourceRefreshOnce()) return;
+                                                    setImagePreviewError(true);
+                                                }}
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center">
+                                                <div className="w-24 h-24 bg-neutral-200 rounded-lg flex items-center justify-center">
+                                                    <FeatherImage className="w-10 h-10 text-neutral-400" />
+                                                </div>
+                                            </div>
+                                        )}
                                     </TransformComponent>
                                     <div className="absolute bottom-6 left-6 z-10 flex items-center gap-1 bg-white rounded-lg border border-neutral-200 shadow-sm p-1">
                                         <button
@@ -755,11 +789,15 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
                                                 />
                                             </div>
                                         );
-                                    })() : linkThumbnailSource ? (
+                                    })() : linkThumbnailSource && !linkPreviewError ? (
                                         <img
                                             src={linkThumbnailSource}
                                             className="max-w-full max-h-[72%] rounded-lg shadow-md object-contain"
                                             alt="Thumbnail"
+                                            onError={() => {
+                                                if (requestSourceRefreshOnce()) return;
+                                                setLinkPreviewError(true);
+                                            }}
                                         />
                                     ) : (
                                         <div className="w-24 h-24 bg-neutral-200 rounded-lg flex items-center justify-center">

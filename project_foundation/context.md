@@ -22,9 +22,40 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Shipped progressive media delivery with variant-aware source selection (`preview/canvas/original`), lazy on-demand backfill for legacy items, and signed URL cache hardening.
+-   **Last Major Change**: Shipped media-loading reliability hotfix over progressive variants (robust storage-path handling, signed URL refresh recovery, guarded backfill fetches, and legacy `active_contexts` schema fallback).
 
 ## Changelog
+
+### [0.47.0] - 2026-02-24
+#### Changed
+- **Media URL Resolution Hardening** (`src/lib/supabaseStorage.js`, `src/hooks/useResolvedImageSource.js`):
+  - Replaced strict UUID-only storage path detection with structural storage-path detection for `images/thumbnails/videos`.
+  - Added signed URL cache invalidation and force-refresh support to recover stale/bad cache entries.
+  - Prevented non-storage-like raw strings from entering signed URL generation flow.
+
+- **Render-Safe Media Fallbacks** (`src/components/ItemCard.jsx`, `src/components/CanvasItem.jsx`, `src/components/ItemModal.jsx`, `src/components/CanvasDetailPanel.jsx`):
+  - Removed unsafe raw storage-path `<img src>` fallbacks.
+  - Added renderable-URL guards and non-breaking placeholders when preview source is unavailable.
+  - Added one-shot retry trigger on media load error to re-resolve signed URLs once before falling back.
+
+- **Backfill Noise Reduction** (`src/services/mediaVariantBackfill.js`, `src/hooks/useItemMediaSource.js`):
+  - Backfill now always signs storage paths first and proxies external URLs through `/api/proxy`.
+  - Added stricter queue eligibility guard (only fetchable sources).
+  - Added extended cooldown for repeated 4xx/CORS-like failures to prevent hot-loop retries.
+
+#### Fixed
+- **Post-Variant Rollout Broken Image/Link Previews**:
+  - Root cause: unresolved storage-like paths and stale signed URLs could leak into render/backfill flows, producing repeated `400` failures and missing card previews.
+  - Fix: render-safe source guards + signed URL force-refresh + guarded backfill fetch policy.
+
+- **Repeated `active_contexts.project_id` Errors in Partially Migrated Environments** (`src/lib/storage.js`):
+  - Added `PGRST204` fallback path for `getActiveContext`/`setActiveContext` that retries legacy shape without `project_id`.
+  - Added warn-once behavior to prevent console spam while preserving context persistence.
+
+#### Problems & Fixes
+- **Problem**: Images and link previews intermittently failed to load after progressive-media rollout, with browser console showing repeated `400` and CORS-like failures.
+- **Cause**: Raw unresolved storage paths and stale signed URLs were not consistently guarded before render/backfill fetch paths.
+- **Fix**: Hardened source classification/resolution, added signed URL retry controls, removed unsafe raw-path render fallbacks, and constrained backfill fetch/retry behavior.
 
 ### [0.46.0] - 2026-02-24
 #### Added

@@ -22,6 +22,11 @@ const hasFiniteNumber = (value) => {
     return Number.isFinite(parsed);
 };
 
+const isRenderableUrl = (value) => (
+    typeof value === 'string'
+    && (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:') || value.startsWith('blob:'))
+);
+
 const getLinkTextPayload = (item) => {
     if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
     const textExtractContent = String(item?.textExtract?.content || '').trim();
@@ -82,6 +87,8 @@ const CanvasItem = ({
         return { width: w, height: h };
     });
     const [mediaAspectRatio, setMediaAspectRatio] = useState(null);
+    const [mediaRetryToken, setMediaRetryToken] = useState(0);
+    const [mediaLoadError, setMediaLoadError] = useState(false);
     const heroText = getHeroTextForItem(item);
     const supportingText = getSupportingTextForItem(item);
     const linkTextPayload = getLinkTextPayload(item);
@@ -91,12 +98,14 @@ const CanvasItem = ({
         context: 'canvas',
         scale,
         renderedPixels,
+        retryToken: mediaRetryToken,
     });
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
     const resolvedImageThumb = useResolvedImageSource(item.type === 'image' && item.thumbnail ? item.thumbnail : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
-    const linkThumbnailSource = resolvedLinkThumbnailSource || resolvedCanvasMediaSource || item.thumbnail;
+    const rawLinkThumbnail = isRenderableUrl(item.thumbnail) ? item.thumbnail : '';
+    const linkThumbnailSource = resolvedLinkThumbnailSource || resolvedCanvasMediaSource || rawLinkThumbnail;
     const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
     const tweetText = getTweetDisplayText(item) || null;
     const linkPreviewThumbnail = isTweetLink
@@ -104,7 +113,7 @@ const CanvasItem = ({
         : linkThumbnailSource;
     const hasSavedSize = hasFiniteNumber(item.canvas?.w) && hasFiniteNumber(item.canvas?.h);
     const mediaSource = item.type === 'image'
-        ? (resolvedCanvasMediaSource || resolvedImageThumb || resolvedImageSource || item.content)
+        ? (resolvedCanvasMediaSource || resolvedImageThumb || resolvedImageSource || (isRenderableUrl(item.content) ? item.content : ''))
         : item.type === 'video'
             ? (resolvedVideoSource || '')
             : (showLinkAsText ? null : linkPreviewThumbnail);
@@ -113,11 +122,26 @@ const CanvasItem = ({
     const hasAutoSizedFromMediaRef = useRef(false);
     const suppressClickRef = useRef(false);
     const dragStateRef = useRef({ startX: 0, startY: 0, moved: false });
+    const sourceRetryAttemptedRef = useRef(false);
     const [editText, setEditText] = useState(item.content || '');
+
+    const requestSourceRefreshOnce = () => {
+        if (sourceRetryAttemptedRef.current) return false;
+        sourceRetryAttemptedRef.current = true;
+        setMediaLoadError(false);
+        setMediaRetryToken((value) => value + 1);
+        return true;
+    };
 
     useEffect(() => {
         if (!isEditing) setEditText(item.content || '');
     }, [item.content, isEditing]);
+
+    useEffect(() => {
+        sourceRetryAttemptedRef.current = false;
+        setMediaRetryToken(0);
+        setMediaLoadError(false);
+    }, [item.id, item.type, item.content, item.thumbnail]);
 
     useEffect(() => {
         const fallbackX = parseSize(initialPosition?.x, 120);
@@ -385,13 +409,24 @@ const CanvasItem = ({
 
                 <div className="flex-grow overflow-hidden relative bg-white">
                     {item.type === 'image' && (
-                        <img
-                            src={resolvedCanvasMediaSource || resolvedImageThumb || resolvedImageSource || item.content}
-                            alt={item.title || 'Captured Image'}
-                            className="w-full h-full object-contain pointer-events-none bg-white"
-                            loading="lazy"
-                            decoding="async"
-                        />
+                        mediaSource && !mediaLoadError ? (
+                            <img
+                                src={mediaSource}
+                                alt={item.title || 'Captured Image'}
+                                className="w-full h-full object-contain pointer-events-none bg-white"
+                                onError={() => {
+                                    if (requestSourceRefreshOnce()) return;
+                                    setMediaLoadError(true);
+                                }}
+                                loading="lazy"
+                                decoding="async"
+                            />
+                        ) : (
+                            <div className="w-full h-full bg-zinc-50 flex flex-col items-center justify-center gap-2">
+                                <Camera size={34} className="text-zinc-200" />
+                                <span className="text-xs text-zinc-400">Preview unavailable</span>
+                            </div>
+                        )
                     )}
 
                     {item.type === 'video' && (
@@ -448,7 +483,10 @@ const CanvasItem = ({
                                         src={linkPreviewThumbnail}
                                         alt="Tweet media"
                                         className="w-full flex-1 object-cover"
-                                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                        onError={(e) => {
+                                            if (requestSourceRefreshOnce()) return;
+                                            e.currentTarget.style.display = 'none';
+                                        }}
                                     />
                                 )}
                             </div>
@@ -458,6 +496,7 @@ const CanvasItem = ({
                                 alt={item.title || 'Link Thumbnail'}
                                 className="w-full h-full object-contain pointer-events-none bg-white"
                                 onError={(e) => {
+                                    if (requestSourceRefreshOnce()) return;
                                     e.currentTarget.style.display = 'none';
                                     const fallback = e.currentTarget.parentElement?.querySelector('.canvas-link-fallback');
                                     if (fallback) fallback.classList.remove('hidden');

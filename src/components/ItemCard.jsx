@@ -8,6 +8,11 @@ import { getTweetDisplayText, isLikelyTweetAvatarImage, isTweetStatusUrl, should
 import BlockEditor from './BlockEditor';
 import TweetEmbed from './TweetEmbed';
 
+const isRenderableUrl = (value) => (
+    typeof value === 'string'
+    && (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:') || value.startsWith('blob:'))
+);
+
 const getLinkTextPayload = (item) => {
     if (item?.type !== 'link') return { ready: false, title: '', byline: '', content: '' };
     const extractedContent = String(item?.textExtract?.content || '').trim();
@@ -29,12 +34,21 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
     const [isVisible, setIsVisible] = useState(false);
     const [imgLoaded, setImgLoaded] = useState(false);
     const [imgError, setImgError] = useState(false);
+    const [mediaRetryToken, setMediaRetryToken] = useState(0);
     const [editText, setEditText] = useState(item.content || '');
     const cardRef = useRef(null);
+    const sourceRetryAttemptedRef = useRef(false);
 
     useEffect(() => {
         if (!isEditing) setEditText(item.content || '');
     }, [item.content, isEditing]);
+
+    useEffect(() => {
+        setImgLoaded(false);
+        setImgError(false);
+        setMediaRetryToken(0);
+        sourceRetryAttemptedRef.current = false;
+    }, [item.id, item.type, item.content, item.thumbnail]);
 
     useEffect(() => {
         const observer = new IntersectionObserver(
@@ -68,13 +82,25 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
     const supportingText = getSupportingTextForItem(item);
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
-    const resolvedGridImageSource = useItemMediaSource(item, { context: 'grid' });
-    const resolvedGridLinkSource = useItemMediaSource(item, { context: 'grid' });
+    const resolvedGridImageSource = useItemMediaSource(item, { context: 'grid', retryToken: mediaRetryToken });
+    const resolvedGridLinkSource = useItemMediaSource(item, { context: 'grid', retryToken: mediaRetryToken });
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
+    const requestSourceRefreshOnce = () => {
+        if (sourceRetryAttemptedRef.current) return false;
+        sourceRetryAttemptedRef.current = true;
+        setImgLoaded(false);
+        setImgError(false);
+        setMediaRetryToken((value) => value + 1);
+        return true;
+    };
     // Only fall back to raw item.thumbnail if it's already a renderable URL (http/data/blob).
     // Supabase storage paths must be resolved via the hook — don't use them as raw <img> src.
-    const rawThumbnailIsUrl = item.thumbnail && (item.thumbnail.startsWith('http') || item.thumbnail.startsWith('data:') || item.thumbnail.startsWith('blob:'));
+    const rawThumbnailIsUrl = isRenderableUrl(item.thumbnail);
+    const rawImageFallback = isRenderableUrl(item.thumbnail)
+        ? item.thumbnail
+        : (isRenderableUrl(item.content) ? item.content : '');
+    const imageSource = resolvedGridImageSource || rawImageFallback;
     const linkThumbnailSource = resolvedGridLinkSource || resolvedLinkThumbnailSource || (rawThumbnailIsUrl ? item.thumbnail : '');
     const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
     const tweetText = getTweetDisplayText(item) || null;
@@ -149,17 +175,28 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                     {/* Image Type */}
                     {item.type === 'image' && (
                         <>
-                            {!imgLoaded && (
+                            {!imgLoaded && !imgError && imageSource && (
                                 <div className="w-full min-h-[200px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer" />
                             )}
-                            <img
-                                src={resolvedGridImageSource || item.thumbnail || item.content}
-                                alt={item.title || 'Captured Image'}
-                                className={`w-full max-h-[600px] object-cover object-top block ${imgLoaded ? '' : 'hidden'}`}
-                                onLoad={() => setImgLoaded(true)}
-                                loading="lazy"
-                                decoding="async"
-                            />
+                            {imageSource && !imgError ? (
+                                <img
+                                    src={imageSource}
+                                    alt={item.title || 'Captured Image'}
+                                    className={`w-full max-h-[600px] object-cover object-top block ${imgLoaded ? '' : 'hidden'}`}
+                                    onLoad={() => setImgLoaded(true)}
+                                    onError={() => {
+                                        if (requestSourceRefreshOnce()) return;
+                                        setImgError(true);
+                                    }}
+                                    loading="lazy"
+                                    decoding="async"
+                                />
+                            ) : (
+                                <div className="w-full min-h-[200px] bg-zinc-50 flex flex-col items-center justify-center p-4">
+                                    <Camera size={36} className="text-zinc-200 mb-2" />
+                                    <span className="text-xs text-zinc-400">Preview unavailable</span>
+                                </div>
+                            )}
                         </>
                     )}
 
@@ -244,7 +281,10 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                                     alt={item.title || 'Link Thumbnail'}
                                     className={`w-full h-auto block ${imgLoaded ? '' : 'hidden'}`}
                                     onLoad={() => setImgLoaded(true)}
-                                    onError={() => setImgError(true)}
+                                    onError={() => {
+                                        if (requestSourceRefreshOnce()) return;
+                                        setImgError(true);
+                                    }}
                                     loading="lazy"
                                     decoding="async"
                                 />

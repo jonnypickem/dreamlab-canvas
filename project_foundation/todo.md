@@ -84,6 +84,13 @@
 - [x] Validate build integrity and confirm no regressions for other `ConfirmDialog` usages.
 - [x] Update minimal project foundation logs (`todo.md`, `lessons.md`) with fix rationale and verification evidence.
 
+## Current Task Plan (2026-02-24 - Media Loading Reliability Hotfix)
+- [x] Harden Supabase storage-path detection and add signed-URL force-refresh/invalidation controls.
+- [x] Prevent raw unresolved storage paths from being rendered directly as `<img src>` fallbacks in grid/canvas/modal/detail surfaces.
+- [x] Add one-shot media source retry on render failure and guard variant backfill queueing/fetch paths to avoid repeated 4xx/CORS loops.
+- [x] Add active-context compatibility fallback for environments missing `active_contexts.project_id` (`PGRST204`).
+- [x] Validate hotfix via targeted syntax checks and production build.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -146,6 +153,9 @@
 - 2026-02-24: Wired variant-aware source selection into `ItemCard`, `CanvasItem`, `ItemModal`, and `CanvasDetailPanel` with canvas zoom-triggered original upgrade logic.
 - 2026-02-24: Removed the sidebar bottom shortcut guide section and deleted sidebar-specific extension shortcut polling in `src/components/Sidebar.jsx` and `src/App.jsx`.
 - 2026-02-24: Fixed project delete confirmation layering by adding `ConfirmDialog` `zIndexClass` (default `z-50`) and setting `EntitySettingsModal` delete confirmation to `z-[130]`, ensuring it overlays `Project Settings` (`z-[120]`).
+- 2026-02-24: Hotfixed media loading reliability regressions after progressive variants rollout by tightening storage-path detection and signed-URL refresh behavior in `src/lib/supabaseStorage.js` and `src/hooks/useResolvedImageSource.js`.
+- 2026-02-24: Removed unresolved path fallbacks from `ItemCard`, `CanvasItem`, `ItemModal`, and `CanvasDetailPanel`; media surfaces now render placeholders instead of issuing broken raw-path requests.
+- 2026-02-24: Added backfill proxy/signing safeguards (`src/services/mediaVariantBackfill.js`, `src/hooks/useItemMediaSource.js`) and `active_contexts.project_id` legacy fallback in `src/lib/storage.js` to stop repeated `PGRST204` error spam.
 
 ## Review
 - Evidence to capture for each task:
@@ -338,6 +348,30 @@
   - Success. Existing non-blocking Vite warnings remain for chunk size and dynamic import chunking.
 - Manual behavior check:
   - Pending local interactive verification in browser UI (cannot be executed from this CLI session).
+- Evidence (2026-02-24):
+- Diff includes targeted media hotfix changes in:
+  - `src/lib/supabaseStorage.js`
+  - `src/hooks/useResolvedImageSource.js`
+  - `src/hooks/useItemMediaSource.js`
+  - `src/services/mediaVariantBackfill.js`
+  - `src/components/ItemCard.jsx`
+  - `src/components/CanvasItem.jsx`
+  - `src/components/ItemModal.jsx`
+  - `src/components/CanvasDetailPanel.jsx`
+  - `src/lib/storage.js`
+- Validation commands passed:
+  - `node --check src/lib/supabaseStorage.js`
+  - `node --check src/hooks/useResolvedImageSource.js`
+  - `node --check src/services/mediaVariantBackfill.js`
+  - `node --check src/lib/storage.js`
+  - `npm run build`
+- Additional validation note:
+  - `node --check` on `.jsx` files is not supported in this Node runtime (`ERR_UNKNOWN_FILE_EXTENSION`); full Vite build succeeded.
+- Expected behavior from code path:
+  - unresolved storage-like strings are no longer rendered directly as image URLs,
+  - one-shot signed URL retry path recovers stale/expired cache entries,
+  - backfill avoids direct external fetch CORS loops,
+  - active-context writes remain functional when `project_id` is absent in older schema cache.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).

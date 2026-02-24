@@ -92,6 +92,7 @@ Current status theme:
 - Extension release workflow now enforces deterministic packaging and zip/source parity checks before distribution.
 - Grid and canvas card media-type indicators are now unified at bottom-left; grid text-card edit mode suppresses the indicator to avoid content overlap.
 - Progressive media delivery is now variant-aware (`preview/canvas/original`) with lazy legacy backfill and signed URL cache hardening.
+- Media loading reliability hotfix shipped over progressive variants: robust storage-path detection, signed URL force-refresh recovery, guarded backfill fetches, and legacy `active_contexts.project_id` compatibility fallback.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -168,6 +169,20 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.47.0] - 2026-02-24
+Key outcomes:
+- Hardened storage-path handling and signed URL lifecycle:
+  - structural storage-path detection,
+  - signed URL cache invalidation,
+  - one-shot force-refresh recovery.
+- Removed unsafe raw storage-path render fallbacks across grid/canvas/modal/detail surfaces.
+- Added one-shot source retry on media load failure before final placeholder fallback.
+- Backfill now signs storage paths and proxies external URLs, with longer cooldown on repeated 4xx/CORS-like failures.
+- Added `active_contexts` compatibility fallback for deployments missing `project_id` (`PGRST204`) with warn-once logging.
+
+Net effect:
+- Preview rendering is resilient again for image/link cards, backfill no longer hot-loops failing fetches, and active-context persistence remains functional across mixed schema states.
+
 ### [0.46.0] - 2026-02-24
 Key outcomes:
 - Added a centralized media source policy and hook to select variant paths by context:

@@ -118,6 +118,33 @@ function collectionFromDb(row) {
 
 // ── Active Context ──────────────────────────────────────────────────
 
+let _hasWarnedMissingActiveContextProjectColumn = false;
+
+function isMissingActiveContextProjectIdError(error) {
+    if (!error) return false;
+    const code = String(error.code || '').trim();
+    const message = String(error.message || '').toLowerCase();
+    return code === 'PGRST204'
+        && message.includes('project_id')
+        && message.includes('active_contexts');
+}
+
+function warnMissingActiveContextProjectIdColumn() {
+    if (_hasWarnedMissingActiveContextProjectColumn) return;
+    _hasWarnedMissingActiveContextProjectColumn = true;
+    console.warn('active_contexts.project_id is unavailable; falling back to legacy active context shape.');
+}
+
+function mapActiveContextRow(row, projectIdOverride = undefined) {
+    const updatedAt = row?.updated_at ? new Date(row.updated_at).getTime() : 0;
+    return {
+        workspaceId: row?.workspace_id || null,
+        projectId: projectIdOverride !== undefined ? projectIdOverride : (row?.project_id || null),
+        collectionId: row?.collection_id || null,
+        updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+    };
+}
+
 export async function getActiveContext() {
     const userId = await getCurrentUserId();
     if (!userId) return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
@@ -128,14 +155,21 @@ export async function getActiveContext() {
         .eq('user_id', userId)
         .maybeSingle();
 
+    if (error && isMissingActiveContextProjectIdError(error)) {
+        warnMissingActiveContextProjectIdColumn();
+        const legacy = await supabase
+            .from('active_contexts')
+            .select('workspace_id, collection_id, updated_at')
+            .eq('user_id', userId)
+            .maybeSingle();
+        if (legacy.error || !legacy.data) {
+            return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
+        }
+        return mapActiveContextRow(legacy.data, null);
+    }
+
     if (error || !data) return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
-    const updatedAt = data.updated_at ? new Date(data.updated_at).getTime() : 0;
-    return {
-        workspaceId: data.workspace_id || null,
-        projectId: data.project_id || null,
-        collectionId: data.collection_id || null,
-        updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
-    };
+    return mapActiveContextRow(data);
 }
 
 export async function setActiveContext(workspaceId, collectionId = null, projectId = null) {
@@ -154,18 +188,31 @@ export async function setActiveContext(workspaceId, collectionId = null, project
         .select('workspace_id, project_id, collection_id, updated_at')
         .single();
 
+    if (error && isMissingActiveContextProjectIdError(error)) {
+        warnMissingActiveContextProjectIdColumn();
+        const legacy = await supabase
+            .from('active_contexts')
+            .upsert({
+                user_id: userId,
+                workspace_id: workspaceId || null,
+                collection_id: collectionId || null,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' })
+            .select('workspace_id, collection_id, updated_at')
+            .single();
+        if (legacy.error) {
+            console.error('setActiveContext error:', legacy.error);
+            throw legacy.error;
+        }
+        return mapActiveContextRow(legacy.data, null);
+    }
+
     if (error) {
         console.error('setActiveContext error:', error);
         throw error;
     }
 
-    const updatedAt = data?.updated_at ? new Date(data.updated_at).getTime() : 0;
-    return {
-        workspaceId: data?.workspace_id || null,
-        projectId: data?.project_id || null,
-        collectionId: data?.collection_id || null,
-        updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
-    };
+    return mapActiveContextRow(data);
 }
 
 // ── Workspaces ──────────────────────────────────────────────────────
