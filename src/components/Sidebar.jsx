@@ -19,30 +19,9 @@ import {
 
 const UNGROUPED_COLLECTION_COMPOSER_ID = '__ungrouped__';
 
-function formatShortcutPart(part) {
-    const normalized = String(part || '').trim();
-    const lower = normalized.toLowerCase();
-    if (lower === 'command' || lower === 'cmd') return '⌘';
-    if (lower === 'ctrl' || lower === 'control') return 'Ctrl';
-    if (lower === 'alt' || lower === 'option') return '⌥';
-    if (lower === 'shift') return '⇧';
-    if (lower === 'up') return '↑';
-    if (lower === 'down') return '↓';
-    if (lower === 'left') return '←';
-    if (lower === 'right') return '→';
-    return normalized.length === 1 ? normalized.toUpperCase() : normalized;
-}
-
-function formatShortcutChipLabel(shortcut) {
-    const raw = String(shortcut || '').trim();
-    if (!raw) return '';
-    return raw.split('+').map(formatShortcutPart).filter(Boolean).join('');
-}
-
 export default function Sidebar({
     projects = [],
     collections = [],
-    extensionShortcuts = [],
     selectedCollectionId = null,
     selectedProjectId = null,
     onAllItems,
@@ -345,11 +324,6 @@ export default function Sidebar({
             <span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-full border ${colorToken.bgClass} ${colorToken.borderClass}`} />
         );
     };
-
-    const shortcutRows = useMemo(
-        () => (Array.isArray(extensionShortcuts) ? extensionShortcuts : []),
-        [extensionShortcuts]
-    );
 
     return (
         <aside
@@ -806,30 +780,6 @@ export default function Sidebar({
                     </div>
                 </div>
             </ChatChannelsMenu>
-            <div className="w-full border-t border-neutral-200/80 pt-2.5">
-                <div className="px-3.5 pb-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Shortcuts</span>
-                </div>
-                <div className="flex w-full flex-col gap-0.5 px-2">
-                    {shortcutRows.length === 0 ? (
-                        <div className="px-2 py-0.5 text-[11px] text-neutral-400">Extension shortcuts unavailable</div>
-                    ) : shortcutRows.map((entry) => {
-                        const shortcutLabel = formatShortcutChipLabel(entry.shortcut);
-                        return (
-                            <div key={entry.actionId || entry.command} className="flex items-center justify-between rounded-lg px-2 py-0.5 hover:bg-neutral-100">
-                                <span className="truncate pr-2 text-[11px] font-medium text-neutral-600">{entry.label}</span>
-                                <span className={`inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                                    shortcutLabel
-                                        ? 'border-neutral-200 bg-white text-neutral-500'
-                                        : 'border-neutral-200 bg-neutral-50 text-neutral-400'
-                                }`}>
-                                    {shortcutLabel || 'Unassigned'}
-                                </span>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
         </aside>
     );
 }

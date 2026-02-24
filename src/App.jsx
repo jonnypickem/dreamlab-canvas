@@ -512,7 +512,6 @@ function App() {
     const [settingsInitialTab, setSettingsInitialTab] = useState('general');
     const [entitySettingsTarget, setEntitySettingsTarget] = useState(null);
     const [toast, setToast] = useState(null);
-    const [extensionShortcuts, setExtensionShortcuts] = useState([]);
 
     // Connect AI tagging module to toast notifications
     useEffect(() => {
@@ -1069,56 +1068,6 @@ function App() {
         const preferred = projectCollections.find((collection) => collection.id === lastUsedCollectionId);
         return preferred?.id || projectCollections[0].id;
     }, [selectedCollectionId, selectedProjectId, workspaceCollections, lastUsedCollectionByProject]);
-
-    const requestExtensionShortcuts = useCallback(() => (
-        new Promise((resolve, reject) => {
-            const responseChannel = `dreamlab-shortcuts-response-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-            const handleResponse = (event) => {
-                if (event.source !== window) return;
-                if (event.data?.type !== responseChannel) return;
-                window.removeEventListener('message', handleResponse);
-                clearTimeout(timeout);
-                resolve(event.data?.payload || { success: false });
-            };
-
-            const timeout = setTimeout(() => {
-                window.removeEventListener('message', handleResponse);
-                reject(new Error('Timed out waiting for extension shortcuts'));
-            }, 3200);
-
-            window.addEventListener('message', handleResponse);
-            window.postMessage({ type: 'DREAMLAB_GET_SHORTCUTS', responseChannel }, '*');
-        })
-    ), []);
-
-    useEffect(() => {
-        if (!user) {
-            setExtensionShortcuts([]);
-            return;
-        }
-
-        let cancelled = false;
-
-        const refreshShortcuts = async () => {
-            try {
-                const response = await requestExtensionShortcuts();
-                if (cancelled) return;
-                if (response?.success && Array.isArray(response.shortcuts)) {
-                    setExtensionShortcuts(response.shortcuts);
-                }
-            } catch {
-                // Keep existing shortcuts if extension is unavailable.
-            }
-        };
-
-        void refreshShortcuts();
-        window.addEventListener('focus', refreshShortcuts);
-        return () => {
-            cancelled = true;
-            window.removeEventListener('focus', refreshShortcuts);
-        };
-    }, [user, requestExtensionShortcuts]);
 
     // Extension bridge: listen for postMessage from content.js
     useEffect(() => {
@@ -3089,7 +3038,6 @@ function App() {
                     <Sidebar
                         projects={workspaceProjects}
                         collections={workspaceCollections}
-                        extensionShortcuts={extensionShortcuts}
                         selectedCollectionId={selectedCollectionId}
                         selectedProjectId={selectedProjectId}
                         onAllItems={() => {
