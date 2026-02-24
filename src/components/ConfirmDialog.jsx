@@ -15,8 +15,7 @@ export default function ConfirmDialog({
     message = 'This action cannot be undone.',
     confirmLabel = 'Delete',
     cancelLabel = 'Cancel',
-    variant = 'destructive', // 'destructive' | 'warning' | 'neutral'
-    zIndexClass = 'z-50'
+    variant = 'destructive' // 'destructive' | 'warning' | 'neutral'
 }) {
     if (!isOpen) return null;
 
@@ -39,7 +38,7 @@ export default function ConfirmDialog({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
-                    className={`fixed inset-0 ${zIndexClass} flex items-center justify-center bg-neutral-950/40 backdrop-blur-sm`}
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 backdrop-blur-sm"
                     onClick={handleBackdropClick}
                 >
                     <motion.div

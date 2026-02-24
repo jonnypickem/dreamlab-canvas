@@ -1,12 +1,6 @@
 import { supabase, getCurrentUserId } from './supabase';
 
 const BUCKET = 'dreamlab-media';
-const MEDIA_VARIANT_VERSION = 1;
-const SIGNED_URL_DB_NAME = 'dreamlab_signed_url_cache';
-const SIGNED_URL_DB_VERSION = 1;
-const SIGNED_URL_STORE = 'urls';
-const _signedUrlInFlight = new Map();
-let _signedUrlDbPromise = null;
 
 /**
  * Upload a Blob to Supabase Storage.
@@ -32,40 +26,8 @@ export async function uploadMedia(blob, itemId, type = 'image') {
 
     const { error } = await supabase.storage
         .from(BUCKET)
-        .upload(path, blob, {
-            contentType: blob.type,
-            upsert: true,
-            cacheControl: type === 'thumbnail' ? '31536000, immutable' : '86400',
-        });
+        .upload(path, blob, { contentType: blob.type, upsert: true });
 
-    if (error) throw error;
-    return path;
-}
-
-export async function uploadMediaVariant(blob, itemId, variantType, mediaType = 'image') {
-    const userId = await getCurrentUserId();
-    if (!userId) throw new Error('Must be authenticated to upload media variants.');
-    const variant = String(variantType || '').trim().toLowerCase();
-    if (!['preview', 'canvas', 'original'].includes(variant)) {
-        throw new Error('Invalid media variant type.');
-    }
-
-    const folder = mediaType === 'video' ? 'videos' : 'images';
-    const ext = blob.type === 'image/png' ? 'png'
-        : blob.type === 'image/webp' ? 'webp'
-            : blob.type === 'image/gif' ? 'gif'
-                : blob.type === 'video/webm' ? 'webm'
-                    : blob.type === 'video/mp4' ? 'mp4'
-                        : 'jpg';
-    const path = `${userId}/${folder}/${itemId}.${variant}.v${MEDIA_VARIANT_VERSION}.${ext}`;
-
-    const { error } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, blob, {
-            contentType: blob.type,
-            upsert: true,
-            cacheControl: '31536000, immutable',
-        });
     if (error) throw error;
     return path;
 }
@@ -86,84 +48,6 @@ export async function uploadDataUrl(dataUrl, itemId, type = 'image') {
 const _signedUrlCache = new Map();
 const CACHE_MARGIN_MS = 5 * 60 * 1000; // refresh 5 min before expiry
 
-function canUseIndexedDb() {
-    return typeof indexedDB !== 'undefined';
-}
-
-function openSignedUrlDb() {
-    if (!canUseIndexedDb()) {
-        return Promise.reject(new Error('IndexedDB unavailable'));
-    }
-    if (_signedUrlDbPromise) return _signedUrlDbPromise;
-
-    _signedUrlDbPromise = new Promise((resolve, reject) => {
-        const request = indexedDB.open(SIGNED_URL_DB_NAME, SIGNED_URL_DB_VERSION);
-        request.onupgradeneeded = () => {
-            const db = request.result;
-            if (!db.objectStoreNames.contains(SIGNED_URL_STORE)) {
-                db.createObjectStore(SIGNED_URL_STORE);
-            }
-        };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error || new Error('Failed to open signed URL cache DB'));
-    });
-    return _signedUrlDbPromise;
-}
-
-async function readPersistedSignedUrl(pathOrUrl) {
-    try {
-        const db = await openSignedUrlDb();
-        return await new Promise((resolve) => {
-            const tx = db.transaction(SIGNED_URL_STORE, 'readonly');
-            const store = tx.objectStore(SIGNED_URL_STORE);
-            const req = store.get(pathOrUrl);
-            req.onsuccess = () => resolve(req.result || null);
-            req.onerror = () => resolve(null);
-        });
-    } catch {
-        return null;
-    }
-}
-
-async function writePersistedSignedUrl(pathOrUrl, payload) {
-    try {
-        const db = await openSignedUrlDb();
-        await new Promise((resolve, reject) => {
-            const tx = db.transaction(SIGNED_URL_STORE, 'readwrite');
-            const store = tx.objectStore(SIGNED_URL_STORE);
-            store.put(payload, pathOrUrl);
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error || new Error('Signed URL cache write failed'));
-            tx.onabort = () => reject(tx.error || new Error('Signed URL cache write aborted'));
-        });
-    } catch {
-        // Best-effort persistence only.
-    }
-}
-
-async function deletePersistedSignedUrl(pathOrUrl) {
-    try {
-        const db = await openSignedUrlDb();
-        await new Promise((resolve, reject) => {
-            const tx = db.transaction(SIGNED_URL_STORE, 'readwrite');
-            const store = tx.objectStore(SIGNED_URL_STORE);
-            store.delete(pathOrUrl);
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error || new Error('Signed URL cache delete failed'));
-            tx.onabort = () => reject(tx.error || new Error('Signed URL cache delete aborted'));
-        });
-    } catch {
-        // Best-effort persistence only.
-    }
-}
-
-export function invalidateMediaUrl(pathOrUrl) {
-    if (!pathOrUrl || typeof pathOrUrl !== 'string') return;
-    _signedUrlCache.delete(pathOrUrl);
-    _signedUrlInFlight.delete(pathOrUrl);
-    void deletePersistedSignedUrl(pathOrUrl);
-}
-
 /**
  * Get a signed URL for a storage path. Returns the input as-is for
  * http(s) URLs, data-URLs, and legacy idb:// references.
@@ -171,15 +55,8 @@ export function invalidateMediaUrl(pathOrUrl) {
  * @param {number} expiresIn  seconds (default 1 hour)
  * @returns {Promise<string>}
  */
-export async function getMediaUrl(pathOrUrl, expiresIn = 3600, options = {}) {
+export async function getMediaUrl(pathOrUrl, expiresIn = 3600) {
     if (!pathOrUrl) return '';
-    const normalizedExpiresIn = Number.isFinite(Number(expiresIn))
-        ? Number(expiresIn)
-        : 3600;
-    const normalizedOptions = (expiresIn && typeof expiresIn === 'object')
-        ? expiresIn
-        : options;
-    const forceRefresh = Boolean(normalizedOptions?.forceRefresh);
 
     // Already a renderable URL — pass through.
     if (
@@ -201,64 +78,29 @@ export async function getMediaUrl(pathOrUrl, expiresIn = 3600, options = {}) {
         }
     }
 
-    if (!isSupabaseStoragePath(pathOrUrl)) {
-        return '';
-    }
-
-    if (forceRefresh) {
-        invalidateMediaUrl(pathOrUrl);
-    }
-
     // Check cache first
     const cached = _signedUrlCache.get(pathOrUrl);
     if (cached && Date.now() < cached.expiresAt) {
         return cached.url;
     }
-    const persisted = await readPersistedSignedUrl(pathOrUrl);
-    if (persisted?.url && Date.now() < Number(persisted.expiresAt || 0)) {
+
+    // Supabase storage path — get a signed URL.
+    const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(pathOrUrl, expiresIn);
+
+    if (error) throw error;
+    const url = data?.signedUrl || '';
+
+    // Cache the signed URL
+    if (url) {
         _signedUrlCache.set(pathOrUrl, {
-            url: persisted.url,
-            expiresAt: Number(persisted.expiresAt || 0),
+            url,
+            expiresAt: Date.now() + (expiresIn * 1000) - CACHE_MARGIN_MS,
         });
-        return persisted.url;
     }
 
-    const inFlight = _signedUrlInFlight.get(pathOrUrl);
-    if (inFlight) return inFlight;
-
-    const resolvePromise = (async () => {
-        // Supabase storage path — get a signed URL.
-        const { data, error } = await supabase.storage
-            .from(BUCKET)
-            .createSignedUrl(pathOrUrl, normalizedExpiresIn);
-
-        if (error) throw error;
-        const url = data?.signedUrl || '';
-
-        // Cache the signed URL
-        if (url) {
-            const expiresAt = Date.now() + (normalizedExpiresIn * 1000) - CACHE_MARGIN_MS;
-            _signedUrlCache.set(pathOrUrl, {
-                url,
-                expiresAt,
-            });
-            void writePersistedSignedUrl(pathOrUrl, { url, expiresAt });
-        }
-
-        return url;
-    })().finally(() => {
-        _signedUrlInFlight.delete(pathOrUrl);
-    });
-
-    _signedUrlInFlight.set(pathOrUrl, resolvePromise);
-    return resolvePromise;
-}
-
-export async function getMediaUrls(paths = [], expiresIn = 3600) {
-    const uniquePaths = [...new Set((Array.isArray(paths) ? paths : []).filter(Boolean))];
-    if (uniquePaths.length === 0) return {};
-    const entries = await Promise.all(uniquePaths.map(async (path) => [path, await getMediaUrl(path, expiresIn)]));
-    return Object.fromEntries(entries);
+    return url;
 }
 
 /**
@@ -268,7 +110,6 @@ export async function deleteMedia(path) {
     if (!path || path.startsWith('idb://') || path.startsWith('data:')) return;
 
     _signedUrlCache.delete(path);
-    _signedUrlInFlight.delete(path);
 
     const { error } = await supabase.storage
         .from(BUCKET)
@@ -283,20 +124,8 @@ export async function deleteMedia(path) {
  */
 export function isSupabaseStoragePath(value) {
     if (!value || typeof value !== 'string') return false;
-    const path = value.trim();
-    if (!path) return false;
-    if (
-        path.startsWith('http://')
-        || path.startsWith('https://')
-        || path.startsWith('data:')
-        || path.startsWith('blob:')
-        || path.startsWith('idb://')
-    ) {
-        return false;
-    }
-    if (!path.includes('/')) return false;
-    const normalized = path.startsWith('/') ? path : `/${path}`;
-    return /\/(images|thumbnails|videos)\//.test(normalized);
+    // Supabase paths look like "{uuid}/images/{uuid}.jpg"
+    return /^[0-9a-f-]+\/(images|thumbnails|videos)\//.test(value);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────

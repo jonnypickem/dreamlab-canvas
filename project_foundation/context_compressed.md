@@ -90,12 +90,7 @@ Current status theme:
 - Extension keyboard workflow now uses a single launcher shortcut (`Alt+Shift+S`) and widget-scoped configurable action hotkeys.
 - Launcher open path now requires widget acknowledgment and auto-recovers stale tabs via marker cleanup + reinjection retry.
 - Extension release workflow now enforces deterministic packaging and zip/source parity checks before distribution.
-<<<<<<< ours
 - Grid and canvas card media-type indicators are now unified at bottom-left; grid text-card edit mode suppresses the indicator to avoid content overlap.
-- Progressive media delivery is now variant-aware (`preview/canvas/original`) with lazy legacy backfill and signed URL cache hardening.
-- Media loading reliability hotfix shipped over progressive variants: robust storage-path detection, signed URL force-refresh recovery, guarded backfill fetches, and legacy `active_contexts.project_id` compatibility fallback.
-=======
->>>>>>> theirs
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -172,40 +167,6 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
-<<<<<<< ours
-### [0.47.0] - 2026-02-24
-Key outcomes:
-- Hardened storage-path handling and signed URL lifecycle:
-  - structural storage-path detection,
-  - signed URL cache invalidation,
-  - one-shot force-refresh recovery.
-- Removed unsafe raw storage-path render fallbacks across grid/canvas/modal/detail surfaces.
-- Added one-shot source retry on media load failure before final placeholder fallback.
-- Backfill now signs storage paths and proxies external URLs, with longer cooldown on repeated 4xx/CORS-like failures.
-- Added `active_contexts` compatibility fallback for deployments missing `project_id` (`PGRST204`) with warn-once logging.
-
-Net effect:
-- Preview rendering is resilient again for image/link cards, backfill no longer hot-loops failing fetches, and active-context persistence remains functional across mixed schema states.
-
-### [0.46.0] - 2026-02-24
-Key outcomes:
-- Added a centralized media source policy and hook to select variant paths by context:
-  - grid uses `preview`,
-  - canvas uses `canvas` and upgrades to `original` at deep zoom,
-  - modal/detail uses `original`.
-- Added lazy on-demand variant backfill service for legacy image/link media missing variant metadata.
-- Extended save pipeline to generate and persist media derivatives for new image/link screenshot saves:
-  - `preview` (~480),
-  - `canvas` (~1600),
-  - `original`.
-- Hardened URL/media caching:
-  - in-flight signed URL request dedupe,
-  - IndexedDB-backed signed URL cache,
-  - object URL cache pressure controls and release cleanup.
-
-Net effect:
-- Faster initial card/canvas rendering for heavy media sets, reduced repeated signed URL churn, and preserved high-fidelity media when zooming deeply or opening details.
-
 ### [0.45.0] - 2026-02-24
 Key outcomes:
 - Moved media-type badges from top-left to bottom-left in both grid and canvas card components.
@@ -215,8 +176,6 @@ Key outcomes:
 Net effect:
 - Card UI is visually consistent across surfaces and inline note editing is no longer obstructed by the type badge.
 
-=======
->>>>>>> theirs
 ### [0.44.0] - 2026-02-24
 Key outcomes:
 - Added deterministic extension packaging scripts with explicit file manifest and single output path (`dreamlab-canvas-extension.zip`).

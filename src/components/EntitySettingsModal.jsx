@@ -252,7 +252,6 @@ export default function EntitySettingsModal({
                         message={`Delete "${entity.name}"? This action cannot be undone.`}
                         confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
                         cancelLabel="Cancel"
-                        zIndexClass="z-[130]"
                     />
                 ) : null}
             </AnimatePresence>

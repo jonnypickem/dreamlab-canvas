@@ -4,7 +4,6 @@ import { X, Maximize2, Copy, Trash2, Save, Palette, Camera, Video, Link as LinkI
 import { updateItem, getCollections, getCollectionWorkspaceId } from '../lib/storage';
 import { fetchImageViaProxy } from '../utils/imageProxy';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
-import { useItemMediaSource } from '../hooks/useItemMediaSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 import { getTweetDisplayText, isTweetStatusUrl, shouldShowTweetMedia } from '../utils/tweetCard';
 import BlockEditor from './BlockEditor';
@@ -30,11 +29,6 @@ function getLinkTextPayload(item) {
     return { ready: Boolean(content), content };
 }
 
-const isRenderableUrl = (value) => (
-    typeof value === 'string'
-    && (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:') || value.startsWith('blob:'))
-);
-
 export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, onDelete, onToast }) {
     const tweetSourceUrl = item?.linkEmbed?.url || item?.sourceUrl || item?.content;
     const isTweetLink = isTweetStatusUrl(tweetSourceUrl);
@@ -51,26 +45,13 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
         return uniqueTags(item.tags || [...(item.objectiveTags || []), ...ctValues]);
     });
     const [collections, setCollections] = useState([]);
-    const [mediaRetryToken, setMediaRetryToken] = useState(0);
-    const [imagePreviewError, setImagePreviewError] = useState(false);
-    const [linkPreviewError, setLinkPreviewError] = useState(false);
 
-    const resolvedModalMediaSource = useItemMediaSource(item, { context: 'modal', retryToken: mediaRetryToken });
-    const resolvedImageSource = item.type === 'image' ? resolvedModalMediaSource : '';
+    const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
     const resolvedImageThumb = useResolvedImageSource(item.type === 'image' && item.thumbnail ? item.thumbnail : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
-    const resolvedLinkThumb = (item.type === 'link' ? resolvedModalMediaSource : '') || useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
-    const imageSource = resolvedImageSource || (isRenderableUrl(item.content) ? item.content : '');
-    const imageThumbSource = resolvedImageThumb || imageSource;
-    const rawLinkThumb = resolvedLinkThumb || (isRenderableUrl(item.thumbnail) ? item.thumbnail : '');
+    const resolvedLinkThumb = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
+    const rawLinkThumb = resolvedLinkThumb || item.thumbnail || '';
     const normalizedLinkThumb = shouldShowTweetMedia(item, rawLinkThumb) ? rawLinkThumb : '';
-    const requestSourceRefreshOnce = () => {
-        if (mediaRetryToken > 0) return false;
-        setImagePreviewError(false);
-        setLinkPreviewError(false);
-        setMediaRetryToken(1);
-        return true;
-    };
 
     const emitToast = (message, type = 'info') => {
         if (onToast) onToast({ message, type });
@@ -87,9 +68,6 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
         setContextTags(item.contextTags || []);
         const ctValues = (item.contextTags || []).map(getContextTagText).filter(Boolean);
         setSearchTags(uniqueTags(item.tags || [...(item.objectiveTags || []), ...ctValues]));
-        setImagePreviewError(false);
-        setLinkPreviewError(false);
-        setMediaRetryToken(0);
     }, [item, isTweetLink]);
 
     useEffect(() => {
@@ -128,8 +106,7 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
         try {
             switch (item.type) {
                 case 'image': {
-                    const src = imageSource;
-                    if (!src) throw new Error('No image source available');
+                    const src = resolvedImageSource || item.content;
                     const blob = await fetchImageViaProxy(src);
                     let pngBlob = blob;
                     if (blob.type !== 'image/png') {
@@ -283,21 +260,11 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
             <div className="flex-shrink-0">
                 {item.type === 'image' && (
                     <div className="w-full h-[180px] bg-neutral-100 overflow-hidden">
-                        {imageThumbSource && !imagePreviewError ? (
-                            <img
-                                src={imageThumbSource}
-                                alt={item.title || 'Image'}
-                                className="w-full h-full object-contain"
-                                onError={() => {
-                                    if (requestSourceRefreshOnce()) return;
-                                    setImagePreviewError(true);
-                                }}
-                            />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                                <Camera size={30} className="text-neutral-300" />
-                            </div>
-                        )}
+                        <img
+                            src={resolvedImageThumb || resolvedImageSource || item.content}
+                            alt={item.title || 'Image'}
+                            className="w-full h-full object-contain"
+                        />
                     </div>
                 )}
                 {item.type === 'video' && (
@@ -325,20 +292,16 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
                         </span>
                     </div>
                 )}
-                {item.type === 'link' && normalizedLinkThumb && !linkPreviewError && (
+                {item.type === 'link' && normalizedLinkThumb && (
                     <div className="w-full h-[140px] bg-neutral-100 overflow-hidden">
                         <img
                             src={normalizedLinkThumb}
                             alt={item.title || 'Link'}
                             className="w-full h-full object-cover"
-                            onError={() => {
-                                if (requestSourceRefreshOnce()) return;
-                                setLinkPreviewError(true);
-                            }}
                         />
                     </div>
                 )}
-                {item.type === 'link' && (!normalizedLinkThumb || linkPreviewError) && (
+                {item.type === 'link' && !normalizedLinkThumb && (
                     <div className="w-full h-[80px] bg-neutral-50 flex items-center justify-center gap-2">
                         <LinkIcon size={20} className="text-neutral-300" />
                         <span className="text-xs text-neutral-400 font-mono truncate max-w-[200px]">

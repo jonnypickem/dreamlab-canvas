@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getMediaUrl, invalidateMediaUrl, isSupabaseStoragePath } from '../lib/supabaseStorage';
-import { isMediaStoreRef, releaseRenderableMediaSrc } from '../lib/mediaStore';
+import { getMediaUrl, isSupabaseStoragePath } from '../lib/supabaseStorage';
 
-export function useResolvedImageSource(source, options = {}) {
+export function useResolvedImageSource(source) {
     const [resolvedSource, setResolvedSource] = useState(() => {
         // For http/data/blob URLs, use immediately without async resolution
         if (source && (source.startsWith('http') || source.startsWith('data:') || source.startsWith('blob:'))) {
@@ -13,9 +12,6 @@ export function useResolvedImageSource(source, options = {}) {
 
     useEffect(() => {
         let cancelled = false;
-        const sourceRef = source;
-        const retryToken = Number(options?.retryToken);
-        const shouldForceRefresh = Number.isFinite(retryToken) && retryToken > 0;
 
         // Nothing to resolve
         if (!source) {
@@ -32,28 +28,11 @@ export function useResolvedImageSource(source, options = {}) {
         // Supabase storage path or legacy idb:// ref — resolve async
         const load = async () => {
             try {
-                let resolved = await getMediaUrl(source, 3600, {
-                    forceRefresh: shouldForceRefresh,
-                });
-                if (!resolved && isSupabaseStoragePath(source) && !shouldForceRefresh) {
-                    invalidateMediaUrl(source);
-                    resolved = await getMediaUrl(source, 3600, { forceRefresh: true });
-                }
+                const resolved = await getMediaUrl(source);
                 if (!cancelled) {
                     setResolvedSource(resolved || '');
                 }
             } catch {
-                if (isSupabaseStoragePath(source) && !shouldForceRefresh) {
-                    try {
-                        const retried = await getMediaUrl(source, 3600, { forceRefresh: true });
-                        if (!cancelled) {
-                            setResolvedSource(retried || '');
-                        }
-                        return;
-                    } catch {
-                        // Fall through to empty state.
-                    }
-                }
                 if (!cancelled) {
                     setResolvedSource('');
                 }
@@ -64,11 +43,8 @@ export function useResolvedImageSource(source, options = {}) {
 
         return () => {
             cancelled = true;
-            if (isMediaStoreRef(sourceRef)) {
-                releaseRenderableMediaSrc(sourceRef);
-            }
         };
-    }, [source, options?.retryToken]);
+    }, [source]);
 
     return resolvedSource;
 }
