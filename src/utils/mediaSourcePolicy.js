@@ -28,28 +28,56 @@ export function shouldUseOriginalForCanvas({ scale, renderedPixels } = {}) {
 }
 
 export function resolveItemMediaSource(item, options = {}) {
+    const candidates = getItemMediaCandidatePaths(item, options);
+    return candidates[0] || '';
+}
+
+export function getItemMediaCandidatePaths(item, options = {}) {
     const context = String(options?.context || 'grid').toLowerCase();
-    if (!item || typeof item !== 'object') return '';
+    if (!item || typeof item !== 'object') return [];
 
     const { previewPath, canvasPath, originalPath } = getItemMediaVariantPaths(item);
+    const ordered = [];
+    const pushCandidate = (value) => {
+        const path = String(value || '').trim();
+        if (!path) return;
+        if (ordered.includes(path)) return;
+        ordered.push(path);
+    };
 
     if (item.type === 'image') {
-        if (context === 'modal') return originalPath || canvasPath || previewPath || '';
+        if (context === 'modal') {
+            pushCandidate(originalPath);
+            pushCandidate(canvasPath);
+            pushCandidate(previewPath);
+            return ordered;
+        }
         if (context === 'canvas') {
             if (shouldUseOriginalForCanvas(options)) {
-                return originalPath || canvasPath || previewPath || '';
+                pushCandidate(originalPath);
+                pushCandidate(canvasPath);
+                pushCandidate(previewPath);
+                return ordered;
             }
-            return canvasPath || previewPath || originalPath || '';
+            pushCandidate(canvasPath);
+            pushCandidate(previewPath);
+            pushCandidate(originalPath);
+            return ordered;
         }
-        return previewPath || canvasPath || originalPath || '';
+        pushCandidate(previewPath);
+        pushCandidate(canvasPath);
+        pushCandidate(originalPath);
+        return ordered;
     }
 
     if (item.type === 'link') {
-        // For link previews, prefer preview derivative when present.
-        return previewPath || canvasPath || originalPath || '';
+        pushCandidate(previewPath);
+        pushCandidate(canvasPath);
+        pushCandidate(originalPath);
+        return ordered;
     }
 
-    return '';
+    return ordered;
 }
 
 export function hasCompleteMediaVariants(item) {

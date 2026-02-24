@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useResolvedImageSource } from './useResolvedImageSource';
-import { resolveItemMediaSource, hasCompleteMediaVariants } from '../utils/mediaSourcePolicy';
+import { getItemMediaCandidatePaths, hasCompleteMediaVariants } from '../utils/mediaSourcePolicy';
 import { queueItemMediaVariantBackfill } from '../services/mediaVariantBackfill';
 import { isSupabaseStoragePath } from '../lib/supabaseStorage';
 
@@ -21,11 +21,17 @@ function isFetchableBackfillSource(value) {
 }
 
 export function useItemMediaSource(item, options = {}) {
-    const sourcePath = useMemo(
-        () => resolveItemMediaSource(item, options),
+    const sourceCandidates = useMemo(
+        () => getItemMediaCandidatePaths(item, options),
         [item, options?.context, options?.scale, options?.renderedPixels]
     );
-    const resolvedSource = useResolvedImageSource(sourcePath || '', {
+    const resolvedPrimary = useResolvedImageSource(sourceCandidates[0] || '', {
+        retryToken: options?.retryToken,
+    });
+    const resolvedSecondary = useResolvedImageSource(sourceCandidates[1] || '', {
+        retryToken: options?.retryToken,
+    });
+    const resolvedTertiary = useResolvedImageSource(sourceCandidates[2] || '', {
         retryToken: options?.retryToken,
     });
 
@@ -40,5 +46,5 @@ export function useItemMediaSource(item, options = {}) {
         queueItemMediaVariantBackfill(item);
     }, [item]);
 
-    return resolvedSource || '';
+    return resolvedPrimary || resolvedSecondary || resolvedTertiary || '';
 }
