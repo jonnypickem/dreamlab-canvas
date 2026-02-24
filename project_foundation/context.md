@@ -22,6 +22,7 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
+<<<<<<< ours
 -   **Last Major Change**: Shipped media-loading reliability hotfix over progressive variants (robust storage-path handling, signed URL refresh recovery, guarded backfill fetches, and legacy `active_contexts` schema fallback).
 
 ## Changelog
@@ -118,6 +119,12 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 - **Cause**: Type indicator placement was anchored to top-left in both grid and canvas card components without edit-state suppression.
 - **Fix**: Repositioned indicator to bottom-left for both surfaces and suppressed indicator during grid text-card edit mode.
 
+=======
+-   **Last Major Change**: Added deterministic extension packaging + parity verification workflow to prevent stale launcher files in distributed zip artifacts.
+
+## Changelog
+
+>>>>>>> theirs
 ### [0.44.0] - 2026-02-24
 #### Added
 - **Deterministic Extension Packaging Scripts** (`scripts/extension-package-files.mjs`, `scripts/extension-package.mjs`):

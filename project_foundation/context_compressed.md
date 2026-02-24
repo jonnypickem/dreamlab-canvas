@@ -90,9 +90,12 @@ Current status theme:
 - Extension keyboard workflow now uses a single launcher shortcut (`Alt+Shift+S`) and widget-scoped configurable action hotkeys.
 - Launcher open path now requires widget acknowledgment and auto-recovers stale tabs via marker cleanup + reinjection retry.
 - Extension release workflow now enforces deterministic packaging and zip/source parity checks before distribution.
+<<<<<<< ours
 - Grid and canvas card media-type indicators are now unified at bottom-left; grid text-card edit mode suppresses the indicator to avoid content overlap.
 - Progressive media delivery is now variant-aware (`preview/canvas/original`) with lazy legacy backfill and signed URL cache hardening.
 - Media loading reliability hotfix shipped over progressive variants: robust storage-path detection, signed URL force-refresh recovery, guarded backfill fetches, and legacy `active_contexts.project_id` compatibility fallback.
+=======
+>>>>>>> theirs
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -169,6 +172,7 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+<<<<<<< ours
 ### [0.47.0] - 2026-02-24
 Key outcomes:
 - Hardened storage-path handling and signed URL lifecycle:
@@ -211,6 +215,8 @@ Key outcomes:
 Net effect:
 - Card UI is visually consistent across surfaces and inline note editing is no longer obstructed by the type badge.
 
+=======
+>>>>>>> theirs
 ### [0.44.0] - 2026-02-24
 Key outcomes:
 - Added deterministic extension packaging scripts with explicit file manifest and single output path (`dreamlab-canvas-extension.zip`).

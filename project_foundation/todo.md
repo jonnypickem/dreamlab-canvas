@@ -58,6 +58,7 @@
 - [x] Wire single-command workflow in `package.json` (`extension:release`) for package + verify.
 - [x] Rebuild zip via script and validate parity before distribution.
 
+<<<<<<< ours
 ## Current Task Plan (2026-02-24 - Card Type Icon Placement Unification)
 - [x] Move grid card type indicator from top-left to bottom-left while keeping hover-only behavior.
 - [x] Move canvas card type indicator from top-left to bottom-left with matching spacing/style.
@@ -91,6 +92,8 @@
 - [x] Add active-context compatibility fallback for environments missing `active_contexts.project_id` (`PGRST204`).
 - [x] Validate hotfix via targeted syntax checks and production build.
 
+=======
+>>>>>>> theirs
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -143,6 +146,7 @@
 - 2026-02-24: Added deterministic extension packaging script `scripts/extension-package.mjs` with explicit file manifest (`scripts/extension-package-files.mjs`).
 - 2026-02-24: Added parity + contract verifier `scripts/verify-extension-zip.mjs` to compare zip bytes to source and assert launcher-critical tokens in zipped files.
 - 2026-02-24: Added `npm` workflow commands `extension:package`, `extension:verify`, and `extension:release` to enforce package-then-verify flow.
+<<<<<<< ours
 - 2026-02-24: Moved media-type badges on grid/canvas cards from top-left to bottom-left for consistent placement and lower content interference.
 - 2026-02-24: Added grid-only guard to hide text-card media-type badge while inline note editing is active.
 - 2026-02-24: Added centralized media source policy (`src/utils/mediaSourcePolicy.js`) and hook (`src/hooks/useItemMediaSource.js`) to resolve `preview/canvas/original` paths by context and zoom.
@@ -156,6 +160,8 @@
 - 2026-02-24: Hotfixed media loading reliability regressions after progressive variants rollout by tightening storage-path detection and signed-URL refresh behavior in `src/lib/supabaseStorage.js` and `src/hooks/useResolvedImageSource.js`.
 - 2026-02-24: Removed unresolved path fallbacks from `ItemCard`, `CanvasItem`, `ItemModal`, and `CanvasDetailPanel`; media surfaces now render placeholders instead of issuing broken raw-path requests.
 - 2026-02-24: Added backfill proxy/signing safeguards (`src/services/mediaVariantBackfill.js`, `src/hooks/useItemMediaSource.js`) and `active_contexts.project_id` legacy fallback in `src/lib/storage.js` to stop repeated `PGRST204` error spam.
+=======
+>>>>>>> theirs
 
 ## Review
 - Evidence to capture for each task:
@@ -291,6 +297,7 @@
   - extension zip is rebuilt from a fixed manifest list each release,
   - zip/source parity mismatches fail verification immediately,
   - launcher-contract regressions in distributed zip are caught before reinstall/sharing.
+<<<<<<< ours
 - Evidence (2026-02-24):
 - Diff includes targeted card type-indicator placement changes in:
   - `src/components/ItemCard.jsx`
@@ -372,6 +379,8 @@
   - one-shot signed URL retry path recovers stale/expired cache entries,
   - backfill avoids direct external fetch CORS loops,
   - active-context writes remain functional when `project_id` is absent in older schema cache.
+=======
+>>>>>>> theirs
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).
