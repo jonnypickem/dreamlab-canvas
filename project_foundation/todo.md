@@ -77,6 +77,13 @@
 - [x] Remove sidebar-only shortcut polling/listener plumbing in app shell.
 - [x] Verify build integrity after cleanup.
 
+## Current Task Plan (2026-02-24 - Project Delete Confirmation Layering Fix)
+- [x] Confirm root cause of delete confirmation rendering beneath Project Settings (`ConfirmDialog z-50` under `EntitySettingsModal z-[120]`).
+- [x] Add configurable dialog stacking control (`zIndexClass`) in `ConfirmDialog` with default `z-50` to preserve existing usages.
+- [x] Override delete confirmation stacking in `EntitySettingsModal` (`z-[130]`) so the confirmation dialog renders above the settings modal.
+- [x] Validate build integrity and confirm no regressions for other `ConfirmDialog` usages.
+- [x] Update minimal project foundation logs (`todo.md`, `lessons.md`) with fix rationale and verification evidence.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -138,6 +145,7 @@
 - 2026-02-24: Added object URL cache eviction and source release cleanup (`src/lib/mediaStore.js`, `src/hooks/useResolvedImageSource.js`) to reduce long-session memory growth.
 - 2026-02-24: Wired variant-aware source selection into `ItemCard`, `CanvasItem`, `ItemModal`, and `CanvasDetailPanel` with canvas zoom-triggered original upgrade logic.
 - 2026-02-24: Removed the sidebar bottom shortcut guide section and deleted sidebar-specific extension shortcut polling in `src/components/Sidebar.jsx` and `src/App.jsx`.
+- 2026-02-24: Fixed project delete confirmation layering by adding `ConfirmDialog` `zIndexClass` (default `z-50`) and setting `EntitySettingsModal` delete confirmation to `z-[130]`, ensuring it overlays `Project Settings` (`z-[120]`).
 
 ## Review
 - Evidence to capture for each task:
@@ -318,6 +326,18 @@
   - sidebar no longer renders shortcut-guide rows at the bottom,
   - sidebar shortcut polling/listener effect is removed from app shell,
   - settings shortcut management remains available in `SettingsModal`.
+- Evidence (2026-02-24):
+- Diff includes targeted modal layering + foundation log changes in:
+  - `src/components/ConfirmDialog.jsx`
+  - `src/components/EntitySettingsModal.jsx`
+  - `project_foundation/todo.md`
+  - `project_foundation/lessons.md`
+- Validation commands passed:
+  - `npm run build`
+- Build outcome:
+  - Success. Existing non-blocking Vite warnings remain for chunk size and dynamic import chunking.
+- Manual behavior check:
+  - Pending local interactive verification in browser UI (cannot be executed from this CLI session).
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).

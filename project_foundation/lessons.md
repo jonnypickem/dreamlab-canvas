@@ -28,6 +28,7 @@
 - For card overlays that are purely informational, anchor them away from primary editing regions and hide them during active inline edit states.
 - For heavy media workspaces, separate render intent (`preview` vs `canvas` vs `original`) from stored source paths, and resolve media by context + zoom rather than one-size-fits-all paths.
 - When deprecating a contextual UI panel, remove both the rendered block and any panel-specific data polling side effects so stale listeners do not continue running.
+- For nested modal flows, assign explicit z-index ownership per layer and expose an override prop on reusable dialogs so child confirmations cannot render behind parent settings modals.
 
 ## Corrections Log
 | Date | Issue | New Rule | Applied Where |
@@ -48,3 +49,4 @@
 | 2026-02-24 | Card type badge overlapped note content while typing and felt inconsistent across grid/canvas surfaces. | Keep informational card badges in a consistent non-primary corner and suppress them during inline text editing to avoid interference with active authoring. | `src/components/ItemCard.jsx`, `src/components/CanvasItem.jsx` |
 | 2026-02-24 | Large screenshot-heavy collections loaded slowly and repeatedly resolved media URLs across card re-renders. | Introduce media variant metadata (`preview/canvas/original`), resolve source by surface intent + zoom, and combine lazy on-demand backfill with signed URL dedupe/persistent caching. | `src/utils/mediaSourcePolicy.js`, `src/hooks/useItemMediaSource.js`, `src/services/mediaVariantBackfill.js`, `src/lib/supabaseStorage.js`, `src/utils/saveItemWithTags.js` |
 | 2026-02-24 | Sidebar shortcut guide became obsolete after launcher/workflow changes but its polling effect still ran in app shell. | Remove deprecated UI sections together with their dedicated data-fetch/listener plumbing to avoid stale runtime overhead. | `src/components/Sidebar.jsx`, `src/App.jsx` |
+| 2026-02-24 | Project delete confirmation dialog rendered behind the Project Settings modal, blocking delete/cancel actions. | Keep reusable confirmation dialogs on a safe default z-index and provide per-call-site overrides so nested confirmations explicitly render above parent modals. | `src/components/ConfirmDialog.jsx`, `src/components/EntitySettingsModal.jsx` |
