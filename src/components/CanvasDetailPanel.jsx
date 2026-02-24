@@ -4,6 +4,7 @@ import { X, Maximize2, Copy, Trash2, Save, Palette, Camera, Video, Link as LinkI
 import { updateItem, getCollections, getCollectionWorkspaceId } from '../lib/storage';
 import { fetchImageViaProxy } from '../utils/imageProxy';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
+import { useItemMediaSource } from '../hooks/useItemMediaSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 import { getTweetDisplayText, isTweetStatusUrl, shouldShowTweetMedia } from '../utils/tweetCard';
 import BlockEditor from './BlockEditor';
@@ -46,10 +47,11 @@ export default function CanvasDetailPanel({ item, onClose, onExpand, onUpdate, o
     });
     const [collections, setCollections] = useState([]);
 
-    const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedModalMediaSource = useItemMediaSource(item, { context: 'modal' });
+    const resolvedImageSource = item.type === 'image' ? resolvedModalMediaSource : '';
     const resolvedImageThumb = useResolvedImageSource(item.type === 'image' && item.thumbnail ? item.thumbnail : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
-    const resolvedLinkThumb = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
+    const resolvedLinkThumb = (item.type === 'link' ? resolvedModalMediaSource : '') || useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     const rawLinkThumb = resolvedLinkThumb || item.thumbnail || '';
     const normalizedLinkThumb = shouldShowTweetMedia(item, rawLinkThumb) ? rawLinkThumb : '';
 

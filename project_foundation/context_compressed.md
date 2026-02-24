@@ -91,6 +91,7 @@ Current status theme:
 - Launcher open path now requires widget acknowledgment and auto-recovers stale tabs via marker cleanup + reinjection retry.
 - Extension release workflow now enforces deterministic packaging and zip/source parity checks before distribution.
 - Grid and canvas card media-type indicators are now unified at bottom-left; grid text-card edit mode suppresses the indicator to avoid content overlap.
+- Progressive media delivery is now variant-aware (`preview/canvas/original`) with lazy legacy backfill and signed URL cache hardening.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -167,6 +168,25 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.46.0] - 2026-02-24
+Key outcomes:
+- Added a centralized media source policy and hook to select variant paths by context:
+  - grid uses `preview`,
+  - canvas uses `canvas` and upgrades to `original` at deep zoom,
+  - modal/detail uses `original`.
+- Added lazy on-demand variant backfill service for legacy image/link media missing variant metadata.
+- Extended save pipeline to generate and persist media derivatives for new image/link screenshot saves:
+  - `preview` (~480),
+  - `canvas` (~1600),
+  - `original`.
+- Hardened URL/media caching:
+  - in-flight signed URL request dedupe,
+  - IndexedDB-backed signed URL cache,
+  - object URL cache pressure controls and release cleanup.
+
+Net effect:
+- Faster initial card/canvas rendering for heavy media sets, reduced repeated signed URL churn, and preserved high-fidelity media when zooming deeply or opening details.
+
 ### [0.45.0] - 2026-02-24
 Key outcomes:
 - Moved media-type badges from top-left to bottom-left in both grid and canvas card components.

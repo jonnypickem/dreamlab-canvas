@@ -38,6 +38,7 @@ import BlockEditor from './BlockEditor';
 import TweetEmbed from './TweetEmbed';
 import { getLinkViewPreference, setLinkViewPreference } from '../utils/linkTextPreference';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
+import { useItemMediaSource } from '../hooks/useItemMediaSource';
 
 const uniqueTags = (tags = []) => [...new Set((tags || []).filter(Boolean))];
 
@@ -180,9 +181,10 @@ export default function ItemModal({ item, onClose, onUpdate, onDelete, onNext, o
     const [colorValue, setColorValue] = useState(item.type === 'color' ? item.content : '#000000');
     const [textContentDirty, setTextContentDirty] = useState(false);
     const [centerLinkText, setCenterLinkText] = useState(true);
-    const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
+    const resolvedModalMediaSource = useItemMediaSource(item, { context: 'modal' });
+    const resolvedImageSource = item.type === 'image' ? resolvedModalMediaSource : '';
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
-    const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
+    const resolvedLinkThumbnailSource = (item.type === 'link' ? resolvedModalMediaSource : '') || useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
 
     const emitToast = (message, type = 'info') => {

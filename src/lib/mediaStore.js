@@ -2,9 +2,20 @@ const MEDIA_DB_NAME = 'dreamlab_media_db';
 const MEDIA_DB_VERSION = 1;
 const MEDIA_STORE = 'media_blobs';
 const MEDIA_REF_PREFIX = 'idb://media/';
+const OBJECT_URL_CACHE_MAX = 350;
 
 let dbPromise = null;
 const objectUrlCache = new Map();
+
+function evictObjectUrlCacheIfNeeded() {
+    if (objectUrlCache.size <= OBJECT_URL_CACHE_MAX) return;
+    for (const [key, entry] of objectUrlCache.entries()) {
+        if (!entry || entry.refCount > 0) continue;
+        if (entry.url) URL.revokeObjectURL(entry.url);
+        objectUrlCache.delete(key);
+        if (objectUrlCache.size <= OBJECT_URL_CACHE_MAX) return;
+    }
+}
 
 function canUseIndexedDb() {
     return typeof indexedDB !== 'undefined';
@@ -168,6 +179,7 @@ export async function resolveRenderableMediaSrc(source) {
                 throw new Error('Media source was released');
             }
             entry.url = objectUrl;
+            evictObjectUrlCacheIfNeeded();
             return objectUrl;
         } catch (error) {
             objectUrlCache.delete(source);

@@ -64,6 +64,14 @@
 - [x] Suppress grid text-card type icon during inline editing to prevent overlap while typing.
 - [x] Verify build integrity and confirm no interaction regressions in card controls.
 
+## Current Task Plan (2026-02-24 - Progressive Media Delivery + Cache Hardening)
+- [x] Add variant-aware media source policy (`preview` / `canvas` / `original`) with canvas zoom threshold switching.
+- [x] Add lazy on-demand media variant backfill service for legacy image/link items lacking variant metadata.
+- [x] Extend save pipeline to generate/upload `preview` + `canvas` derivatives and persist `metadata.mediaVariants`.
+- [x] Add signed URL request coalescing + IndexedDB-backed URL cache layer in storage helper.
+- [x] Add object URL cache pressure controls and release-on-unmount cleanup for legacy `idb://` sources.
+- [x] Wire new media source policy into grid/canvas/modal/detail image surfaces and verify build.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -118,6 +126,12 @@
 - 2026-02-24: Added `npm` workflow commands `extension:package`, `extension:verify`, and `extension:release` to enforce package-then-verify flow.
 - 2026-02-24: Moved media-type badges on grid/canvas cards from top-left to bottom-left for consistent placement and lower content interference.
 - 2026-02-24: Added grid-only guard to hide text-card media-type badge while inline note editing is active.
+- 2026-02-24: Added centralized media source policy (`src/utils/mediaSourcePolicy.js`) and hook (`src/hooks/useItemMediaSource.js`) to resolve `preview/canvas/original` paths by context and zoom.
+- 2026-02-24: Added lazy variant backfill queue (`src/services/mediaVariantBackfill.js`) with dedupe + cooldown for legacy items.
+- 2026-02-24: Upgraded save pipeline (`src/utils/saveItemWithTags.js`) to generate/upload `preview` (480px), `canvas` (1600px), and preserve `original`, then persist `metadata.mediaVariants`.
+- 2026-02-24: Added signed URL in-flight dedupe + persistent IndexedDB cache in `src/lib/supabaseStorage.js` and batch resolver API `getMediaUrls()`.
+- 2026-02-24: Added object URL cache eviction and source release cleanup (`src/lib/mediaStore.js`, `src/hooks/useResolvedImageSource.js`) to reduce long-session memory growth.
+- 2026-02-24: Wired variant-aware source selection into `ItemCard`, `CanvasItem`, `ItemModal`, and `CanvasDetailPanel` with canvas zoom-triggered original upgrade logic.
 
 ## Review
 - Evidence to capture for each task:
@@ -265,6 +279,29 @@
   - grid and canvas media-type indicators now appear bottom-left on hover,
   - grid text-card indicator is hidden during inline editing,
   - selection and details controls remain in existing positions.
+- Evidence (2026-02-24):
+- Diff includes progressive media delivery/cache changes in:
+  - `src/utils/mediaSourcePolicy.js`
+  - `src/hooks/useItemMediaSource.js`
+  - `src/services/mediaVariantBackfill.js`
+  - `src/utils/saveItemWithTags.js`
+  - `src/lib/supabaseStorage.js`
+  - `src/lib/mediaStore.js`
+  - `src/hooks/useResolvedImageSource.js`
+  - `src/components/ItemCard.jsx`
+  - `src/components/CanvasItem.jsx`
+  - `src/components/ItemModal.jsx`
+  - `src/components/CanvasDetailPanel.jsx`
+- Validation commands passed:
+  - `node --check src/lib/supabaseStorage.js`
+  - `node --check src/services/mediaVariantBackfill.js`
+  - `node --check src/utils/mediaSourcePolicy.js`
+  - `node --check src/hooks/useItemMediaSource.js`
+  - `npm run build`
+- Expected behavior from code path:
+  - image/link media can resolve context-aware sources (`preview` in grid, `canvas` in normal canvas zoom, `original` in modal/deep zoom),
+  - legacy items missing variants are backfilled lazily and deduped/rate-limited,
+  - signed URL fetches are deduped and persisted, reducing repeated URL churn across re-renders.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).

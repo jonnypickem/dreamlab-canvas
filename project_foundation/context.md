@@ -22,9 +22,54 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Current Status
 -   **Status**: Canvas-First Creative Workspace — Inline Creation + Viewport-Aware Placement + Area Capture + Cloud Storage
--   **Last Major Change**: Unified card media-type indicator placement to bottom-left across grid and canvas views, with inline text-edit overlap prevention.
+-   **Last Major Change**: Shipped progressive media delivery with variant-aware source selection (`preview/canvas/original`), lazy on-demand backfill for legacy items, and signed URL cache hardening.
 
 ## Changelog
+
+### [0.46.0] - 2026-02-24
+#### Added
+- **Variant-Aware Media Policy + Hook** (`src/utils/mediaSourcePolicy.js`, `src/hooks/useItemMediaSource.js`):
+  - Added context-based media source resolution:
+    - grid -> `preview`
+    - canvas -> `canvas`, with deep-zoom upgrade to `original`
+    - modal/detail -> `original`
+  - Added canvas auto-upgrade guard using scale + rendered pixel thresholds.
+
+- **Lazy On-Demand Variant Backfill Service** (`src/services/mediaVariantBackfill.js`):
+  - Added queued/deduped backfill for legacy `image` and `link` items missing `metadata.mediaVariants`.
+  - Added retry cooldown to avoid hot-loop retries after failures.
+
+- **Signed URL Cache Hardening** (`src/lib/supabaseStorage.js`):
+  - Added in-flight request coalescing to avoid duplicate signed URL calls per storage path.
+  - Added IndexedDB-backed persistent signed URL cache.
+  - Added batch resolver API `getMediaUrls(paths[])`.
+
+#### Changed
+- **Save Pipeline Media Derivatives** (`src/utils/saveItemWithTags.js`):
+  - New image saves now generate/upload:
+    - `preview` (longest side 480, quality ~0.60)
+    - `canvas` (longest side 1600, quality ~0.72)
+    - `original` (existing content path)
+  - Persists `metadata.mediaVariants.{previewPath,canvasPath,originalPath,version,updatedAt}`.
+  - Link screenshot thumbnail saves now follow the same derivative metadata contract when source image is available.
+
+- **Render Surface Source Selection**:
+  - `ItemCard` and `CanvasItem` now consume policy-driven media source selection.
+  - `ItemModal` and `CanvasDetailPanel` now resolve image sources via modal/original policy.
+
+- **Object URL Lifecycle Controls** (`src/lib/mediaStore.js`, `src/hooks/useResolvedImageSource.js`):
+  - Added object URL cache pressure eviction.
+  - Added release-on-unmount cleanup for legacy `idb://` media refs.
+
+#### Fixed
+- **Large Screenshot/Image Preview Performance Degradation**:
+  - Root cause: single-path media loading relied on thumbnail/original fallback without context-aware switching and repeated URL resolution churn.
+  - Fix: introduced tiered source policy + lazy variant backfill + URL cache/request coalescing.
+
+#### Problems & Fixes
+- **Problem**: Grid/canvas performance degraded with many large screenshots because previews could resolve sub-optimally and full-quality assets loaded too early.
+- **Cause**: No explicit multi-tier variant contract and no context-aware loader policy.
+- **Fix**: Added `preview/canvas/original` metadata contract, policy-driven source selection, lazy backfill for old items, and cache hardening.
 
 ### [0.45.0] - 2026-02-24
 #### Changed

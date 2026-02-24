@@ -4,7 +4,7 @@
  */
 
 import { saveItem, getWorkspaces, updateItem } from '../lib/storage';
-import { uploadMedia } from '../lib/supabaseStorage';
+import { uploadMedia, uploadMediaVariant, isSupabaseStoragePath } from '../lib/supabaseStorage';
 import { extractAllMetadataTags } from './metadataExtractor';
 import { interpretMetadata } from '../services/geminiText';
 import { analyzeImageObjective, analyzeImageWithContext } from '../services/geminiVision';
@@ -65,22 +65,36 @@ function dataUrlToBlob(dataUrl) {
 async function offloadItemMediaToSupabase(item) {
     let current = { ...item };
     if (!current.id) current.id = crypto.randomUUID();
+    const mergeVariantsMetadata = (variants) => ({
+        ...(current.metadata && typeof current.metadata === 'object' ? current.metadata : {}),
+        mediaVariants: {
+            ...((current.metadata && typeof current.metadata === 'object' ? current.metadata.mediaVariants : {}) || {}),
+            ...variants,
+            version: 1,
+            updatedAt: Date.now(),
+        },
+    });
 
     // Upload image content + generate grid thumbnail
     if (current.type === 'image' && typeof current.content === 'string' && current.content.startsWith('data:')) {
         const blob = dataUrlToBlob(current.content);
-        const path = await uploadMedia(blob, current.id, 'image');
-        current.content = path;
+        const originalPath = await uploadMedia(blob, current.id, 'image');
+        current.content = originalPath;
         current.contentStorage = 'supabase';
 
-        // Generate a smaller thumbnail for grid/card views
+        // Generate media variants for progressive loading.
         try {
-            const thumbBlob = await generateThumbnail(blob);
-            if (thumbBlob !== blob) {
-                const thumbPath = await uploadMedia(thumbBlob, current.id, 'thumbnail');
-                current.thumbnail = thumbPath;
-                current.thumbnailStorage = 'supabase';
-            }
+            const previewBlob = await generateThumbnail(blob, { maxDimension: 480, quality: 0.60 });
+            const canvasBlob = await generateThumbnail(blob, { maxDimension: 1600, quality: 0.72 });
+            const previewPath = await uploadMediaVariant(previewBlob, current.id, 'preview');
+            const canvasPath = await uploadMediaVariant(canvasBlob, current.id, 'canvas');
+            current.thumbnail = previewPath;
+            current.thumbnailStorage = 'supabase';
+            current.metadata = mergeVariantsMetadata({
+                previewPath,
+                canvasPath,
+                originalPath,
+            });
         } catch {
             // Non-fatal — grid will fall back to full-res image
         }
@@ -98,23 +112,58 @@ async function offloadItemMediaToSupabase(item) {
     if (current.type === 'link' && typeof current.thumbnail === 'string') {
         if (current.thumbnail.startsWith('data:')) {
             const blob = dataUrlToBlob(current.thumbnail);
-            const path = await uploadMedia(blob, current.id, 'thumbnail');
-            current.thumbnail = path;
+            const originalPath = await uploadMedia(blob, current.id, 'thumbnail');
+            current.thumbnail = originalPath;
             current.thumbnailStorage = 'supabase';
+            try {
+                const previewBlob = await generateThumbnail(blob, { maxDimension: 480, quality: 0.60 });
+                const canvasBlob = await generateThumbnail(blob, { maxDimension: 1600, quality: 0.72 });
+                const previewPath = await uploadMediaVariant(previewBlob, current.id, 'preview');
+                const canvasPath = await uploadMediaVariant(canvasBlob, current.id, 'canvas');
+                current.thumbnail = previewPath;
+                current.thumbnailStorage = 'supabase';
+                current.metadata = mergeVariantsMetadata({
+                    previewPath,
+                    canvasPath,
+                    originalPath,
+                });
+            } catch {
+                // Keep original thumbnail path as fallback.
+            }
         } else if (current.thumbnail.startsWith('http')) {
             try {
                 const response = await fetch(current.thumbnail);
                 if (response.ok) {
                     const blob = await response.blob();
                     if (blob.type?.startsWith('image/')) {
-                        const path = await uploadMedia(blob, current.id, 'thumbnail');
-                        current.thumbnail = path;
+                        const originalPath = await uploadMedia(blob, current.id, 'thumbnail');
+                        current.thumbnail = originalPath;
                         current.thumbnailStorage = 'supabase';
+                        try {
+                            const previewBlob = await generateThumbnail(blob, { maxDimension: 480, quality: 0.60 });
+                            const canvasBlob = await generateThumbnail(blob, { maxDimension: 1600, quality: 0.72 });
+                            const previewPath = await uploadMediaVariant(previewBlob, current.id, 'preview');
+                            const canvasPath = await uploadMediaVariant(canvasBlob, current.id, 'canvas');
+                            current.thumbnail = previewPath;
+                            current.thumbnailStorage = 'supabase';
+                            current.metadata = mergeVariantsMetadata({
+                                previewPath,
+                                canvasPath,
+                                originalPath,
+                            });
+                        } catch {
+                            // Keep original thumbnail path.
+                        }
                     }
                 }
             } catch {
                 // Keep original URL if download fails
             }
+        } else if (isSupabaseStoragePath(current.thumbnail)) {
+            // Already uploaded thumbnail path; preserve as originalPath fallback metadata.
+            current.metadata = mergeVariantsMetadata({
+                originalPath: current.thumbnail,
+            });
         }
     }
 

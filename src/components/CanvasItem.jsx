@@ -3,6 +3,7 @@ import { Rnd } from 'react-rnd';
 import { Camera, Link as LinkIcon, FileText, Info, Palette } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
+import { useItemMediaSource } from '../hooks/useItemMediaSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 import { getTweetDisplayText, isTweetStatusUrl, shouldShowTweetMedia } from '../utils/tweetCard';
 import BlockEditor from './BlockEditor';
@@ -85,11 +86,17 @@ const CanvasItem = ({
     const supportingText = getSupportingTextForItem(item);
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
+    const renderedPixels = Math.max(0, Number(size.width || 0) * Number(size.height || 0) * Math.pow(Number(scale || 1), 2));
+    const resolvedCanvasMediaSource = useItemMediaSource(item, {
+        context: 'canvas',
+        scale,
+        renderedPixels,
+    });
     const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
     const resolvedImageThumb = useResolvedImageSource(item.type === 'image' && item.thumbnail ? item.thumbnail : '');
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
-    const linkThumbnailSource = resolvedLinkThumbnailSource || item.thumbnail;
+    const linkThumbnailSource = resolvedLinkThumbnailSource || resolvedCanvasMediaSource || item.thumbnail;
     const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
     const tweetText = getTweetDisplayText(item) || null;
     const linkPreviewThumbnail = isTweetLink
@@ -97,7 +104,7 @@ const CanvasItem = ({
         : linkThumbnailSource;
     const hasSavedSize = hasFiniteNumber(item.canvas?.w) && hasFiniteNumber(item.canvas?.h);
     const mediaSource = item.type === 'image'
-        ? (resolvedImageThumb || resolvedImageSource || item.content)
+        ? (resolvedCanvasMediaSource || resolvedImageThumb || resolvedImageSource || item.content)
         : item.type === 'video'
             ? (resolvedVideoSource || '')
             : (showLinkAsText ? null : linkPreviewThumbnail);
@@ -379,9 +386,11 @@ const CanvasItem = ({
                 <div className="flex-grow overflow-hidden relative bg-white">
                     {item.type === 'image' && (
                         <img
-                            src={resolvedImageThumb || resolvedImageSource || item.content}
+                            src={resolvedCanvasMediaSource || resolvedImageThumb || resolvedImageSource || item.content}
                             alt={item.title || 'Captured Image'}
                             className="w-full h-full object-contain pointer-events-none bg-white"
+                            loading="lazy"
+                            decoding="async"
                         />
                     )}
 
@@ -453,6 +462,8 @@ const CanvasItem = ({
                                     const fallback = e.currentTarget.parentElement?.querySelector('.canvas-link-fallback');
                                     if (fallback) fallback.classList.remove('hidden');
                                 }}
+                                loading="lazy"
+                                decoding="async"
                             />
                         ) : null
                     )}

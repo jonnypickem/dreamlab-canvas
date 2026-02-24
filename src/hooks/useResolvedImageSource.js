@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getMediaUrl, isSupabaseStoragePath } from '../lib/supabaseStorage';
+import { getMediaUrl } from '../lib/supabaseStorage';
+import { isMediaStoreRef, releaseRenderableMediaSrc } from '../lib/mediaStore';
 
 export function useResolvedImageSource(source) {
     const [resolvedSource, setResolvedSource] = useState(() => {
@@ -12,6 +13,7 @@ export function useResolvedImageSource(source) {
 
     useEffect(() => {
         let cancelled = false;
+        const sourceRef = source;
 
         // Nothing to resolve
         if (!source) {
@@ -43,6 +45,9 @@ export function useResolvedImageSource(source) {
 
         return () => {
             cancelled = true;
+            if (isMediaStoreRef(sourceRef)) {
+                releaseRenderableMediaSrc(sourceRef);
+            }
         };
     }, [source]);
 

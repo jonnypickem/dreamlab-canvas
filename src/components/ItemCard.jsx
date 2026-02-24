@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Link as LinkIcon, FileText, Video, Check, Palette } from 'lucide-react';
 import { getHeroTextForItem, getSupportingTextForItem } from '../utils/textPresentation';
 import { useResolvedImageSource } from '../hooks/useResolvedImageSource';
+import { useItemMediaSource } from '../hooks/useItemMediaSource';
 import { renderMarkdownText, hasMarkdownHeadings } from '../utils/markdownText';
 import { getTweetDisplayText, isLikelyTweetAvatarImage, isTweetStatusUrl, shouldShowTweetMedia } from '../utils/tweetCard';
 import BlockEditor from './BlockEditor';
@@ -67,14 +68,14 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
     const supportingText = getSupportingTextForItem(item);
     const linkTextPayload = getLinkTextPayload(item);
     const showLinkAsText = item.type === 'link' && item.linkViewMode === 'text' && linkTextPayload.ready;
-    const resolvedImageSource = useResolvedImageSource(item.type === 'image' ? item.content : '');
-    const resolvedImageThumb = useResolvedImageSource(item.type === 'image' && item.thumbnail ? item.thumbnail : '');
+    const resolvedGridImageSource = useItemMediaSource(item, { context: 'grid' });
+    const resolvedGridLinkSource = useItemMediaSource(item, { context: 'grid' });
     const resolvedVideoSource = useResolvedImageSource(item.type === 'video' ? item.content : '');
     const resolvedLinkThumbnailSource = useResolvedImageSource(item.type === 'link' ? item.thumbnail : '');
     // Only fall back to raw item.thumbnail if it's already a renderable URL (http/data/blob).
     // Supabase storage paths must be resolved via the hook — don't use them as raw <img> src.
     const rawThumbnailIsUrl = item.thumbnail && (item.thumbnail.startsWith('http') || item.thumbnail.startsWith('data:') || item.thumbnail.startsWith('blob:'));
-    const linkThumbnailSource = resolvedLinkThumbnailSource || (rawThumbnailIsUrl ? item.thumbnail : '');
+    const linkThumbnailSource = resolvedGridLinkSource || resolvedLinkThumbnailSource || (rawThumbnailIsUrl ? item.thumbnail : '');
     const isTweetLink = isTweetStatusUrl(item?.linkEmbed?.url || item?.sourceUrl || item?.content);
     const tweetText = getTweetDisplayText(item) || null;
     const isTweetAvatarImage = isLikelyTweetAvatarImage(linkThumbnailSource);
@@ -152,10 +153,12 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                                 <div className="w-full min-h-[200px] bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-50 bg-[length:200%_100%] animate-shimmer" />
                             )}
                             <img
-                                src={resolvedImageThumb || resolvedImageSource || item.content}
+                                src={resolvedGridImageSource || item.thumbnail || item.content}
                                 alt={item.title || 'Captured Image'}
                                 className={`w-full max-h-[600px] object-cover object-top block ${imgLoaded ? '' : 'hidden'}`}
                                 onLoad={() => setImgLoaded(true)}
+                                loading="lazy"
+                                decoding="async"
                             />
                         </>
                     )}
@@ -242,6 +245,8 @@ function ItemCard({ item, onClick, isSelected = false, onSelect, isEditing = fal
                                     className={`w-full h-auto block ${imgLoaded ? '' : 'hidden'}`}
                                     onLoad={() => setImgLoaded(true)}
                                     onError={() => setImgError(true)}
+                                    loading="lazy"
+                                    decoding="async"
                                 />
                             </>
                         ) : null

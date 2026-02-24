@@ -26,6 +26,7 @@
 - For extension distribution, never share/reinstall a manually packed zip without artifact parity verification against source files.
 - For launcher-contract changes, verify the zipped `content.js`/`background.js` tokens directly to catch stale artifact drift before QA.
 - For card overlays that are purely informational, anchor them away from primary editing regions and hide them during active inline edit states.
+- For heavy media workspaces, separate render intent (`preview` vs `canvas` vs `original`) from stored source paths, and resolve media by context + zoom rather than one-size-fits-all paths.
 
 ## Corrections Log
 | Date | Issue | New Rule | Applied Where |
@@ -44,3 +45,4 @@
 | 2026-02-24 | Launcher showed `"Unknown action"` because content listener accepted lowercase launcher action while background sent uppercase canonical action. | Enforce canonical action IDs across background/content contracts and keep temporary alias support while forcing reinjection on unknown-action stale responses. | `content.js`, `background.js` |
 | 2026-02-24 | `"Unknown action"` kept recurring after fixes because distribution zip still contained stale launcher files from an inconsistent repack flow. | Make extension packaging deterministic and add mandatory zip/source parity + launcher-token verification before reinstall/sharing artifacts. | `scripts/extension-package-files.mjs`, `scripts/extension-package.mjs`, `scripts/verify-extension-zip.mjs`, `package.json` |
 | 2026-02-24 | Card type badge overlapped note content while typing and felt inconsistent across grid/canvas surfaces. | Keep informational card badges in a consistent non-primary corner and suppress them during inline text editing to avoid interference with active authoring. | `src/components/ItemCard.jsx`, `src/components/CanvasItem.jsx` |
+| 2026-02-24 | Large screenshot-heavy collections loaded slowly and repeatedly resolved media URLs across card re-renders. | Introduce media variant metadata (`preview/canvas/original`), resolve source by surface intent + zoom, and combine lazy on-demand backfill with signed URL dedupe/persistent caching. | `src/utils/mediaSourcePolicy.js`, `src/hooks/useItemMediaSource.js`, `src/services/mediaVariantBackfill.js`, `src/lib/supabaseStorage.js`, `src/utils/saveItemWithTags.js` |
