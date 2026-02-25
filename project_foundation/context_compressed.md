@@ -168,6 +168,16 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.46.1] - 2026-02-25
+Key outcomes:
+- Restored missing compliance/submission docs referenced by project foundation and deployment rules.
+- Prepared v1.2 Chrome Web Store update field copy (What's New, reviewer notes, single-purpose, permissions/data-use text).
+- Bumped extension update metadata for submission eligibility (`manifest.json` `1.1` -> `1.2`, disclosure version -> `2026-02-25`).
+- Added explicit CWS update prep handoff with diff summary vs original submission zip.
+
+Net effect:
+- Extension update package is submission-ready with synchronized metadata, compliance docs, and reviewer-facing answers.
+
 ### [0.46.0] - 2026-02-25
 Key outcomes:
 - Added area-capture duration preference contract (`areaCapturePrefsV1`) with runtime get/set actions.

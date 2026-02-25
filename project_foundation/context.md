@@ -26,6 +26,24 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Changelog
 
+### [0.46.1] - 2026-02-25
+#### Added
+- **CWS Update Preparation Docs** (`project_foundation/extension-compliance-prerequisites.md`, `project_foundation/privacy-policy-extension.md`, `project_foundation/chrome-web-store-submission-fields.md`, `project_foundation/cws-update-v1.2-preparation.md`):
+  - Restored missing internal compliance/submission docs referenced by foundation context and deployment guidance.
+  - Added ready-to-paste Chrome Web Store update fields (What's New, reviewer notes, permission justification, single-purpose copy).
+  - Added explicit v1.2 update prep handoff documenting zip diff summary vs original CWS submission.
+
+#### Changed
+- **Extension Update Metadata** (`manifest.json`, `background.js`, `public/extension-privacy-policy.html`, `public/extension-data-compliance.html`):
+  - Bumped extension manifest version from `1.1` to `1.2` for Chrome Web Store update eligibility.
+  - Updated extension disclosure version constant to `2026-02-25`.
+  - Refreshed public compliance page "Last updated" timestamps to February 25, 2026.
+
+#### Fixed
+- **Submission Readiness Drift**:
+  - Problem: extension update package context had drifted from project foundation references (missing docs + unchanged manifest version).
+  - Fix: restored compliance submission docs, updated release metadata, and prepared explicit v1.2 handoff artifacts for update submission.
+
 ### [0.46.0] - 2026-02-25
 #### Added
 - **Area Capture Duration Preferences** (`background.js`, `area-select.js`):

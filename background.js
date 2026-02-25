@@ -157,7 +157,7 @@ const PREVIEW_FIRST_DOMAINS = [
 const MAX_TEXT_EXTRACT_LENGTH = 50000;
 const REMOTE_FETCH_TIMEOUT_MS = 8000;
 const REMOTE_FETCH_MAX_HTML_BYTES = 850000;
-const DISCLOSURE_VERSION = '2026-02-19';
+const DISCLOSURE_VERSION = '2026-02-25';
 const INTERNAL_DOCS = Object.freeze({
   compliancePath: 'Project foundation/extension-compliance-prerequisites.md',
   privacyPath: 'Project foundation/privacy-policy-extension.md',
