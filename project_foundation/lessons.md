@@ -33,6 +33,7 @@
 - When reverting to a stable baseline, prefer history-preserving `git revert` and explicitly preserve high-value knowledge files when requested.
 - For cropped area recordings, render visual guidance borders outside the capture rect; in-rect strokes/shadows can leak into final video pixels.
 - For short-form recorder UX, constrain duration controls to validated discrete values and persist only sanitized options to avoid drift between UI labels and recorder runtime.
+- For binary modal choices, prefer visible segmented/tab toggles over dropdowns; this removes unnecessary portal layering risk and makes current selection state explicit.
 
 ## Corrections Log
 | Date | Issue | New Rule | Applied Where |
@@ -58,3 +59,4 @@
 | 2026-02-24 | Branch needed to return quickly to stable behavior while preserving accumulated process knowledge. | Use non-destructive rollback (`git revert` range), then selectively preserve knowledge files (`project_foundation/lessons.md`) as an explicit post-revert step. | `master` rollback to `4810eff` via commit `b9a1973` |
 | 2026-02-25 | Area recording guide border was visible but risked appearing inside captured video output. | Keep guidance overlays outside the crop rectangle so the operator sees bounds while recorded pixels stay clean. | `background.js` `mainWorldRecorder` border rendering |
 | 2026-02-25 | Area recorder duration control could diverge between UI intent and runtime if values were free-form. | Use fixed validated duration steps (`5/10/15`) and persist only sanitized values in extension storage. | `area-select.js`, `background.js` (`areaCapturePrefsV1`) |
+| 2026-02-25 | Bulk-transfer modal dropdown controls regressed: action choice was over-compressed into a dropdown and destination dropdown could render behind modal due portal layering. | For two-option modal actions, use tab-style segmented controls; for layered modal contexts, prefer non-portal/native controls when dropdown portal stacking is unstable. | `src/components/CollectionTransferModal.jsx` |

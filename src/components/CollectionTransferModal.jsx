@@ -1,7 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '../ui/components/Button';
-import { Select } from '../ui/components/Select';
 
 const MODE_OPTIONS = [
     { value: 'move', label: 'Move' },
@@ -50,24 +49,41 @@ export default function CollectionTransferModal({
                 <div className="space-y-4 px-6 py-5">
                     <div className="space-y-2">
                         <span className="text-caption-bold font-caption-bold text-default-font">Action</span>
-                        <Select value={mode} onValueChange={onModeChange}>
-                            {MODE_OPTIONS.map((option) => (
-                                <Select.Item key={option.value} value={option.value}>
-                                    {option.label}
-                                </Select.Item>
-                            ))}
-                        </Select>
+                        <div className="inline-flex w-full rounded-md border border-neutral-200 bg-neutral-50 p-1">
+                            {MODE_OPTIONS.map((option) => {
+                                const isActive = mode === option.value;
+                                return (
+                                    <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() => onModeChange?.(option.value)}
+                                        className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                                            isActive
+                                                ? 'bg-white text-default-font shadow-sm'
+                                                : 'text-subtext-color hover:text-default-font'
+                                        }`}
+                                        aria-pressed={isActive}
+                                    >
+                                        {option.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
 
                     <div className="space-y-2">
                         <span className="text-caption-bold font-caption-bold text-default-font">Destination</span>
-                        <Select value={targetCollectionId} onValueChange={onTargetCollectionChange}>
+                        <select
+                            value={targetCollectionId}
+                            onChange={(event) => onTargetCollectionChange?.(event.target.value)}
+                            className="h-9 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm text-default-font outline-none focus:border-brand-500"
+                        >
                             {destinationOptions.map((option) => (
-                                <Select.Item key={option.value} value={option.value}>
+                                <option key={option.value} value={option.value}>
                                     {option.label}
-                                </Select.Item>
+                                </option>
                             ))}
-                        </Select>
+                        </select>
                     </div>
                 </div>
 

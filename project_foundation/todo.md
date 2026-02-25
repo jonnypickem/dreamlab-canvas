@@ -78,6 +78,12 @@
 - [x] Auto-jump to destination on success and clear selection with summary toast reporting (moved/duplicated/skipped/failed counts).
 - [x] Verify build integrity and ensure no regression to existing bulk actions.
 
+## Current Task Plan (2026-02-25 - Bulk Transfer Modal Interaction + Layering Fix)
+- [x] Replace Action selection dropdown with visible tab-style toggle (`Move` / `Duplicate`) so both options are always shown.
+- [x] Fix destination selection layering by replacing portal dropdown interaction with native select control inside modal.
+- [x] Preserve existing transfer behavior and callbacks while changing only modal interaction layer.
+- [x] Verify build integrity after modal interaction/layering fix.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -138,6 +144,7 @@
 - 2026-02-25: Changed area recording guide border rendering to outside-offset outline to keep guidance visible while preventing border bleed into cropped video pixels.
 - 2026-02-25: Added area-capture `Component` mode (single component selection after area draw) with immediate viewport screenshot save path (`areaComponentScreenshot`).
 - 2026-02-25: Added web-app bulk item transfer workflow (`Move` / `Duplicate`) with `CollectionTransferModal`, workspace-scoped destination options including `No Collection`, top-placement ordering, partial-failure summaries, and destination auto-navigation.
+- 2026-02-25: Fixed bulk transfer modal interaction by switching Action control from dropdown to tab-style toggle and replacing destination dropdown with native select to eliminate z-index/portal overlap behind modal.
 
 ## Review
 - Evidence to capture for each task:
@@ -324,6 +331,17 @@
   - duplicate creates new items with preserved metadata/media refs and new IDs,
   - destination includes `No Collection` and workspace collections only,
   - successful transfers navigate to destination view and clear selection.
+- Evidence (2026-02-25):
+- Diff includes targeted modal interaction/layering changes in:
+  - `src/components/CollectionTransferModal.jsx`
+  - `project_foundation/todo.md`
+  - `project_foundation/lessons.md`
+- Validation commands passed:
+  - `npm run build`
+- Expected behavior from code path:
+  - action interaction shows `Move` and `Duplicate` simultaneously as a single-select tab group,
+  - destination selection no longer renders behind modal content,
+  - transfer submit/cancel callbacks remain unchanged.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).
