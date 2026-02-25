@@ -64,6 +64,12 @@
 - [x] Suppress grid text-card type icon during inline editing to prevent overlap while typing.
 - [x] Verify build integrity and confirm no interaction regressions in card controls.
 
+## Current Task Plan (2026-02-24 - Rollback to 4810eff with Lessons Preservation)
+- [x] Roll back runtime/app code on `master` to commit baseline `4810eff` using non-destructive `git revert`.
+- [x] Preserve `project_foundation/lessons.md` at current HEAD while allowing other foundation files to follow rollback.
+- [x] Validate rollback state with commit-range diff (`4810eff..HEAD`) and build check.
+- [x] Push rollback commit to `origin/master`.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -118,6 +124,11 @@
 - 2026-02-24: Added `npm` workflow commands `extension:package`, `extension:verify`, and `extension:release` to enforce package-then-verify flow.
 - 2026-02-24: Moved media-type badges on grid/canvas cards from top-left to bottom-left for consistent placement and lower content interference.
 - 2026-02-24: Added grid-only guard to hide text-card media-type badge while inline note editing is active.
+- 2026-02-24: Executed rollback commit `b9a1973` to return runtime behavior to `4810eff` baseline while preserving the latest `project_foundation/lessons.md`.
+- 2026-02-25: Upgraded extension area capture with persisted discrete record durations (`5s/10s/15s`) via toolbar slider and background prefs contract (`areaCapturePrefsV1`).
+- 2026-02-25: Updated area video recorder pipeline to honor selected duration end-to-end and persist `requestedDurationSec` metadata on saved recordings.
+- 2026-02-25: Changed area recording guide border rendering to outside-offset outline to keep guidance visible while preventing border bleed into cropped video pixels.
+- 2026-02-25: Added area-capture `Component` mode (single component selection after area draw) with immediate viewport screenshot save path (`areaComponentScreenshot`).
 
 ## Review
 - Evidence to capture for each task:
@@ -265,6 +276,31 @@
   - grid and canvas media-type indicators now appear bottom-left on hover,
   - grid text-card indicator is hidden during inline editing,
   - selection and details controls remain in existing positions.
+- Evidence (2026-02-24):
+- Rollback execution summary:
+  - command path used: `git revert --no-commit 4810eff..HEAD` + restore preserved lessons + commit/push.
+  - rollback commit: `b9a1973`.
+  - push target: `origin/master`.
+- Validation commands passed:
+  - `git diff --name-only 4810eff..HEAD` -> `project_foundation/lessons.md` only.
+  - `npm run build` (success).
+- Evidence (2026-02-25):
+- Diff includes targeted area-capture changes in:
+  - `area-select.js`
+  - `area-select.css`
+  - `background.js`
+  - `dreamlab-canvas-extension.zip`
+- Validation commands passed:
+  - `node --check background.js`
+  - `node --check area-select.js`
+  - `node --check content.js`
+  - `npm run build`
+  - `npm run extension:release`
+- Expected behavior from code path:
+  - record duration has exactly three persisted stops (`5/10/15`) with default `10`,
+  - injected recorder receives selected duration and auto-stops accordingly,
+  - recording indicator border renders outside crop bounds,
+  - component mode captures one selected element in viewport and saves immediately.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).

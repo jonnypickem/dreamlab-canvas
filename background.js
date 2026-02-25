@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   pendingCapture: 'pendingCapture',
   multiSelectState: 'multiSelectState',
   multiSelectPrefs: 'multiSelectPrefsV1',
+  areaCapturePrefs: 'areaCapturePrefsV1',
   widgetHotkeys: 'widgetHotkeysV1',
   widgetEnabled: 'widgetEnabled',
   floatingWidgetPrefs: 'floatingWidgetPrefs',
@@ -24,6 +25,8 @@ const ACTIONS = {
   getMultiSelectState: 'getMultiSelectState',
   getMultiSelectPrefs: 'getMultiSelectPrefs',
   setMultiSelectPrefs: 'setMultiSelectPrefs',
+  getAreaCapturePrefs: 'getAreaCapturePrefs',
+  setAreaCapturePrefs: 'setAreaCapturePrefs',
   scanSourceImages: 'scanSourceImages',
   executeCommand: 'executeCommand',
   getShortcutBindings: 'getShortcutBindings',
@@ -115,7 +118,7 @@ const ACTION_DEFINITIONS = [
   {
     actionId: 'area-capture',
     label: 'Area Capture',
-    description: 'Capture screenshot or 10s recording from a selected area',
+    description: 'Capture screenshot, component, or 5/10/15s recording from a selected area',
     executeCommand: 'area-select',
     shortcutSourceCommands: ['area-select', 'area-record'],
   },
@@ -209,6 +212,11 @@ const DEFAULT_MULTI_SELECT_PREFS = Object.freeze({
   resolutionTier: 'any',
   typeFilters: [],
   sortMode: 'resolution_desc',
+  updatedAt: 0,
+});
+const AREA_CAPTURE_ALLOWED_DURATIONS = new Set([5, 10, 15]);
+const DEFAULT_AREA_CAPTURE_PREFS = Object.freeze({
+  recordDurationSec: 10,
   updatedAt: 0,
 });
 const LINK_PREVIEW_CAPTURE_OPTIONS = Object.freeze({
@@ -400,6 +408,23 @@ function sanitizeMultiSelectPrefs(input, options = {}) {
     resolutionTier,
     typeFilters: [...typeFilterSet],
     sortMode,
+    updatedAt,
+  };
+}
+
+function sanitizeAreaCapturePrefs(input, options = {}) {
+  const value = isObject(input) ? input : {};
+  const normalizedOptions = isObject(options) ? options : {};
+  const requestedDuration = Number(value.recordDurationSec);
+  const recordDurationSec = AREA_CAPTURE_ALLOWED_DURATIONS.has(requestedDuration)
+    ? requestedDuration
+    : DEFAULT_AREA_CAPTURE_PREFS.recordDurationSec;
+  const parsedUpdatedAt = sanitizeTimestamp(value.updatedAt);
+  const updatedAt = normalizedOptions.touch === true
+    ? Date.now()
+    : (parsedUpdatedAt || DEFAULT_AREA_CAPTURE_PREFS.updatedAt);
+  return {
+    recordDurationSec,
     updatedAt,
   };
 }
@@ -1814,6 +1839,17 @@ async function getMultiSelectPrefs() {
 async function setMultiSelectPrefs(input) {
   const prefs = sanitizeMultiSelectPrefs(input, { touch: true });
   await setStorage({ [STORAGE_KEYS.multiSelectPrefs]: prefs });
+  return prefs;
+}
+
+async function getAreaCapturePrefs() {
+  const stored = await getStorage(STORAGE_KEYS.areaCapturePrefs);
+  return sanitizeAreaCapturePrefs(stored?.[STORAGE_KEYS.areaCapturePrefs]);
+}
+
+async function setAreaCapturePrefs(input) {
+  const prefs = sanitizeAreaCapturePrefs(input, { touch: true });
+  await setStorage({ [STORAGE_KEYS.areaCapturePrefs]: prefs });
   return prefs;
 }
 
@@ -3893,12 +3929,15 @@ chrome.commands.onCommand.addListener(async (command) => {
  *
  * Injected by background via chrome.scripting.executeScript({ world: 'MAIN' }).
  */
-function mainWorldRecorder(rect, dpr) {
+function mainWorldRecorder(rect, dpr, durationSec) {
   (async () => {
     let areaBorder = null;
     let indicator = null;
     let blinkStyle = null;
     let countdownInterval = null;
+    const allowedDurations = new Set([5, 10, 15]);
+    const requestedDuration = Number(durationSec);
+    const requestedDurationSec = allowedDurations.has(requestedDuration) ? requestedDuration : 10;
 
     function cleanupUI() {
       if (areaBorder) { areaBorder.remove(); areaBorder = null; }
@@ -3964,10 +4003,11 @@ function mainWorldRecorder(rect, dpr) {
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
-      // ── Area border indicator ──
+      // ── Area border indicator (rendered outside crop region) ──
+      const borderOffset = 6;
       areaBorder = document.createElement('div');
-      areaBorder.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #dc2626;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,0.3),0 0 12px rgba(220,38,38,0.4);transition:opacity 0.3s;'
-        + 'left:' + rect.x + 'px;top:' + rect.y + 'px;width:' + rect.width + 'px;height:' + rect.height + 'px;';
+      areaBorder.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #dc2626;border-radius:4px;outline:1px solid rgba(0,0,0,0.5);outline-offset:2px;transition:opacity 0.3s;'
+        + 'left:' + (rect.x - borderOffset) + 'px;top:' + (rect.y - borderOffset) + 'px;width:' + (rect.width + (borderOffset * 2)) + 'px;height:' + (rect.height + (borderOffset * 2)) + 'px;';
       document.documentElement.appendChild(areaBorder);
 
       // ── Recording indicator bar ──
@@ -3987,9 +4027,9 @@ function mainWorldRecorder(rect, dpr) {
       indicator.style.top = indY + 'px';
       document.documentElement.appendChild(indicator);
 
-      let countdown = 10;
+      let countdown = requestedDurationSec;
       const dot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;animation:__dl_blink 1s ease-in-out infinite;"></span>';
-      indicator.innerHTML = dot + ' Recording\u2026 10s';
+      indicator.innerHTML = dot + ' Recording\u2026 ' + requestedDurationSec + 's';
       countdownInterval = setInterval(() => {
         countdown--;
         if (countdown > 0 && indicator) indicator.innerHTML = dot + ' Recording\u2026 ' + countdown + 's';
@@ -4011,7 +4051,7 @@ function mainWorldRecorder(rect, dpr) {
       });
 
       recorder.start();
-      setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 10000);
+      setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, requestedDurationSec * 1000);
 
       // Also stop if the user stops sharing via Chrome's "Stop sharing" button
       stream.getVideoTracks()[0].addEventListener('ended', () => {
@@ -4028,7 +4068,12 @@ function mainWorldRecorder(rect, dpr) {
         reader.readAsDataURL(blob);
       });
 
-      window.postMessage({ type: '__dreamlab_recording_done__', dataUrl, durationMs }, '*');
+      window.postMessage({
+        type: '__dreamlab_recording_done__',
+        dataUrl,
+        durationMs,
+        requestedDurationSec,
+      }, '*');
 
     } catch (err) {
       cleanupUI();
@@ -4114,6 +4159,16 @@ async function handleRuntimeMessage(request, sender) {
 
     case ACTIONS.setMultiSelectPrefs: {
       const prefs = await setMultiSelectPrefs(request?.prefs);
+      return { success: true, prefs };
+    }
+
+    case ACTIONS.getAreaCapturePrefs: {
+      const prefs = await getAreaCapturePrefs();
+      return { success: true, prefs };
+    }
+
+    case ACTIONS.setAreaCapturePrefs: {
+      const prefs = await setAreaCapturePrefs(request?.prefs);
       return { success: true, prefs };
     }
 
@@ -4379,6 +4434,120 @@ async function handleRuntimeMessage(request, sender) {
       }
     }
 
+    case 'areaComponentScreenshot': {
+      const tab = sender?.tab;
+      if (!tab?.id) return { success: false, error: 'No tab.' };
+
+      const rectInput = isObject(request?.rect) ? request.rect : {};
+      const dprInput = Number(request?.dpr);
+      const dpr = Number.isFinite(dprInput) && dprInput > 0 ? dprInput : 1;
+
+      const x = Number(rectInput.x);
+      const y = Number(rectInput.y);
+      const width = Number(rectInput.width);
+      const height = Number(rectInput.height);
+      const validRect = [x, y, width, height].every((value) => Number.isFinite(value))
+        && width >= 10
+        && height >= 10;
+
+      if (!validRect) {
+        await showInPageToast(tab.id, {
+          message: 'Selected component is too small or invalid.',
+          type: 'error',
+          durationMs: 3600,
+        });
+        return { success: false, error: 'Invalid component rect.' };
+      }
+
+      try {
+        await wait(120);
+        await setExtensionCaptureUiVisibility(tab.id, false);
+        let dataUrl = null;
+        try {
+          dataUrl = await captureVisibleTab(tab.windowId, { format: 'png' });
+        } finally {
+          await setExtensionCaptureUiVisibility(tab.id, true);
+        }
+
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        const bitmap = await createImageBitmap(blob);
+
+        const rawCropX = Math.round(x * dpr);
+        const rawCropY = Math.round(y * dpr);
+        const rawCropW = Math.round(width * dpr);
+        const rawCropH = Math.round(height * dpr);
+
+        const cropX = Math.max(0, Math.min(rawCropX, bitmap.width));
+        const cropY = Math.max(0, Math.min(rawCropY, bitmap.height));
+        const cropW = Math.max(0, Math.min(rawCropW, bitmap.width - cropX));
+        const cropH = Math.max(0, Math.min(rawCropH, bitmap.height - cropY));
+        if (cropW < 10 || cropH < 10) {
+          bitmap.close();
+          await showInPageToast(tab.id, {
+            message: 'Component is outside the visible viewport.',
+            type: 'error',
+            durationMs: 3600,
+          });
+          return { success: false, error: 'Component is outside viewport bounds.' };
+        }
+
+        const canvas = new OffscreenCanvas(cropW, cropH);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        bitmap.close();
+
+        const croppedBlob = await canvas.convertToBlob({ type: 'image/png' });
+        const croppedDataUrl = await blobToDataUrl(croppedBlob);
+
+        const destinationTab = await ensureDreamlabTab();
+        const captureItem = {
+          type: 'image',
+          content: croppedDataUrl,
+          title: request.pageTitle || 'Component Screenshot',
+          description: 'Component screenshot captured via Dreamlab extension',
+          sourceUrl: request.pageUrl || '',
+          metadata: {
+            captureType: 'component',
+            width: cropW,
+            height: cropH,
+            mimeType: 'image/png',
+          },
+          timestamp: Date.now(),
+        };
+
+        const saveResult = await queuePendingAndTrySave(captureItem, {
+          targetTabId: destinationTab?.id || null,
+          skipPendingStorage: true,
+        });
+
+        if (saveResult.success) {
+          const dest = await getDreamlabDestinationSummary(
+            saveResult.targetTabId || destinationTab?.id || null
+          );
+          await showInPageToast(tab.id, {
+            message: `Component screenshot saved to ${dest}.`,
+            type: 'success',
+            durationMs: 3400,
+          });
+        } else {
+          await showInPageToast(tab.id, {
+            message: 'Component screenshot saved as pending. Open popup to retry.',
+            type: 'error',
+            durationMs: 4200,
+          });
+        }
+        return { success: saveResult.success };
+      } catch (error) {
+        await showInPageToast(tab.id, {
+          message: error?.message || 'Component screenshot failed.',
+          type: 'error',
+          durationMs: 5000,
+        });
+        return { success: false, error: error?.message };
+      }
+    }
+
     case 'injectAreaRecorder': {
       // Inject the recorder function into the page's MAIN world.
       // chrome.scripting.executeScript with world:'MAIN' bypasses page CSP
@@ -4391,7 +4560,7 @@ async function handleRuntimeMessage(request, sender) {
           target: { tabId: tab.id },
           world: 'MAIN',
           func: mainWorldRecorder,
-          args: [request.rect, request.dpr],
+          args: [request.rect, request.dpr, request.durationSec],
         });
         return { success: true };
       } catch (error) {
@@ -4436,6 +4605,9 @@ async function handleRuntimeMessage(request, sender) {
             captureType: 'area-video',
             mimeType: request.mimeType || 'video/webm',
             durationMs: request.durationMs || 10000,
+            requestedDurationSec: AREA_CAPTURE_ALLOWED_DURATIONS.has(Number(request.requestedDurationSec))
+              ? Number(request.requestedDurationSec)
+              : DEFAULT_AREA_CAPTURE_PREFS.recordDurationSec,
           },
           timestamp: Date.now(),
         };

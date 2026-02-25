@@ -25,14 +25,14 @@
 - For cross-runtime action messages, keep one canonical action ID shared by sender/receiver and support legacy aliases only as temporary compatibility shims.
 - For extension distribution, never share/reinstall a manually packed zip without artifact parity verification against source files.
 - For launcher-contract changes, verify the zipped `content.js`/`background.js` tokens directly to catch stale artifact drift before QA.
-<<<<<<< ours
 - For card overlays that are purely informational, anchor them away from primary editing regions and hide them during active inline edit states.
 - For heavy media workspaces, separate render intent (`preview` vs `canvas` vs `original`) from stored source paths, and resolve media by context + zoom rather than one-size-fits-all paths.
 - When introducing variant media paths, never pass unresolved storage-like strings directly to `<img src>`; require resolved renderable URLs and keep one-shot signed URL refresh fallback.
 - When deprecating a contextual UI panel, remove both the rendered block and any panel-specific data polling side effects so stale listeners do not continue running.
 - For nested modal flows, assign explicit z-index ownership per layer and expose an override prop on reusable dialogs so child confirmations cannot render behind parent settings modals.
-=======
->>>>>>> theirs
+- When reverting to a stable baseline, prefer history-preserving `git revert` and explicitly preserve high-value knowledge files when requested.
+- For cropped area recordings, render visual guidance borders outside the capture rect; in-rect strokes/shadows can leak into final video pixels.
+- For short-form recorder UX, constrain duration controls to validated discrete values and persist only sanitized options to avoid drift between UI labels and recorder runtime.
 
 ## Corrections Log
 | Date | Issue | New Rule | Applied Where |
@@ -50,11 +50,11 @@
 | 2026-02-24 | Launcher shortcut reported success but widget sometimes did not open on stale tabs after extension reload/update. | Add explicit widget-open acknowledgment in the relay path and automatic stale-marker cleanup + reinjection retry before failing launcher open. | `background.js`, `content.js`, `floating-widget.js` |
 | 2026-02-24 | Launcher showed `"Unknown action"` because content listener accepted lowercase launcher action while background sent uppercase canonical action. | Enforce canonical action IDs across background/content contracts and keep temporary alias support while forcing reinjection on unknown-action stale responses. | `content.js`, `background.js` |
 | 2026-02-24 | `"Unknown action"` kept recurring after fixes because distribution zip still contained stale launcher files from an inconsistent repack flow. | Make extension packaging deterministic and add mandatory zip/source parity + launcher-token verification before reinstall/sharing artifacts. | `scripts/extension-package-files.mjs`, `scripts/extension-package.mjs`, `scripts/verify-extension-zip.mjs`, `package.json` |
-<<<<<<< ours
 | 2026-02-24 | Card type badge overlapped note content while typing and felt inconsistent across grid/canvas surfaces. | Keep informational card badges in a consistent non-primary corner and suppress them during inline text editing to avoid interference with active authoring. | `src/components/ItemCard.jsx`, `src/components/CanvasItem.jsx` |
 | 2026-02-24 | Large screenshot-heavy collections loaded slowly and repeatedly resolved media URLs across card re-renders. | Introduce media variant metadata (`preview/canvas/original`), resolve source by surface intent + zoom, and combine lazy on-demand backfill with signed URL dedupe/persistent caching. | `src/utils/mediaSourcePolicy.js`, `src/hooks/useItemMediaSource.js`, `src/services/mediaVariantBackfill.js`, `src/lib/supabaseStorage.js`, `src/utils/saveItemWithTags.js` |
 | 2026-02-24 | Progressive media rollout caused broken previews because unresolved storage paths and stale signed URLs could leak into render/backfill flows. | Treat storage paths as non-renderable until resolved, add one-shot force-refresh for signed URLs, and block backfill retries from direct cross-origin fetch loops. | `src/lib/supabaseStorage.js`, `src/hooks/useResolvedImageSource.js`, `src/hooks/useItemMediaSource.js`, `src/services/mediaVariantBackfill.js`, `src/components/ItemCard.jsx`, `src/components/CanvasItem.jsx`, `src/components/ItemModal.jsx`, `src/components/CanvasDetailPanel.jsx` |
 | 2026-02-24 | Sidebar shortcut guide became obsolete after launcher/workflow changes but its polling effect still ran in app shell. | Remove deprecated UI sections together with their dedicated data-fetch/listener plumbing to avoid stale runtime overhead. | `src/components/Sidebar.jsx`, `src/App.jsx` |
 | 2026-02-24 | Project delete confirmation dialog rendered behind the Project Settings modal, blocking delete/cancel actions. | Keep reusable confirmation dialogs on a safe default z-index and provide per-call-site overrides so nested confirmations explicitly render above parent modals. | `src/components/ConfirmDialog.jsx`, `src/components/EntitySettingsModal.jsx` |
-=======
->>>>>>> theirs
+| 2026-02-24 | Branch needed to return quickly to stable behavior while preserving accumulated process knowledge. | Use non-destructive rollback (`git revert` range), then selectively preserve knowledge files (`project_foundation/lessons.md`) as an explicit post-revert step. | `master` rollback to `4810eff` via commit `b9a1973` |
+| 2026-02-25 | Area recording guide border was visible but risked appearing inside captured video output. | Keep guidance overlays outside the crop rectangle so the operator sees bounds while recorded pixels stay clean. | `background.js` `mainWorldRecorder` border rendering |
+| 2026-02-25 | Area recorder duration control could diverge between UI intent and runtime if values were free-form. | Use fixed validated duration steps (`5/10/15`) and persist only sanitized values in extension storage. | `area-select.js`, `background.js` (`areaCapturePrefsV1`) |

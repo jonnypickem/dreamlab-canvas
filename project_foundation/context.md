@@ -26,6 +26,58 @@ Dreamlab Canvas is a modular tool for fast content capture from the browser into
 
 ## Changelog
 
+### [0.46.0] - 2026-02-25
+#### Added
+- **Area Capture Duration Preferences** (`background.js`, `area-select.js`):
+  - Added persistent extension storage contract `areaCapturePrefsV1`.
+  - Added runtime actions:
+    - `getAreaCapturePrefs`
+    - `setAreaCapturePrefs`
+  - Added 3-step duration slider interaction in area toolbar with fixed values `5s`, `10s`, `15s` (default `10s`).
+
+- **Area Capture Component Mode** (`area-select.js`, `background.js`):
+  - Added third mode button `Component` after area selection.
+  - Added single-component pick flow with hover highlight and one-click capture.
+  - Added new background action `areaComponentScreenshot` for immediate viewport component screenshot save.
+
+#### Changed
+- **Area Recording Runtime Duration Wiring** (`area-select.js`, `background.js`):
+  - `injectAreaRecorder` now carries selected `durationSec`.
+  - MAIN-world recorder uses selected duration for countdown and auto-stop.
+  - Saved recording metadata now includes `requestedDurationSec` alongside `durationMs`.
+
+- **Recording Boundary Rendering** (`background.js`):
+  - Replaced in-rect border/shadow with outside-offset border indicator so recording guidance remains visible without bleeding into cropped output pixels.
+
+#### Problems & Fixes
+- **Problem**: Area recording duration was fixed and not user-adjustable.
+- **Cause**: Recorder pipeline and toolbar hardcoded to 10 seconds.
+- **Fix**: Introduced validated/persisted discrete duration control (`5/10/15`) and wired it through injection + recorder runtime.
+
+- **Problem**: Recording border guidance could appear in output.
+- **Cause**: Indicator border rendered on exact crop bounds with in-rect visual effects.
+- **Fix**: Moved guidance border outside crop bounds with positive offset.
+
+- **Problem**: Area flow could only output screenshot or video for manual rectangle.
+- **Cause**: No post-area component-targeted capture mode existed.
+- **Fix**: Added component mode with single target selection and immediate save path.
+
+### [0.45.1] - 2026-02-24
+#### Changed
+- **History-Preserving Rollback on `master`**:
+  - Reverted post-`0.45.0` runtime/app changes back to commit baseline `4810eff` using non-destructive git revert flow.
+  - Preserved `project_foundation/lessons.md` at latest state during rollback to retain accumulated lessons.
+
+#### Fixed
+- **Stability Regression Window After 0.45.0**:
+  - Root cause: downstream post-`0.45.0` changes introduced runtime instability/noise for current production priorities.
+  - Fix: rolled runtime behavior back to known-stable `4810eff` baseline while keeping documented learnings.
+
+#### Problems & Fixes
+- **Problem**: Recent runtime iteration introduced instability relative to the current stable baseline target.
+- **Cause**: stacked post-`4810eff` changes exceeded acceptable risk for current branch state.
+- **Fix**: applied non-destructive rollback commit (`b9a1973`) and retained `lessons.md` continuity.
+
 ### [0.45.0] - 2026-02-24
 #### Changed
 - **Card Type Indicator Placement Unification** (`src/components/ItemCard.jsx`, `src/components/CanvasItem.jsx`):

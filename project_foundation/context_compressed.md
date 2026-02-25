@@ -91,6 +91,7 @@ Current status theme:
 - Launcher open path now requires widget acknowledgment and auto-recovers stale tabs via marker cleanup + reinjection retry.
 - Extension release workflow now enforces deterministic packaging and zip/source parity checks before distribution.
 - Grid and canvas card media-type indicators are now unified at bottom-left; grid text-card edit mode suppresses the indicator to avoid content overlap.
+- `master` runtime behavior was rolled back to stable baseline `4810eff` via history-preserving revert; `project_foundation/lessons.md` was intentionally retained at latest state.
 
 Operationally stable capabilities currently emphasized:
 - Destination-aware capture saves across multiple capture modalities.
@@ -167,6 +168,26 @@ Why it matters:
 - Lower mean-time-to-fix for cross-runtime integration issues.
 
 ## Key Recent Milestones
+### [0.46.0] - 2026-02-25
+Key outcomes:
+- Added area-capture duration preference contract (`areaCapturePrefsV1`) with runtime get/set actions.
+- Added fixed 3-step area recording duration control (`5s/10s/15s`, default `10s`) and wired selected value through recorder injection/runtime.
+- Updated recorder metadata to persist both actual duration (`durationMs`) and requested duration (`requestedDurationSec`).
+- Changed recording guide border rendering to outside-offset so capture bounds remain visible without in-frame bleed.
+- Added third area toolbar mode `Component` with single-element hover/select and immediate viewport screenshot save (`areaComponentScreenshot`).
+
+Net effect:
+- Area capture is more controllable (duration), cleaner in output (no border artifacts), and broader in utility (component-level single-click capture).
+
+### [0.45.1] - 2026-02-24
+Key outcomes:
+- Reverted post-`0.45.0` runtime/app commits on `master` to restore `4810eff` behavior.
+- Kept rollback non-destructive (revert commit `b9a1973`, no history rewrite).
+- Preserved `project_foundation/lessons.md` at HEAD so operational learnings were not lost.
+
+Net effect:
+- Branch behavior returned to known-stable baseline while knowledge continuity remained intact.
+
 ### [0.45.0] - 2026-02-24
 Key outcomes:
 - Moved media-type badges from top-left to bottom-left in both grid and canvas card components.
