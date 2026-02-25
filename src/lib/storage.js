@@ -11,6 +11,14 @@ function setLastStorageError(error) {
     lastStorageError = error || null;
 }
 
+function getMissingColumnName(error, tableName = '') {
+    if (!error || error.code !== 'PGRST204') return null;
+    const message = String(error.message || '');
+    if (tableName && !message.includes(`'${tableName}'`)) return null;
+    const match = message.match(/Could not find the '([^']+)' column/);
+    return match?.[1] || null;
+}
+
 // ── Helper: snake_case ↔ camelCase mapping ──────────────────────────
 
 function itemFromDb(row) {
@@ -122,11 +130,21 @@ export async function getActiveContext() {
     const userId = await getCurrentUserId();
     if (!userId) return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
         .from('active_contexts')
         .select('workspace_id, project_id, collection_id, updated_at')
         .eq('user_id', userId)
         .maybeSingle();
+
+    if (error && getMissingColumnName(error, 'active_contexts') === 'project_id') {
+        const fallback = await supabase
+            .from('active_contexts')
+            .select('workspace_id, collection_id, updated_at')
+            .eq('user_id', userId)
+            .maybeSingle();
+        data = fallback.data;
+        error = fallback.error;
+    }
 
     if (error || !data) return { workspaceId: null, projectId: null, collectionId: null, updatedAt: 0 };
     const updatedAt = data.updated_at ? new Date(data.updated_at).getTime() : 0;
@@ -142,17 +160,30 @@ export async function setActiveContext(workspaceId, collectionId = null, project
     const userId = await getCurrentUserId();
     if (!userId) return null;
 
-    const { data, error } = await supabase
+    const fullRow = {
+        user_id: userId,
+        workspace_id: workspaceId || null,
+        project_id: projectId || null,
+        collection_id: collectionId || null,
+        updated_at: new Date().toISOString(),
+    };
+
+    let { data, error } = await supabase
         .from('active_contexts')
-        .upsert({
-            user_id: userId,
-            workspace_id: workspaceId || null,
-            project_id: projectId || null,
-            collection_id: collectionId || null,
-            updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' })
+        .upsert(fullRow, { onConflict: 'user_id' })
         .select('workspace_id, project_id, collection_id, updated_at')
         .single();
+
+    if (error && getMissingColumnName(error, 'active_contexts') === 'project_id') {
+        const { project_id: _projectId, ...legacyRow } = fullRow;
+        const fallback = await supabase
+            .from('active_contexts')
+            .upsert(legacyRow, { onConflict: 'user_id' })
+            .select('workspace_id, collection_id, updated_at')
+            .single();
+        data = fallback.data;
+        error = fallback.error;
+    }
 
     if (error) {
         console.error('setActiveContext error:', error);
@@ -392,7 +423,7 @@ export async function saveItem(item, _project = null) {
     if (!userId) return null;
 
     const id = item.id || crypto.randomUUID();
-    const row = itemToDb({
+    let row = itemToDb({
         ...item,
         id,
         timestamp: item.timestamp || Date.now(),
@@ -402,21 +433,32 @@ export async function saveItem(item, _project = null) {
         ...(item.type === 'link' && !item.linkViewMode ? { linkViewMode: 'preview' } : {}),
     }, userId);
 
-    const { data, error } = await supabase
-        .from('items')
-        .insert(row)
-        .select()
-        .single();
+    for (;;) {
+        const { data, error } = await supabase
+            .from('items')
+            .insert(row)
+            .select()
+            .single();
 
-    if (error) { console.error('saveItem error:', error); throw error; }
-    return itemFromDb(data);
+        if (!error) return itemFromDb(data);
+
+        const missingColumn = getMissingColumnName(error, 'items');
+        if (missingColumn && Object.prototype.hasOwnProperty.call(row, missingColumn)) {
+            const { [missingColumn]: _unused, ...nextRow } = row;
+            row = nextRow;
+            continue;
+        }
+
+        console.error('saveItem error:', error);
+        throw error;
+    }
 }
 
 export async function updateItem(id, updates) {
     const userId = await getCurrentUserId();
     if (!userId) return null;
 
-    const row = {};
+    let row = {};
     // Map camelCase updates to snake_case
     if (updates.content !== undefined) row.content = updates.content;
     if (updates.title !== undefined) row.title = updates.title;
@@ -443,17 +485,28 @@ export async function updateItem(id, updates) {
     if (updates.analysisUpdatedAt !== undefined) row.metadata = { ...(row.metadata || {}), analysisUpdatedAt: updates.analysisUpdatedAt };
     if (updates.analysisRetryAt !== undefined) row.metadata = { ...(row.metadata || {}), analysisRetryAt: updates.analysisRetryAt };
 
-    if (Object.keys(row).length === 0) return null;
+    for (;;) {
+        if (Object.keys(row).length === 0) return null;
 
-    const { data, error } = await supabase
-        .from('items')
-        .update(row)
-        .eq('id', id)
-        .select()
-        .single();
+        const { data, error } = await supabase
+            .from('items')
+            .update(row)
+            .eq('id', id)
+            .select()
+            .single();
 
-    if (error) { console.error('updateItem error:', error); return null; }
-    return itemFromDb(data);
+        if (!error) return itemFromDb(data);
+
+        const missingColumn = getMissingColumnName(error, 'items');
+        if (missingColumn && Object.prototype.hasOwnProperty.call(row, missingColumn)) {
+            const { [missingColumn]: _unused, ...nextRow } = row;
+            row = nextRow;
+            continue;
+        }
+
+        console.error('updateItem error:', error);
+        return null;
+    }
 }
 
 export async function deleteItem(id) {

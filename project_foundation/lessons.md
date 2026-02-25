@@ -34,6 +34,7 @@
 - For cropped area recordings, render visual guidance borders outside the capture rect; in-rect strokes/shadows can leak into final video pixels.
 - For short-form recorder UX, constrain duration controls to validated discrete values and persist only sanitized options to avoid drift between UI labels and recorder runtime.
 - For binary modal choices, prefer visible segmented/tab toggles over dropdowns; this removes unnecessary portal layering risk and makes current selection state explicit.
+- For Supabase-backed clients evolving schema over time, treat newly introduced columns as optional at runtime and add targeted fallback paths so user actions do not fail on schema-cache drift.
 
 ## Corrections Log
 | Date | Issue | New Rule | Applied Where |
@@ -60,3 +61,4 @@
 | 2026-02-25 | Area recording guide border was visible but risked appearing inside captured video output. | Keep guidance overlays outside the crop rectangle so the operator sees bounds while recorded pixels stay clean. | `background.js` `mainWorldRecorder` border rendering |
 | 2026-02-25 | Area recorder duration control could diverge between UI intent and runtime if values were free-form. | Use fixed validated duration steps (`5/10/15`) and persist only sanitized values in extension storage. | `area-select.js`, `background.js` (`areaCapturePrefsV1`) |
 | 2026-02-25 | Bulk-transfer modal dropdown controls regressed: action choice was over-compressed into a dropdown and destination dropdown could render behind modal due portal layering. | For two-option modal actions, use tab-style segmented controls; for layered modal contexts, prefer non-portal/native controls when dropdown portal stacking is unstable. | `src/components/CollectionTransferModal.jsx` |
+| 2026-02-25 | Cross-workspace move showed transfer failures on environments where Supabase schema cache lacked newer columns (`active_contexts.project_id` / optional `items` fields). | Add runtime column-missing compatibility fallbacks in storage writes/reads so core actions degrade gracefully instead of failing on drifted schema state. | `src/lib/storage.js` |

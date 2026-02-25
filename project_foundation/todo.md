@@ -92,6 +92,12 @@
 - [x] Auto-navigate to selected target workspace + destination view after successful transfer outcomes.
 - [x] Verify build integrity and ensure existing transfer actions remain functional.
 
+## Current Task Plan (2026-02-25 - Cross-Workspace Transfer Schema-Compat Hotfix)
+- [x] Trace failed move operation and capture Supabase error signals from console output.
+- [x] Add compatibility fallback for `active_contexts` read/write when `project_id` is missing in legacy schema caches.
+- [x] Make `saveItem`/`updateItem` resilient to missing optional `items` columns by removing unavailable fields and retrying.
+- [x] Verify build integrity after storage-layer compatibility patch.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -154,6 +160,7 @@
 - 2026-02-25: Added web-app bulk item transfer workflow (`Move` / `Duplicate`) with `CollectionTransferModal`, workspace-scoped destination options including `No Collection`, top-placement ordering, partial-failure summaries, and destination auto-navigation.
 - 2026-02-25: Fixed bulk transfer modal interaction by switching Action control from dropdown to tab-style toggle and replacing destination dropdown with native select to eliminate z-index/portal overlap behind modal.
 - 2026-02-25: Added cross-workspace bulk transfer support by introducing target workspace selection in transfer modal and writing destination `workspaceId` during move/duplicate operations with destination validation.
+- 2026-02-25: Added storage-layer schema compatibility fallback for legacy Supabase deployments (`active_contexts.project_id` missing and optional `items` columns absent) to prevent bulk transfer move failures.
 
 ## Review
 - Evidence to capture for each task:
@@ -363,6 +370,17 @@
   - destination collection options reflect the selected target workspace only,
   - move/duplicate writes destination `workspaceId` and collection consistently,
   - successful transfer navigates to the selected target workspace destination.
+- Evidence (2026-02-25):
+- Diff includes targeted schema-compat hotfix changes in:
+  - `src/lib/storage.js`
+  - `project_foundation/todo.md`
+  - `project_foundation/lessons.md`
+- Validation commands passed:
+  - `npm run build`
+- Expected behavior from code path:
+  - `setActiveContext` continues to work when `active_contexts.project_id` is unavailable,
+  - `updateItem`/`saveItem` retries after stripping missing optional columns instead of failing transfer operations,
+  - bulk move/duplicate no longer hard-fails solely due to schema-cache drift.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).
