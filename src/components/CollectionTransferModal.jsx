@@ -11,10 +11,13 @@ export default function CollectionTransferModal({
     isOpen = false,
     selectedCount = 0,
     mode = 'move',
+    workspaceId = '',
+    workspaceOptions = [],
     targetCollectionId = 'unassigned',
     destinationOptions = [],
     isSubmitting = false,
     onModeChange,
+    onWorkspaceChange,
     onTargetCollectionChange,
     onClose,
     onConfirm,
@@ -69,6 +72,21 @@ export default function CollectionTransferModal({
                                 );
                             })}
                         </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <span className="text-caption-bold font-caption-bold text-default-font">Workspace</span>
+                        <select
+                            value={workspaceId}
+                            onChange={(event) => onWorkspaceChange?.(event.target.value)}
+                            className="h-9 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm text-default-font outline-none focus:border-brand-500"
+                        >
+                            {workspaceOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
                     </div>
 
                     <div className="space-y-2">

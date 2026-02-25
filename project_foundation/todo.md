@@ -84,6 +84,14 @@
 - [x] Preserve existing transfer behavior and callbacks while changing only modal interaction layer.
 - [x] Verify build integrity after modal interaction/layering fix.
 
+## Current Task Plan (2026-02-25 - Cross-Workspace Bulk Transfer Support)
+- [x] Extend bulk transfer modal with workspace selection so destination can be outside active workspace.
+- [x] Scope destination collection options to selected target workspace while retaining `No Collection`.
+- [x] Update bulk transfer handler to write destination `workspaceId` for move/duplicate operations and validate workspace/collection existence at submit time.
+- [x] Preserve top-placement ordering, partial-failure handling, and summary toasts across cross-workspace transfers.
+- [x] Auto-navigate to selected target workspace + destination view after successful transfer outcomes.
+- [x] Verify build integrity and ensure existing transfer actions remain functional.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -145,6 +153,7 @@
 - 2026-02-25: Added area-capture `Component` mode (single component selection after area draw) with immediate viewport screenshot save path (`areaComponentScreenshot`).
 - 2026-02-25: Added web-app bulk item transfer workflow (`Move` / `Duplicate`) with `CollectionTransferModal`, workspace-scoped destination options including `No Collection`, top-placement ordering, partial-failure summaries, and destination auto-navigation.
 - 2026-02-25: Fixed bulk transfer modal interaction by switching Action control from dropdown to tab-style toggle and replacing destination dropdown with native select to eliminate z-index/portal overlap behind modal.
+- 2026-02-25: Added cross-workspace bulk transfer support by introducing target workspace selection in transfer modal and writing destination `workspaceId` during move/duplicate operations with destination validation.
 
 ## Review
 - Evidence to capture for each task:
@@ -342,6 +351,18 @@
   - action interaction shows `Move` and `Duplicate` simultaneously as a single-select tab group,
   - destination selection no longer renders behind modal content,
   - transfer submit/cancel callbacks remain unchanged.
+- Evidence (2026-02-25):
+- Diff includes targeted cross-workspace transfer changes in:
+  - `src/App.jsx`
+  - `src/components/CollectionTransferModal.jsx`
+  - `project_foundation/todo.md`
+- Validation commands passed:
+  - `npm run build`
+- Expected behavior from code path:
+  - transfer modal provides workspace selection before destination collection selection,
+  - destination collection options reflect the selected target workspace only,
+  - move/duplicate writes destination `workspaceId` and collection consistently,
+  - successful transfer navigates to the selected target workspace destination.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).

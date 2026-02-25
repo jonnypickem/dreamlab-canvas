@@ -547,6 +547,7 @@ function App() {
     const [isExporting, setIsExporting] = useState(false);
     const [showCollectionTransferModal, setShowCollectionTransferModal] = useState(false);
     const [collectionTransferMode, setCollectionTransferMode] = useState('move');
+    const [collectionTransferWorkspaceId, setCollectionTransferWorkspaceId] = useState('');
     const [collectionTransferTargetId, setCollectionTransferTargetId] = useState(BULK_TRANSFER_UNASSIGNED_ID);
     const [isCollectionTransferSubmitting, setIsCollectionTransferSubmitting] = useState(false);
     const stageABackfillCooldownRef = useRef(0);
@@ -2711,13 +2712,28 @@ function App() {
         [items, selectedItems]
     );
 
+    const collectionTransferWorkspaceOptions = useMemo(() => (
+        workspaces.map((workspace) => ({
+            value: workspace.id,
+            label: workspace.name || 'Untitled Workspace',
+        }))
+    ), [workspaces]);
+
+    const transferWorkspaceCollections = useMemo(() => (
+        sortCollectionsForOrder(
+            collections.filter((collection) => (
+                getCollectionWorkspaceId(collection) === collectionTransferWorkspaceId
+            ))
+        )
+    ), [collections, collectionTransferWorkspaceId]);
+
     const collectionTransferDestinationOptions = useMemo(() => {
         const options = [{ value: BULK_TRANSFER_UNASSIGNED_ID, label: 'No Collection' }];
-        workspaceCollections.forEach((collection) => {
+        transferWorkspaceCollections.forEach((collection) => {
             options.push({ value: collection.id, label: collection.name || 'Untitled Collection' });
         });
         return options;
-    }, [workspaceCollections]);
+    }, [transferWorkspaceCollections]);
 
     const getSelectedItemsOrdered = useCallback(() => {
         const selectedItemsList = items.filter((item) => selectedItems.has(item.id));
@@ -2740,33 +2756,79 @@ function App() {
             ? BULK_TRANSFER_UNASSIGNED_ID
             : (selectedCollectionId || BULK_TRANSFER_UNASSIGNED_ID);
         setCollectionTransferMode('move');
+        setCollectionTransferWorkspaceId(activeWorkspaceId || '');
         setCollectionTransferTargetId(nextTarget);
         setShowCollectionTransferModal(true);
-    }, [selectedItems.size, selectedCollectionId]);
+    }, [selectedItems.size, selectedCollectionId, activeWorkspaceId]);
+
+    useEffect(() => {
+        if (!showCollectionTransferModal) return;
+        const hasWorkspaceOption = collectionTransferWorkspaceOptions.some(
+            (option) => option.value === collectionTransferWorkspaceId
+        );
+        if (!hasWorkspaceOption) {
+            const fallbackWorkspaceId = activeWorkspaceId || collectionTransferWorkspaceOptions[0]?.value || '';
+            setCollectionTransferWorkspaceId(fallbackWorkspaceId);
+            setCollectionTransferTargetId(BULK_TRANSFER_UNASSIGNED_ID);
+            return;
+        }
+
+        const hasDestinationOption = collectionTransferDestinationOptions.some(
+            (option) => option.value === collectionTransferTargetId
+        );
+        if (!hasDestinationOption) {
+            setCollectionTransferTargetId(BULK_TRANSFER_UNASSIGNED_ID);
+        }
+    }, [
+        showCollectionTransferModal,
+        collectionTransferWorkspaceId,
+        collectionTransferWorkspaceOptions,
+        collectionTransferDestinationOptions,
+        collectionTransferTargetId,
+        activeWorkspaceId,
+    ]);
 
     const handleBulkTransfer = useCallback(async ({
         mode = 'move',
+        targetWorkspaceId = activeWorkspaceId,
         targetCollectionId = BULK_TRANSFER_UNASSIGNED_ID,
     } = {}) => {
         if (selectedItems.size === 0) return;
         if (mode !== 'move' && mode !== 'duplicate') return;
+
+        const normalizedTargetWorkspaceId = String(targetWorkspaceId || '').trim();
+        if (!normalizedTargetWorkspaceId) {
+            setToast({ message: 'Select a destination workspace', type: 'error' });
+            return;
+        }
+
+        const targetWorkspace = workspaces.find(
+            (workspace) => workspace.id === normalizedTargetWorkspaceId
+        );
+        if (!targetWorkspace) {
+            setToast({ message: 'Destination workspace no longer exists', type: 'error' });
+            return;
+        }
 
         const normalizedTargetCollectionId = targetCollectionId === BULK_TRANSFER_UNASSIGNED_ID
             ? null
             : targetCollectionId;
 
         const targetCollection = normalizedTargetCollectionId
-            ? workspaceCollections.find((collection) => collection.id === normalizedTargetCollectionId)
+            ? collections.find((collection) => (
+                collection.id === normalizedTargetCollectionId
+                && getCollectionWorkspaceId(collection) === normalizedTargetWorkspaceId
+            ))
             : null;
 
         if (normalizedTargetCollectionId && !targetCollection) {
-            setToast({ message: 'Destination collection no longer exists in this workspace', type: 'error' });
+            setToast({ message: 'Destination collection no longer exists in selected workspace', type: 'error' });
             return;
         }
 
         const destinationLabel = normalizedTargetCollectionId
-            ? (targetCollection?.name || 'Collection')
-            : 'No Collection';
+            ? `${targetCollection?.name || 'Collection'} (${targetWorkspace.name || 'Workspace'})`
+            : `No Collection (${targetWorkspace.name || 'Workspace'})`;
 
         const orderedSelectedItems = getSelectedItemsOrdered();
         if (orderedSelectedItems.length === 0) return;
@@ -2786,7 +2848,8 @@ function App() {
             const skippedIds = new Set();
             const actionableItems = mode === 'move'
                 ? orderedSelectedItems.filter((item) => {
-                    const sameDestination = (item.collectionId || null) === (normalizedTargetCollectionId || null);
+                    const sameDestination = (item.workspaceId || null) === normalizedTargetWorkspaceId
+                        && (item.collectionId || null) === (normalizedTargetCollectionId || null);
                     if (sameDestination) {
                         skippedIds.add(item.id);
                         return false;
@@ -2817,8 +2880,10 @@ function App() {
                 ? await Promise.allSettled(
                     withTopSortOrders.map(({ item, nextSortOrder }) => (
                         updateItem(item.id, {
+                            workspaceId: normalizedTargetWorkspaceId,
                             collectionId: normalizedTargetCollectionId,
                             sortOrder: nextSortOrder,
+                            projectSortOrder: null,
                         })
                     ))
                 )
@@ -2830,10 +2895,10 @@ function App() {
                             title: item.title,
                             description: item.description,
                             sourceUrl: item.sourceUrl,
-                            workspaceId: item.workspaceId || activeWorkspaceId,
+                            workspaceId: normalizedTargetWorkspaceId,
                             collectionId: normalizedTargetCollectionId,
                             sortOrder: nextSortOrder,
-                            projectSortOrder: item.projectSortOrder,
+                            projectSortOrder: null,
                             contentStorage: item.contentStorage,
                             thumbnail: item.thumbnail,
                             thumbnailStorage: item.thumbnailStorage,
@@ -2868,12 +2933,14 @@ function App() {
                 }
 
                 if (normalizedTargetCollectionId === null) {
-                    persistLocalNavSelection(activeWorkspaceId, UNSORTED_COLLECTION_ID, null);
+                    persistLocalNavSelection(normalizedTargetWorkspaceId, UNSORTED_COLLECTION_ID, null);
+                    setActiveWorkspaceId(normalizedTargetWorkspaceId);
                     setSelectedCollectionId(UNSORTED_COLLECTION_ID);
                     setSelectedProjectId(null);
                 } else {
                     const destinationProjectId = targetCollection?.projectId || null;
-                    persistLocalNavSelection(activeWorkspaceId, normalizedTargetCollectionId, destinationProjectId);
+                    persistLocalNavSelection(normalizedTargetWorkspaceId, normalizedTargetCollectionId, destinationProjectId);
+                    setActiveWorkspaceId(normalizedTargetWorkspaceId);
                     setSelectedCollectionId(normalizedTargetCollectionId);
                     setSelectedProjectId(destinationProjectId);
                     markCollectionAsLastUsed(normalizedTargetCollectionId);
@@ -2901,10 +2968,11 @@ function App() {
         }
     }, [
         selectedItems.size,
-        workspaceCollections,
+        activeWorkspaceId,
+        workspaces,
+        collections,
         getSelectedItemsOrdered,
         items,
-        activeWorkspaceId,
         clearSelection,
         markCollectionAsLastUsed,
         persistLocalNavSelection,
@@ -3627,10 +3695,16 @@ function App() {
                             isOpen={showCollectionTransferModal}
                             selectedCount={selectedItems.size}
                             mode={collectionTransferMode}
+                            workspaceId={collectionTransferWorkspaceId}
+                            workspaceOptions={collectionTransferWorkspaceOptions}
                             targetCollectionId={collectionTransferTargetId}
                             destinationOptions={collectionTransferDestinationOptions}
                             isSubmitting={isCollectionTransferSubmitting}
                             onModeChange={setCollectionTransferMode}
+                            onWorkspaceChange={(workspaceId) => {
+                                setCollectionTransferWorkspaceId(workspaceId);
+                                setCollectionTransferTargetId(BULK_TRANSFER_UNASSIGNED_ID);
+                            }}
                             onTargetCollectionChange={setCollectionTransferTargetId}
                             onClose={() => {
                                 if (isCollectionTransferSubmitting) return;
@@ -3639,6 +3713,7 @@ function App() {
                             onConfirm={() => {
                                 void handleBulkTransfer({
                                     mode: collectionTransferMode,
+                                    targetWorkspaceId: collectionTransferWorkspaceId,
                                     targetCollectionId: collectionTransferTargetId,
                                 });
                             }}
