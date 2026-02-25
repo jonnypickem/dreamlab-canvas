@@ -70,6 +70,14 @@
 - [x] Validate rollback state with commit-range diff (`4810eff..HEAD`) and build check.
 - [x] Push rollback commit to `origin/master`.
 
+## Current Task Plan (2026-02-25 - Bulk Move/Duplicate Between Collections)
+- [x] Add bulk transfer entry point in selection toolbar (`Move / Duplicate`) without changing extension flows.
+- [x] Add `CollectionTransferModal` for selecting transfer mode (`move`/`duplicate`) and destination (`No Collection` + workspace collections).
+- [x] Implement bulk transfer engine in app shell with deterministic ordering, top-of-destination placement, and partial-failure handling.
+- [x] Support both semantics: `move` updates existing items, `duplicate` saves exact copies with new IDs and preserved metadata/media references.
+- [x] Auto-jump to destination on success and clear selection with summary toast reporting (moved/duplicated/skipped/failed counts).
+- [x] Verify build integrity and ensure no regression to existing bulk actions.
+
 ## Progress Notes
 - 2026-02-23: Created initial task tracking template.
 - 2026-02-23: Ready for first real task plan and execution notes.
@@ -129,6 +137,7 @@
 - 2026-02-25: Updated area video recorder pipeline to honor selected duration end-to-end and persist `requestedDurationSec` metadata on saved recordings.
 - 2026-02-25: Changed area recording guide border rendering to outside-offset outline to keep guidance visible while preventing border bleed into cropped video pixels.
 - 2026-02-25: Added area-capture `Component` mode (single component selection after area draw) with immediate viewport screenshot save path (`areaComponentScreenshot`).
+- 2026-02-25: Added web-app bulk item transfer workflow (`Move` / `Duplicate`) with `CollectionTransferModal`, workspace-scoped destination options including `No Collection`, top-placement ordering, partial-failure summaries, and destination auto-navigation.
 
 ## Review
 - Evidence to capture for each task:
@@ -301,6 +310,20 @@
   - injected recorder receives selected duration and auto-stops accordingly,
   - recording indicator border renders outside crop bounds,
   - component mode captures one selected element in viewport and saves immediately.
+- Evidence (2026-02-25):
+- Diff includes targeted bulk-transfer changes in:
+  - `src/App.jsx`
+  - `src/components/SelectionToolbar.jsx`
+  - `src/components/CollectionTransferModal.jsx`
+  - `project_foundation/todo.md`
+- Validation commands passed:
+  - `npm run build`
+- Expected behavior from code path:
+  - selection toolbar exposes `Move / Duplicate` action,
+  - move updates selected items into destination collection and skips already-matching destination items,
+  - duplicate creates new items with preserved metadata/media refs and new IDs,
+  - destination includes `No Collection` and workspace collections only,
+  - successful transfers navigate to destination view and clear selection.
 
 ## Result
 - Status: Completed (navigation restore + deploy unblock + per-workspace context memory).

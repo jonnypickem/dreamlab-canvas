@@ -17,6 +17,7 @@ import {
     getActiveContext,
     setActiveContext,
     updateItem,
+    saveItem,
     loadPrimitiveAnalysisStore,
     getPrimitiveAnalysisStore,
     getLastStorageError
@@ -48,6 +49,7 @@ import MasonryGrid from './components/MasonryGrid';
 import SortableGrid from './components/SortableGrid';
 import CreateToolbar from './components/CreateToolbar';
 import CanvasDetailPanel from './components/CanvasDetailPanel';
+import CollectionTransferModal from './components/CollectionTransferModal';
 
 // Subframe Imports
 import { Button } from "./ui/components/Button";
@@ -63,6 +65,7 @@ const STAGE_A_AUTO_BACKFILL_ENABLED = true;
 const COLLECTION_SORT_STEP = 1000;
 const ITEM_SORT_STEP = 1000;
 const UNSORTED_COLLECTION_ID = '__unsorted__';
+const BULK_TRANSFER_UNASSIGNED_ID = 'unassigned';
 const LOCAL_NAV_CONTEXT_V2_KEY = 'dreamlab_nav_context_v2';
 const LOCAL_NAV_WORKSPACE_KEY = 'dreamlab_nav_workspace';
 const LOCAL_NAV_COLLECTION_KEY = 'dreamlab_nav_collection';
@@ -542,6 +545,10 @@ function App() {
     const [selectedItems, setSelectedItems] = useState(new Set());
     const [lastSelectedItemId, setLastSelectedItemId] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
+    const [showCollectionTransferModal, setShowCollectionTransferModal] = useState(false);
+    const [collectionTransferMode, setCollectionTransferMode] = useState('move');
+    const [collectionTransferTargetId, setCollectionTransferTargetId] = useState(BULK_TRANSFER_UNASSIGNED_ID);
+    const [isCollectionTransferSubmitting, setIsCollectionTransferSubmitting] = useState(false);
     const stageABackfillCooldownRef = useRef(0);
     const [isCanvasTitleEditing, setIsCanvasTitleEditing] = useState(false);
     const [canvasTitleDraft, setCanvasTitleDraft] = useState('');
@@ -2704,6 +2711,205 @@ function App() {
         [items, selectedItems]
     );
 
+    const collectionTransferDestinationOptions = useMemo(() => {
+        const options = [{ value: BULK_TRANSFER_UNASSIGNED_ID, label: 'No Collection' }];
+        workspaceCollections.forEach((collection) => {
+            options.push({ value: collection.id, label: collection.name || 'Untitled Collection' });
+        });
+        return options;
+    }, [workspaceCollections]);
+
+    const getSelectedItemsOrdered = useCallback(() => {
+        const selectedItemsList = items.filter((item) => selectedItems.has(item.id));
+        const displayIndexById = new Map(displayGridItems.map((item, index) => [item.id, index]));
+        return [...selectedItemsList].sort((a, b) => {
+            const aIndex = displayIndexById.get(a.id);
+            const bIndex = displayIndexById.get(b.id);
+            const aKnown = Number.isInteger(aIndex);
+            const bKnown = Number.isInteger(bIndex);
+            if (aKnown && bKnown && aIndex !== bIndex) return aIndex - bIndex;
+            if (aKnown && !bKnown) return -1;
+            if (!aKnown && bKnown) return 1;
+            return compareItemsForDisplay(a, b, selectedScope);
+        });
+    }, [items, selectedItems, displayGridItems, selectedScope]);
+
+    const openCollectionTransferModal = useCallback(() => {
+        if (selectedItems.size === 0) return;
+        const nextTarget = selectedCollectionId === UNSORTED_COLLECTION_ID
+            ? BULK_TRANSFER_UNASSIGNED_ID
+            : (selectedCollectionId || BULK_TRANSFER_UNASSIGNED_ID);
+        setCollectionTransferMode('move');
+        setCollectionTransferTargetId(nextTarget);
+        setShowCollectionTransferModal(true);
+    }, [selectedItems.size, selectedCollectionId]);
+
+    const handleBulkTransfer = useCallback(async ({
+        mode = 'move',
+        targetCollectionId = BULK_TRANSFER_UNASSIGNED_ID,
+    } = {}) => {
+        if (selectedItems.size === 0) return;
+        if (mode !== 'move' && mode !== 'duplicate') return;
+
+        const normalizedTargetCollectionId = targetCollectionId === BULK_TRANSFER_UNASSIGNED_ID
+            ? null
+            : targetCollectionId;
+
+        const targetCollection = normalizedTargetCollectionId
+            ? workspaceCollections.find((collection) => collection.id === normalizedTargetCollectionId)
+            : null;
+
+        if (normalizedTargetCollectionId && !targetCollection) {
+            setToast({ message: 'Destination collection no longer exists in this workspace', type: 'error' });
+            return;
+        }
+
+        const destinationLabel = normalizedTargetCollectionId
+            ? (targetCollection?.name || 'Collection')
+            : 'No Collection';
+
+        const orderedSelectedItems = getSelectedItemsOrdered();
+        if (orderedSelectedItems.length === 0) return;
+
+        setIsCollectionTransferSubmitting(true);
+
+        try {
+            const targetMaxSortOrder = normalizedTargetCollectionId
+                ? items
+                    .filter((item) => item.collectionId === normalizedTargetCollectionId)
+                    .reduce((max, item) => {
+                        const order = getItemSortOrder(item);
+                        return order === null ? max : Math.max(max, order);
+                    }, 0)
+                : null;
+
+            const skippedIds = new Set();
+            const actionableItems = mode === 'move'
+                ? orderedSelectedItems.filter((item) => {
+                    const sameDestination = (item.collectionId || null) === (normalizedTargetCollectionId || null);
+                    if (sameDestination) {
+                        skippedIds.add(item.id);
+                        return false;
+                    }
+                    return true;
+                })
+                : orderedSelectedItems;
+
+            if (actionableItems.length === 0) {
+                setToast({ message: 'All selected items are already in that destination', type: 'info' });
+                setShowCollectionTransferModal(false);
+                clearSelection();
+                return;
+            }
+
+            const withTopSortOrders = actionableItems.map((item, index) => {
+                if (normalizedTargetCollectionId === null) {
+                    return { item, nextSortOrder: null };
+                }
+                const rankFromTop = actionableItems.length - index;
+                return {
+                    item,
+                    nextSortOrder: targetMaxSortOrder + (rankFromTop * ITEM_SORT_STEP),
+                };
+            });
+
+            const settled = mode === 'move'
+                ? await Promise.allSettled(
+                    withTopSortOrders.map(({ item, nextSortOrder }) => (
+                        updateItem(item.id, {
+                            collectionId: normalizedTargetCollectionId,
+                            sortOrder: nextSortOrder,
+                        })
+                    ))
+                )
+                : await Promise.allSettled(
+                    withTopSortOrders.map(({ item, nextSortOrder }, index) => (
+                        saveItem({
+                            type: item.type,
+                            content: item.content,
+                            title: item.title,
+                            description: item.description,
+                            sourceUrl: item.sourceUrl,
+                            workspaceId: item.workspaceId || activeWorkspaceId,
+                            collectionId: normalizedTargetCollectionId,
+                            sortOrder: nextSortOrder,
+                            projectSortOrder: item.projectSortOrder,
+                            contentStorage: item.contentStorage,
+                            thumbnail: item.thumbnail,
+                            thumbnailStorage: item.thumbnailStorage,
+                            objectiveTags: item.objectiveTags,
+                            contextTags: item.contextTags,
+                            tags: item.tags,
+                            intelligenceLevel: item.intelligenceLevel,
+                            needsTagging: item.needsTagging,
+                            linkViewMode: item.linkViewMode,
+                            linkEmbed: item.linkEmbed,
+                            textExtract: item.textExtract,
+                            metadata: item.metadata,
+                            canvas: item.canvas,
+                            timestamp: Date.now() + index,
+                        })
+                    ))
+                );
+
+            const successfulItems = settled
+                .filter((result) => result.status === 'fulfilled' && result.value)
+                .map((result) => result.value);
+            const successCount = successfulItems.length;
+            const failedCount = settled.length - successCount;
+            const skippedCount = skippedIds.size;
+
+            if (successCount > 0) {
+                if (mode === 'move') {
+                    const updatedById = new Map(successfulItems.map((item) => [item.id, item]));
+                    setItems((prev) => prev.map((item) => updatedById.get(item.id) || item));
+                } else {
+                    setItems((prev) => [...successfulItems, ...prev]);
+                }
+
+                if (normalizedTargetCollectionId === null) {
+                    persistLocalNavSelection(activeWorkspaceId, UNSORTED_COLLECTION_ID, null);
+                    setSelectedCollectionId(UNSORTED_COLLECTION_ID);
+                    setSelectedProjectId(null);
+                } else {
+                    const destinationProjectId = targetCollection?.projectId || null;
+                    persistLocalNavSelection(activeWorkspaceId, normalizedTargetCollectionId, destinationProjectId);
+                    setSelectedCollectionId(normalizedTargetCollectionId);
+                    setSelectedProjectId(destinationProjectId);
+                    markCollectionAsLastUsed(normalizedTargetCollectionId);
+                }
+            }
+
+            if (mode === 'move') {
+                setToast({
+                    message: `Moved ${successCount} item${successCount !== 1 ? 's' : ''} to "${destinationLabel}"${skippedCount > 0 ? `, skipped ${skippedCount}` : ''}${failedCount > 0 ? `, ${failedCount} failed` : ''}`,
+                    type: failedCount > 0 ? 'warning' : 'success',
+                });
+            } else {
+                setToast({
+                    message: `Duplicated ${successCount} item${successCount !== 1 ? 's' : ''} to "${destinationLabel}"${failedCount > 0 ? `, ${failedCount} failed` : ''}`,
+                    type: failedCount > 0 ? 'warning' : 'success',
+                });
+            }
+
+            setShowCollectionTransferModal(false);
+            clearSelection();
+        } catch (error) {
+            setToast({ message: error?.message || 'Failed to transfer selected items', type: 'error' });
+        } finally {
+            setIsCollectionTransferSubmitting(false);
+        }
+    }, [
+        selectedItems.size,
+        workspaceCollections,
+        getSelectedItemsOrdered,
+        items,
+        activeWorkspaceId,
+        clearSelection,
+        markCollectionAsLastUsed,
+        persistLocalNavSelection,
+    ]);
+
     const hasDownloadableSelection = useMemo(
         () => selectedItemsData.some((item) => item.type === 'image' || (item.type === 'link' && Boolean(item.thumbnail))),
         [selectedItemsData]
@@ -2737,18 +2943,7 @@ function App() {
     const handleCopySelection = useCallback(async () => {
         if (selectedItems.size === 0) return;
 
-        const selectedItemsList = items.filter((item) => selectedItems.has(item.id));
-        const displayIndexById = new Map(displayGridItems.map((item, index) => [item.id, index]));
-        const selectedItemsOrdered = [...selectedItemsList].sort((a, b) => {
-            const aIndex = displayIndexById.get(a.id);
-            const bIndex = displayIndexById.get(b.id);
-            const aKnown = Number.isInteger(aIndex);
-            const bKnown = Number.isInteger(bIndex);
-            if (aKnown && bKnown && aIndex !== bIndex) return aIndex - bIndex;
-            if (aKnown && !bKnown) return -1;
-            if (!aKnown && bKnown) return 1;
-            return compareItemsForDisplay(a, b, selectedScope);
-        });
+        const selectedItemsOrdered = getSelectedItemsOrdered();
 
         const selectedTextItems = selectedItemsOrdered.filter(
             (item) => item.type === 'text' || (item.type === 'link' && item.linkViewMode === 'text')
@@ -2826,7 +3021,7 @@ function App() {
         } catch {
             setToast({ message: 'Failed to copy image', type: 'error' });
         }
-    }, [items, displayGridItems, selectedItems, selectedScope]);
+    }, [selectedItems.size, getSelectedItemsOrdered]);
 
     useEffect(() => {
         const handleCopyShortcut = (event) => {
@@ -3427,6 +3622,31 @@ function App() {
 
                 {/* Toast Notifications */}
                 <AnimatePresence>
+                    {showCollectionTransferModal && (
+                        <CollectionTransferModal
+                            isOpen={showCollectionTransferModal}
+                            selectedCount={selectedItems.size}
+                            mode={collectionTransferMode}
+                            targetCollectionId={collectionTransferTargetId}
+                            destinationOptions={collectionTransferDestinationOptions}
+                            isSubmitting={isCollectionTransferSubmitting}
+                            onModeChange={setCollectionTransferMode}
+                            onTargetCollectionChange={setCollectionTransferTargetId}
+                            onClose={() => {
+                                if (isCollectionTransferSubmitting) return;
+                                setShowCollectionTransferModal(false);
+                            }}
+                            onConfirm={() => {
+                                void handleBulkTransfer({
+                                    mode: collectionTransferMode,
+                                    targetCollectionId: collectionTransferTargetId,
+                                });
+                            }}
+                        />
+                    )}
+                </AnimatePresence>
+
+                <AnimatePresence>
                     {toast && (
                         <Toast
                             message={toast.message}
@@ -3442,6 +3662,7 @@ function App() {
                         selectedCount={selectedItems.size}
                         onCopy={handleCopySelection}
                         onDownload={handleDownloadSelection}
+                        onTransfer={openCollectionTransferModal}
                         onDelete={handleBulkDelete}
                         onAddTags={handleAddTags}
                         onClearSelection={clearSelection}

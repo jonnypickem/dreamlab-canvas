@@ -1,11 +1,12 @@
 import React from 'react';
 import { Button } from '../ui/components/Button';
-import { FeatherCopy, FeatherDownload, FeatherTrash, FeatherTag } from '@subframe/core';
+import { FeatherCopy, FeatherDownload, FeatherTrash, FeatherTag, FeatherFolder } from '@subframe/core';
 
 export function SelectionToolbar({
     selectedCount,
     onCopy,
     onDownload,
+    onTransfer,
     onDelete,
     onAddTags,
     onClearSelection,
@@ -44,6 +45,14 @@ export function SelectionToolbar({
                     onClick={onAddTags}
                 >
                     Add Tags
+                </Button>
+                <Button
+                    variant="neutral-secondary"
+                    size="medium"
+                    icon={<FeatherFolder />}
+                    onClick={onTransfer}
+                >
+                    Move / Duplicate
                 </Button>
                 <Button
                     variant="destructive-secondary"
